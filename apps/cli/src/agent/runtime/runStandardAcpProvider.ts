@@ -156,11 +156,12 @@ export type StandardAcpProviderConfig = {
   startRuntimeBeforeFirstPrompt?: boolean;
   failClosedOnResumeFailure?: boolean;
   /**
-   * True when the backend applies the effective coding system prompt itself at
-   * process spawn (e.g. pi's --append-system-prompt flag). The fresh-session
-   * first-message prepend then carries only tool-delivery blocks plus any
-   * explicit per-message base override, instead of duplicating the
-   * spawn-delivered system prompt.
+   * True when the backend applies the complete effective coding system prompt
+   * — including tool-delivery bridge blocks — itself at process spawn (e.g.
+   * pi's --append-system-prompt flag). The fresh-session first-message
+   * prepend then carries only an explicit per-message base override, which
+   * cannot ride the spawn flag, instead of duplicating the spawn-delivered
+   * system prompt.
    */
   deliversSystemPromptAtSpawn?: boolean;
   onTerminalDisplayControllerReady?: (controller: TerminalDisplayController) => void;
@@ -666,40 +667,34 @@ export async function runStandardAcpProvider(
       failClosedOnResumeFailure: config.failClosedOnResumeFailure === true,
       startRuntimeBeforeFirstPrompt: config.startRuntimeBeforeFirstPrompt === true,
       resolveFreshSessionSystemPrompt: async ({ baseOverride }) => {
-        const commonArgs = {
-          credentials: opts.credentials,
-          settings: opts.accountSettingsContext?.settings ?? null,
-          profileId: session.getMetadataSnapshot()?.profileId ?? null,
-          executionRunsFeatureEnabled: resolveCliFeatureDecision({
-            featureId: 'execution.runs',
-            env: process.env,
-          }).state === 'enabled',
-          providerId: policyAgentId,
-          toolDelivery,
-          toolDeliverySessionId,
-          toolDeliveryDirectory: runtimeDirectory,
-          memoryMachineId: machineId,
-          memoryRecallGuidanceEnabled,
-          cache: promptArtifactBodyCache,
-        };
         if (config.deliversSystemPromptAtSpawn !== true) {
-          return await resolveEffectiveCodingPromptText({ ...commonArgs, baseOverride });
+          return await resolveEffectiveCodingPromptText({
+            credentials: opts.credentials,
+            settings: opts.accountSettingsContext?.settings ?? null,
+            profileId: session.getMetadataSnapshot()?.profileId ?? null,
+            baseOverride,
+            executionRunsFeatureEnabled: resolveCliFeatureDecision({
+              featureId: 'execution.runs',
+              env: process.env,
+            }).state === 'enabled',
+            providerId: policyAgentId,
+            toolDelivery,
+            toolDeliverySessionId,
+            toolDeliveryDirectory: runtimeDirectory,
+            memoryMachineId: machineId,
+            memoryRecallGuidanceEnabled,
+            cache: promptArtifactBodyCache,
+          });
         }
-        // The backend applies the session system prompt at process spawn (e.g.
-        // pi's --append-system-prompt flag); the first-message prepend must not
-        // duplicate it. Carry only the tool-delivery bridge blocks, plus an
-        // explicit per-message base override, which cannot ride the spawn flag.
-        const explicitBaseOverride = typeof baseOverride === 'string' && baseOverride.trim()
+        // The backend delivers the complete effective coding system prompt —
+        // including the tool-delivery bridge appendix — at process spawn (e.g.
+        // pi's --append-system-prompt flag). The first-message prepend must
+        // not duplicate any of it; only an explicit per-message base override,
+        // which cannot ride the spawn flag, still reaches the provider this
+        // way.
+        return typeof baseOverride === 'string' && baseOverride.trim()
           ? baseOverride.trim()
           : '';
-        const toolDeliveryText = await resolveEffectiveCodingPromptText({
-          ...commonArgs,
-          renderBlockScopes: ['tool_delivery'],
-        });
-        if (explicitBaseOverride && toolDeliveryText) {
-          return `${explicitBaseOverride}\n\n${toolDeliveryText}`;
-        }
-        return explicitBaseOverride || toolDeliveryText;
       },
       onAfterStart: config.onAfterStart ? () => config.onAfterStart?.({ session, runtime }) : undefined,
       onAfterReset: config.onAfterReset ? () => config.onAfterReset?.({ session, runtime }) : undefined,

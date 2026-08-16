@@ -7,7 +7,9 @@ import type { PermissionMode } from '@/api/types';
 import type { Credentials } from '@/persistence';
 import type { MessageBuffer } from '@/ui/ink/messageBuffer';
 import { resolveEffectiveCodingPromptText } from '@/agent/prompting/coding/resolveEffectiveCodingPrompt';
+import { resolveAgentToolsDelivery } from '@/agent/tools/happierTools/runtime/resolveAgentToolsDelivery';
 import { resolveCliFeatureDecision } from '@/features/featureDecisionService';
+import { logger } from '@/ui/logger';
 
 import type { PiBackendOptions } from '@/backends/pi/acp/backend';
 import { publishPiSessionIdMetadata } from '@/backends/pi/utils/piSessionIdMetadata';
@@ -27,11 +29,12 @@ export function createPiAcpRuntime(params: {
   pendingQueueDrainMaxPopPerWake?: number;
   providerInputConsumer: SessionProviderInputConsumer<unknown, unknown>;
   /**
-   * When provided, the resolved coding system prompt is appended to pi's default
-   * system prompt via the `--append-system-prompt` spawn flag. Mirrors how the
-   * claude backend resolves and forwards its system prompt.
+   * Resolved account credentials. Required: the spawn-path system prompt
+   * (including the tool-delivery bridge appendix) is composed from them and
+   * forwarded to pi via the `--append-system-prompt` spawn flag, mirroring how
+   * the claude backend resolves and forwards its system prompt.
    */
-  credentials?: Credentials;
+  credentials: Credentials;
   accountSettings?: Record<string, unknown> | null;
 }) {
   const lastPublishedPiSessionId: { value: string | null; sessionFile?: string | null } = { value: null };
@@ -77,27 +80,32 @@ export function createPiAcpRuntime(params: {
     pendingQueueDrainMaxPopPerWake: params.pendingQueueDrainMaxPopPerWake,
     providerInputConsumer: params.providerInputConsumer,
     inFlightSteer: { enabled: true },
-    resolveBackendOptions: params.credentials
-      ? async ({ session }) => {
-          try {
-            const text = await resolveEffectiveCodingPromptText({
-              credentials: params.credentials as Credentials,
-              settings: params.accountSettings ?? null,
-              profileId: session.getMetadataSnapshot()?.profileId ?? null,
-              providerId: 'pi',
-              executionRunsFeatureEnabled: resolveCliFeatureDecision({
-                featureId: 'execution.runs',
-                env: process.env,
-              }).state === 'enabled',
-            });
-            const trimmed = typeof text === 'string' ? text.trim() : '';
-            return { appendSystemPromptText: trimmed || undefined };
-          } catch {
-            // Best-effort: if the prompt cannot be resolved, spawn pi with no
-            // append flag so it uses its own default system prompt.
-            return {};
-          }
-        }
-      : undefined,
+    resolveBackendOptions: async ({ session }) => {
+      try {
+        const text = await resolveEffectiveCodingPromptText({
+          credentials: params.credentials,
+          settings: params.accountSettings ?? null,
+          profileId: session.getMetadataSnapshot()?.profileId ?? null,
+          providerId: 'pi',
+          executionRunsFeatureEnabled: resolveCliFeatureDecision({
+            featureId: 'execution.runs',
+            env: process.env,
+          }).state === 'enabled',
+          toolDelivery: resolveAgentToolsDelivery('pi'),
+          toolDeliverySessionId: session.sessionId,
+          toolDeliveryDirectory: params.directory,
+          memoryRecallGuidanceEnabled: params.memoryRecallGuidanceEnabled === true,
+          memoryMachineId: params.machineId,
+        });
+        const trimmed = typeof text === 'string' ? text.trim() : '';
+        return { appendSystemPromptText: trimmed || undefined };
+      } catch (error) {
+        // Best-effort: if the prompt cannot be resolved, spawn pi with no
+        // append flag so it uses its own default system prompt. The tool
+        // delivery appendix rides only this path, so leave a file-log trace.
+        logger.debug('[pi] system prompt resolution failed; spawning without --append-system-prompt', error);
+        return {};
+      }
+    },
   });
 }

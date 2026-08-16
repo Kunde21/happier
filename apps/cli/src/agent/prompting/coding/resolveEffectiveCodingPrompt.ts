@@ -2,8 +2,7 @@ import {
   buildCodingSessionPromptPlanBaseV1,
   buildPromptPlanDiagnosticsV1,
   buildPromptPlanV1,
-  renderPromptBlocksV1,
-  type PromptBlockScopeV1,
+  renderPromptPlanV1,
   type PromptBlockV1,
   type PromptPlanV1,
 } from '@happier-dev/protocol';
@@ -35,14 +34,6 @@ type ResolveEffectiveCodingPromptArgs = Readonly<{
   memoryMachineId?: string | null;
   cache?: Map<string, string | null>;
   fetchPromptArtifactRecord?: FetchPromptArtifactRecord;
-  /**
-   * When set, only blocks whose scope is listed here render into `text`; the
-   * plan and diagnostics still include every composed block. Used when the
-   * backend already delivers the session-scope system prompt at process spawn
-   * and a first-message prepend must carry only the remaining blocks (e.g.
-   * tool delivery).
-   */
-  renderBlockScopes?: readonly PromptBlockScopeV1[];
 }>;
 
 export async function resolveEffectiveCodingPromptText(
@@ -112,13 +103,10 @@ export async function resolveEffectiveCodingPromptPlan(
     modality: 'coding',
     blocks: [...basePlan.blocks, ...promptStackBlocks, ...providerBehaviorBlocks, ...toolDeliveryBlocks],
   });
-  const renderedBlocks = args.renderBlockScopes
-    ? plan.blocks.filter((block) => args.renderBlockScopes!.includes(block.scope))
-    : plan.blocks;
 
   return {
     plan,
-    text: renderPromptBlocksV1(renderedBlocks),
+    text: renderPromptPlanV1(plan),
     diagnostics: buildPromptPlanDiagnosticsV1(plan),
   };
 }

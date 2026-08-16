@@ -569,7 +569,7 @@ describe('runStandardAcpProvider', () => {
     expect(resolvedPrompt).not.toContain('vendor-session-123');
   });
 
-  it('prepends only tool-delivery blocks when the backend delivers the system prompt at spawn', async () => {
+  it('emits only the per-message base override when the backend delivers the system prompt at spawn', async () => {
     const harness = createHarness();
     harness.config.deliversSystemPromptAtSpawn = true;
 
@@ -584,19 +584,12 @@ describe('runStandardAcpProvider', () => {
 
     await runStandardAcpProvider(harness.opts, harness.config, harness.deps);
 
-    // The spawn flag (--append-system-prompt) already carries the shared base
-    // sections, so the first-message prepend must not duplicate them.
-    expect(defaultPrepend).toContain('Happier tools are available through the CLI bridge');
-    expect(defaultPrepend).toContain("'--session-id' 'session-1'");
-    expect(defaultPrepend).not.toContain('# Session title');
-    expect(defaultPrepend).not.toContain('# Attachments');
-    // Explicit per-message base overrides cannot ride the spawn flag and must
-    // still reach the provider, ahead of the tool-delivery appendix.
-    expect(overridePrepend).toContain('USER SYSTEM OVERRIDE');
-    expect(overridePrepend).toContain('Happier tools are available through the CLI bridge');
-    expect(overridePrepend).not.toContain('# Attachments');
-    expect(overridePrepend.indexOf('USER SYSTEM OVERRIDE'))
-      .toBeLessThan(overridePrepend.indexOf('Happier tools are available through the CLI bridge'));
+    // The spawn flag (--append-system-prompt) carries the complete effective
+    // coding prompt, including the tool-delivery bridge appendix, so the
+    // first-message prepend must not duplicate any of it. Only an explicit
+    // per-message base override, which cannot ride the spawn flag, remains.
+    expect(defaultPrepend).toBe('');
+    expect(overridePrepend).toBe('USER SYSTEM OVERRIDE');
   });
 
   it('in-flight steer controller calls steerPrompt with correct receiver', async () => {
