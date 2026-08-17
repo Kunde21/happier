@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { createEnvKeyScope } from '@/testkit/env/envScope';
 import { writeExecutableShimSync } from '@/testkit/fs/executableShim';
 import { createTempDirSync, removeTempDirSync } from '@/testkit/fs/tempDir';
-import { buildPiRpcArgs, buildPiToolsForPermissionMode, createPiBackend } from './backend';
+import { buildPiRpcArgs, buildPiToolsForPermissionMode, createPiBackend, resolveHappyBridgeExtensionArgs } from './backend';
 import { HAPPIER_CONNECTED_SERVICE_SELECTIONS_ENV_KEY } from '@/daemon/connectedServices/connectedServiceChildEnvironment';
 import {
   PI_BROKER_SELECTIONS_ENV,
@@ -189,6 +189,102 @@ describe('pi backend argv', () => {
     const args = (backend as any).options?.args as string[] | undefined;
     expect(Array.isArray(args)).toBe(true);
     expect(args).not.toContain('--append-system-prompt');
+  });
+});
+
+describe('happy tools bridge extension args', () => {
+  const baseBridge = {
+    extensionPath: '/agent/extensions/happier-pi-tools-bridge.js',
+    disableRename: false,
+    disableMemory: false,
+    memoryMachineId: 'machine-1' as string | null,
+  };
+
+  it('passes --extension and the session binding flag together (both or neither)', () => {
+    expect(resolveHappyBridgeExtensionArgs({
+      happierSessionId: 'happy-session-1',
+      happyToolsBridge: baseBridge,
+    })).toEqual([
+      '--extension',
+      baseBridge.extensionPath,
+      'happy-session-id',
+      'happy-session-1',
+    ]);
+  });
+
+  it('emits no bridge args without the session binding (extension never travels alone)', () => {
+    expect(resolveHappyBridgeExtensionArgs({
+      happierSessionId: null,
+      happyToolsBridge: baseBridge,
+    })).toEqual([]);
+    expect(resolveHappyBridgeExtensionArgs({
+      happierSessionId: '   ',
+      happyToolsBridge: baseBridge,
+    })).toEqual([]);
+  });
+
+  it('emits no bridge args without the resolved bridge options (binding never travels alone)', () => {
+    expect(resolveHappyBridgeExtensionArgs({
+      happierSessionId: 'happy-session-1',
+      happyToolsBridge: undefined,
+    })).toEqual([]);
+  });
+
+  it('appends the disable flags only when their tool group is disabled', () => {
+    expect(resolveHappyBridgeExtensionArgs({
+      happierSessionId: 'happy-session-1',
+      happyToolsBridge: { ...baseBridge, disableRename: true },
+    })).toContain('happy-disable-rename');
+
+    expect(resolveHappyBridgeExtensionArgs({
+      happierSessionId: 'happy-session-1',
+      happyToolsBridge: { ...baseBridge, disableMemory: true },
+    })).toContain('happy-disable-memory');
+
+    const both = resolveHappyBridgeExtensionArgs({
+      happierSessionId: 'happy-session-1',
+      happyToolsBridge: { ...baseBridge, disableRename: true, disableMemory: true },
+    });
+    expect(both).toContain('happy-disable-rename');
+    expect(both).toContain('happy-disable-memory');
+  });
+
+  it('wires bridge args and the memory machine id env into the Pi backend', () => {
+    process.env.PATH = '';
+    process.env.HAPPIER_PI_PATH = createFakeBin('pi');
+
+    const backend = createPiBackend({
+      cwd: '/tmp',
+      env: {},
+      permissionMode: 'default',
+      happierSessionId: 'happy-session-1',
+      happyToolsBridge: { ...baseBridge, disableRename: true },
+    }) as unknown as { options?: { args?: string[]; env?: Record<string, string> } };
+
+    expect(backend.options?.args).toEqual(expect.arrayContaining([
+      '--extension',
+      baseBridge.extensionPath,
+      'happy-session-id',
+      'happy-session-1',
+      'happy-disable-rename',
+    ]));
+    expect(backend.options?.args).not.toContain('happy-disable-memory');
+    expect(backend.options?.env?.HAPPIER_PI_BRIDGE_MEMORY_MACHINE_ID).toBe('machine-1');
+  });
+
+  it('omits the memory machine id env when no machine id is bound', () => {
+    process.env.PATH = '';
+    process.env.HAPPIER_PI_PATH = createFakeBin('pi');
+
+    const backend = createPiBackend({
+      cwd: '/tmp',
+      env: {},
+      permissionMode: 'default',
+      happierSessionId: 'happy-session-1',
+      happyToolsBridge: { ...baseBridge, memoryMachineId: null },
+    }) as unknown as { options?: { env?: Record<string, string> } };
+
+    expect(backend.options?.env).not.toHaveProperty('HAPPIER_PI_BRIDGE_MEMORY_MACHINE_ID');
   });
 });
 

@@ -3436,7 +3436,7 @@ export const ACTION_SPECS: readonly ActionSpec[] = Object.freeze([
       voice_action_block: true,
       session_agent: true,
       mcp: false,
-      cli: false,
+      cli: true,
     },
     inputSchema: MemorySearchInputSchema,
   },
@@ -3465,7 +3465,7 @@ export const ACTION_SPECS: readonly ActionSpec[] = Object.freeze([
       voice_action_block: true,
       session_agent: true,
       mcp: false,
-      cli: false,
+      cli: true,
     },
     examples: {
       voice: { argsExample: '{"machineId":"{{machineId}}","sessionId":"{{sessionId}}","seqFrom":120,"seqTo":124}' },

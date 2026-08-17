@@ -12,6 +12,8 @@ import { resolveCliFeatureDecision } from '@/features/featureDecisionService';
 import { logger } from '@/ui/logger';
 
 import type { PiBackendOptions } from '@/backends/pi/acp/backend';
+import { resolveHappyToolsBridgeBackendOptions } from '@/backends/pi/bridgeExtension';
+import { maybeImportPiThinkingHistory } from '@/backends/pi/history/importPiThinkingHistory';
 import { publishPiSessionIdMetadata } from '@/backends/pi/utils/piSessionIdMetadata';
 import { resolvePiSessionIdFromResumeReference } from '@/backends/pi/utils/piSessionFiles';
 
@@ -40,7 +42,10 @@ export function createPiAcpRuntime(params: {
   const lastPublishedPiSessionId: { value: string | null; sessionFile?: string | null } = { value: null };
   let lastPiIdentityGeneration: number | null = null;
 
-  return createCatalogProviderAcpRuntime<PiBackendOptions>({
+  // Prototype (option B): one thinking-history backfill attempt per pi session per process.
+  const importedPiThinkingHistorySessionIds = new Set<string>();
+
+  const runtime = createCatalogProviderAcpRuntime<PiBackendOptions>({
     provider: 'pi',
     loggerLabel: 'PiACP',
     directory: params.directory,
@@ -81,6 +86,9 @@ export function createPiAcpRuntime(params: {
     providerInputConsumer: params.providerInputConsumer,
     inFlightSteer: { enabled: true },
     resolveBackendOptions: async ({ session }) => {
+      const memoryRecallGuidanceEnabled = params.memoryRecallGuidanceEnabled === true;
+
+      let appendSystemPromptText: string | undefined;
       try {
         const text = await resolveEffectiveCodingPromptText({
           credentials: params.credentials,
@@ -94,18 +102,65 @@ export function createPiAcpRuntime(params: {
           toolDelivery: resolveAgentToolsDelivery('pi'),
           toolDeliverySessionId: session.sessionId,
           toolDeliveryDirectory: params.directory,
-          memoryRecallGuidanceEnabled: params.memoryRecallGuidanceEnabled === true,
+          memoryRecallGuidanceEnabled,
           memoryMachineId: params.machineId,
         });
         const trimmed = typeof text === 'string' ? text.trim() : '';
-        return { appendSystemPromptText: trimmed || undefined };
+        appendSystemPromptText = trimmed || undefined;
       } catch (error) {
         // Best-effort: if the prompt cannot be resolved, spawn pi with no
         // append flag so it uses its own default system prompt. The tool
         // delivery appendix rides only this path, so leave a file-log trace.
         logger.debug('[pi] system prompt resolution failed; spawning without --append-system-prompt', error);
-        return {};
       }
+
+      // Tools-bridge binding: derive the disable flags from the same settings/signals
+      // that built the prompt so the registered tools always match what the prompt
+      // advertises. Only sessions with a Happier-managed Pi agent dir get the bridge.
+      let happyToolsBridge: PiBackendOptions['happyToolsBridge'];
+      try {
+        const resolved = await resolveHappyToolsBridgeBackendOptions({
+          agentDir: typeof process.env.PI_CODING_AGENT_DIR === 'string'
+            ? process.env.PI_CODING_AGENT_DIR.trim() || null
+            : null,
+          settings: params.accountSettings ?? null,
+          memoryRecallGuidanceEnabled,
+        });
+        if (resolved) {
+          happyToolsBridge = { ...resolved, memoryMachineId: params.machineId };
+        }
+      } catch (error) {
+        // Best-effort: spawn without the bridge args; the shell-bridge prompt appendix
+        // remains the fallback tool delivery path for this session.
+        logger.debug('[pi] tools-bridge extension resolution failed; spawning without bridge args', error);
+      }
+
+      return {
+        ...(appendSystemPromptText ? { appendSystemPromptText } : {}),
+        ...(happyToolsBridge ? { happyToolsBridge } : {}),
+      };
     },
   });
+
+  // Prototype (option B): after a successful resume, backfill historical pi thinking blocks
+  // from the JSONL into the Happier transcript as history-provenance rows. Fire-and-forget:
+  // a backfill failure must never block the resumed session.
+  return {
+    ...runtime,
+    startOrLoad: async (opts?: { resumeId?: string | null; importHistory?: boolean; deferPendingDrain?: boolean }) => {
+      const vendorSessionId = await runtime.startOrLoad(opts ?? {});
+      if (typeof opts?.resumeId === 'string' && opts.resumeId.trim().length > 0) {
+        const piSessionReference = resolvePiSessionIdFromResumeReference(opts.resumeId) ?? vendorSessionId;
+        void maybeImportPiThinkingHistory({
+          session: params.session,
+          directory: params.directory,
+          piSessionReference,
+          importedPiSessionIds: importedPiThinkingHistorySessionIds,
+        }).catch((error) => {
+          logger.debug('[pi] Thinking history backfill failed (non-fatal)', error);
+        });
+      }
+      return vendorSessionId;
+    },
+  };
 }

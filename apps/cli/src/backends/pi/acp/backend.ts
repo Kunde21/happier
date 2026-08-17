@@ -1,6 +1,12 @@
 import type { AgentBackend, AgentFactoryOptions, McpServerConfig } from '@/agent/core';
 import type { PermissionMode } from '@/api/types';
 import {
+  PI_BRIDGE_DISABLE_MEMORY_FLAG,
+  PI_BRIDGE_DISABLE_RENAME_FLAG,
+  PI_BRIDGE_MEMORY_MACHINE_ID_ENV,
+  PI_BRIDGE_SESSION_ID_FLAG,
+} from '@/backends/pi/bridgeExtension';
+import {
   PI_BROKER_PROVIDERS,
   PI_BROKER_SELECTIONS_ENV,
   parsePiBrokerSelections,
@@ -21,6 +27,19 @@ export interface PiBackendOptions extends AgentFactoryOptions {
    * (pi has no runtime RPC command to change it mid-session).
    */
   appendSystemPromptText?: string;
+  /**
+   * Tools-bridge extension binding for this session. When present (together with
+   * `happierSessionId`), the launcher passes `--extension <path>` plus the
+   * `--happy-session-id` binding flag and any `--happy-disable-*` flags. Computed from
+   * the same settings/signals that build `appendSystemPromptText`, so the tools the
+   * extension registers match the tools the system prompt advertises.
+   */
+  happyToolsBridge?: Readonly<{
+    extensionPath: string;
+    disableRename: boolean;
+    disableMemory: boolean;
+    memoryMachineId?: string | null;
+  }>;
 }
 
 // `null` means Happier must not override Pi's native tool catalog. Passing
@@ -100,6 +119,30 @@ function resolvePiBrokerExtensionArgs(env: Readonly<Record<string, string>>): st
   return ['--extension', resolvePiBrokerExtensionPath(agentDir)];
 }
 
+/**
+ * Tools-bridge extension arguments. Both-or-neither with the Happier session binding:
+ * the binding flag is only ever passed together with `--extension`, and the extension
+ * registers nothing without the binding, so neither works alone.
+ */
+export function resolveHappyBridgeExtensionArgs(opts?: Readonly<{
+  happierSessionId?: string | null;
+  happyToolsBridge?: PiBackendOptions['happyToolsBridge'];
+}>): string[] {
+  const sessionId = typeof opts?.happierSessionId === 'string' ? opts.happierSessionId.trim() : '';
+  const bridge = opts?.happyToolsBridge;
+  if (!sessionId || !bridge) return [];
+
+  const args = [
+    '--extension',
+    bridge.extensionPath,
+    PI_BRIDGE_SESSION_ID_FLAG,
+    sessionId,
+  ];
+  if (bridge.disableRename) args.push(PI_BRIDGE_DISABLE_RENAME_FLAG);
+  if (bridge.disableMemory) args.push(PI_BRIDGE_DISABLE_MEMORY_FLAG);
+  return args;
+}
+
 export function createPiBackend(options: PiBackendOptions): AgentBackend {
   const env = Object.fromEntries(
     Object.entries(options.env ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
@@ -114,6 +157,10 @@ export function createPiBackend(options: PiBackendOptions): AgentBackend {
     args: [
       ...launch.args,
       ...resolvePiBrokerExtensionArgs(env),
+      ...resolveHappyBridgeExtensionArgs({
+        happierSessionId: options.happierSessionId,
+        happyToolsBridge: options.happyToolsBridge,
+      }),
       ...(launchSelection
         ? [
           '--provider',
@@ -129,6 +176,9 @@ export function createPiBackend(options: PiBackendOptions): AgentBackend {
     happierSessionId: options.happierSessionId ?? null,
     env: {
       ...env,
+      ...(options.happyToolsBridge?.memoryMachineId
+        ? { [PI_BRIDGE_MEMORY_MACHINE_ID_ENV]: options.happyToolsBridge.memoryMachineId }
+        : {}),
       NODE_ENV: 'production',
       DEBUG: '',
       CI: '1',
