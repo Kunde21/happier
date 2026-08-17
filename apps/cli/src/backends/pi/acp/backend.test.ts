@@ -207,8 +207,22 @@ describe('happy tools bridge extension args', () => {
     })).toEqual([
       '--extension',
       baseBridge.extensionPath,
-      'happy-session-id',
+      '--happy-session-id',
       'happy-session-1',
+    ]);
+  });
+
+  it('passes the disable flags with -- prefixes when set', () => {
+    expect(resolveHappyBridgeExtensionArgs({
+      happierSessionId: 'happy-session-1',
+      happyToolsBridge: { ...baseBridge, disableRename: true, disableMemory: true },
+    })).toEqual([
+      '--extension',
+      baseBridge.extensionPath,
+      '--happy-session-id',
+      'happy-session-1',
+      '--happy-disable-rename',
+      '--happy-disable-memory',
     ]);
   });
 
@@ -234,19 +248,19 @@ describe('happy tools bridge extension args', () => {
     expect(resolveHappyBridgeExtensionArgs({
       happierSessionId: 'happy-session-1',
       happyToolsBridge: { ...baseBridge, disableRename: true },
-    })).toContain('happy-disable-rename');
+    })).toContain('--happy-disable-rename');
 
     expect(resolveHappyBridgeExtensionArgs({
       happierSessionId: 'happy-session-1',
       happyToolsBridge: { ...baseBridge, disableMemory: true },
-    })).toContain('happy-disable-memory');
+    })).toContain('--happy-disable-memory');
 
     const both = resolveHappyBridgeExtensionArgs({
       happierSessionId: 'happy-session-1',
       happyToolsBridge: { ...baseBridge, disableRename: true, disableMemory: true },
     });
-    expect(both).toContain('happy-disable-rename');
-    expect(both).toContain('happy-disable-memory');
+    expect(both).toContain('--happy-disable-rename');
+    expect(both).toContain('--happy-disable-memory');
   });
 
   it('wires bridge args and the memory machine id env into the Pi backend', () => {
@@ -264,11 +278,11 @@ describe('happy tools bridge extension args', () => {
     expect(backend.options?.args).toEqual(expect.arrayContaining([
       '--extension',
       baseBridge.extensionPath,
-      'happy-session-id',
+      '--happy-session-id',
       'happy-session-1',
-      'happy-disable-rename',
+      '--happy-disable-rename',
     ]));
-    expect(backend.options?.args).not.toContain('happy-disable-memory');
+    expect(backend.options?.args).not.toContain('--happy-disable-memory');
     expect(backend.options?.env?.HAPPIER_PI_BRIDGE_MEMORY_MACHINE_ID).toBe('machine-1');
   });
 

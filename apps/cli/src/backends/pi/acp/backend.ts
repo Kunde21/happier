@@ -135,11 +135,11 @@ export function resolveHappyBridgeExtensionArgs(opts?: Readonly<{
   const args = [
     '--extension',
     bridge.extensionPath,
-    PI_BRIDGE_SESSION_ID_FLAG,
+    `--${PI_BRIDGE_SESSION_ID_FLAG}`,
     sessionId,
   ];
-  if (bridge.disableRename) args.push(PI_BRIDGE_DISABLE_RENAME_FLAG);
-  if (bridge.disableMemory) args.push(PI_BRIDGE_DISABLE_MEMORY_FLAG);
+  if (bridge.disableRename) args.push(`--${PI_BRIDGE_DISABLE_RENAME_FLAG}`);
+  if (bridge.disableMemory) args.push(`--${PI_BRIDGE_DISABLE_MEMORY_FLAG}`);
   return args;
 }
 
