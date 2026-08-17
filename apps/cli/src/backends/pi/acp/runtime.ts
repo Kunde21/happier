@@ -6,6 +6,8 @@ import type { ApiSessionClient } from '@/api/session/sessionClient';
 import type { PermissionMode } from '@/api/types';
 import type { Credentials } from '@/persistence';
 import type { MessageBuffer } from '@/ui/ink/messageBuffer';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { resolveEffectiveCodingPromptText } from '@/agent/prompting/coding/resolveEffectiveCodingPrompt';
 import { resolveAgentToolsDelivery } from '@/agent/tools/happierTools/runtime/resolveAgentToolsDelivery';
 import { resolveCliFeatureDecision } from '@/features/featureDecisionService';
@@ -116,13 +118,20 @@ export function createPiAcpRuntime(params: {
 
       // Tools-bridge binding: derive the disable flags from the same settings/signals
       // that built the prompt so the registered tools always match what the prompt
-      // advertises. Only sessions with a Happier-managed Pi agent dir get the bridge.
+      // advertises. When `PI_CODING_AGENT_DIR` is not set (daemon regular-process spawns
+      // do not carry it), fall back to pi's native default agent dir (`~/.pi/agent`,
+      // resolved from HOME) — the same root the connected-services materializer uses —
+      // so every Happier-spawned Pi session gets the bridge, not just connected-service
+      // launches.
       let happyToolsBridge: PiBackendOptions['happyToolsBridge'];
       try {
+        const explicitAgentDir = typeof process.env.PI_CODING_AGENT_DIR === 'string'
+          ? process.env.PI_CODING_AGENT_DIR.trim() || null
+          : null;
+        const agentDir = explicitAgentDir
+          ?? join((typeof process.env.HOME === 'string' && process.env.HOME.trim()) || homedir(), '.pi', 'agent');
         const resolved = await resolveHappyToolsBridgeBackendOptions({
-          agentDir: typeof process.env.PI_CODING_AGENT_DIR === 'string'
-            ? process.env.PI_CODING_AGENT_DIR.trim() || null
-            : null,
+          agentDir,
           settings: params.accountSettings ?? null,
           memoryRecallGuidanceEnabled,
         });
