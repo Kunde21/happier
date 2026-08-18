@@ -4589,6 +4589,48 @@ export class ApiSessionClient extends EventEmitter {
         return result;
     }
 
+    /**
+     * Commit an ACP agent message as a trusted transcript observation with explicit source
+     * chronology + provenance (the ACP counterpart of sendClaudeSessionMessageCommitted).
+     * Used by provider history importers (e.g. pi thinking backfill) whose rows carry
+     * history provenance and therefore must not affect attention or live turn previews.
+     */
+    async sendAgentMessageCommittedObserved(
+        provider: ACPProvider,
+        body: ACPMessageData,
+        opts: {
+            localId: string;
+            createdAt: number;
+            updatedAt?: number;
+            provenance: SessionTranscriptObservationProvenanceV1;
+            meta?: Record<string, unknown>;
+        },
+    ): Promise<Readonly<{ persisted: boolean; delivered: boolean }>> {
+        const { normalizedBody, content, localId, sidechainId } = this.prepareAcpAgentMessage({
+            provider,
+            body,
+            meta: opts.meta,
+            localId: requireExactCommitLocalId(opts.localId),
+        });
+
+        if (shouldTraceAcpMessageType(normalizedBody.type)) {
+            recordAcpToolTraceEventIfNeeded({ sessionId: this.sessionId, provider, body: normalizedBody, localId });
+        }
+
+        const createdAt = Math.max(0, Math.trunc(opts.createdAt));
+        const updatedAt = Math.max(createdAt, Math.trunc(opts.updatedAt ?? createdAt));
+        return await this.sessionMutationOutbox.enqueueTranscriptMessage(createTranscriptMessageAppendMutation({
+            sessionId: this.sessionId,
+            localId,
+            content: this.buildOutboundSessionMessagePayload(content),
+            sidechainId,
+            messageRole: resolveAcpSessionMessageRole(normalizedBody),
+            createdAt,
+            updatedAt,
+            provenance: opts.provenance,
+        }));
+    }
+
     async sendAgentMessageCommitted(
         provider: ACPProvider,
         body: ACPMessageData,
