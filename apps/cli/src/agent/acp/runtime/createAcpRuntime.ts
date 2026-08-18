@@ -571,6 +571,7 @@ export function createAcpRuntime(params: {
     observedAt: number;
   }> | null = null;
   let accumulatedResponse = '';
+  let accumulatedThinkingText = '';
   let isResponseInProgress = false;
   let taskStartedSent = false;
   let turnAborted = false;
@@ -808,6 +809,7 @@ export function createAcpRuntime(params: {
       });
     }
     accumulatedResponse = '';
+    accumulatedThinkingText = '';
     isResponseInProgress = false;
     taskStartedSent = false;
     turnAborted = false;
@@ -1745,10 +1747,30 @@ export function createAcpRuntime(params: {
           }
           if (name === 'thinking') {
             const payloadRecord = asRecord(msg.payload);
-            const textRaw = payloadRecord?.text;
-            const text = typeof textRaw === 'string' ? textRaw : '';
-            if (text) {
-              streamedTranscriptWriter.appendThinkingDelta(text);
+            const fullTextRaw = payloadRecord?.fullText;
+            if (typeof fullTextRaw === 'string' && fullTextRaw.length > 0) {
+              // Authoritative snapshot (e.g. pi message_end): append only what streamed deltas
+              // have not already delivered, mirroring the model-output fullText reconciliation.
+              if (accumulatedThinkingText && fullTextRaw.startsWith(accumulatedThinkingText)) {
+                const suffix = fullTextRaw.slice(accumulatedThinkingText.length);
+                if (suffix) {
+                  streamedTranscriptWriter.appendThinkingDelta(suffix);
+                }
+              } else if (!accumulatedThinkingText) {
+                streamedTranscriptWriter.appendThinkingDelta(fullTextRaw);
+              } else {
+                // Defensive: divergent authoritative text — surface it rather than lose reasoning.
+                streamedTranscriptWriter.appendThinkingDelta('\n\n');
+                streamedTranscriptWriter.appendThinkingDelta(fullTextRaw);
+              }
+              accumulatedThinkingText = '';
+            } else {
+              const textRaw = payloadRecord?.text;
+              const text = typeof textRaw === 'string' ? textRaw : '';
+              if (text) {
+                streamedTranscriptWriter.appendThinkingDelta(text);
+                accumulatedThinkingText += text;
+              }
             }
           }
           break;
