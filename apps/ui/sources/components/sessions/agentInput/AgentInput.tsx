@@ -209,6 +209,8 @@ const AGENT_INPUT_TEST_IDS = {
     sessionSend: 'session-composer-send',
     newSessionInput: 'new-session-composer-input',
     newSessionSend: 'new-session-composer-send',
+    connectionStatusDot: 'agent-input-connection-status-dot',
+    connectionStatusIcon: 'agent-input-connection-status-icon',
     connectionStatusText: 'agent-input-connection-status-text',
 } as const;
 
@@ -325,6 +327,7 @@ interface AgentInputProps {
         color: string;
         dotColor: string;
         isPulsing?: boolean;
+        icon?: React.ReactNode;
     };
     statusBadges?: ReadonlyArray<AgentInputStatusBadgeDescriptor>;
     activeStatusBadgeKey?: string | null;
@@ -3398,12 +3401,22 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         <View style={styles.statusRow}>
                             {props.connectionStatus && (
                                 <View style={styles.connectionStatusGroup}>
-                                    <StatusDot
-                                        color={props.connectionStatus.dotColor}
-                                        isPulsing={props.connectionStatus.isPulsing}
-                                        size={6}
-                                        style={styles.statusDot}
-                                    />
+                                    {props.connectionStatus.icon ? (
+                                        <View
+                                            testID={AGENT_INPUT_TEST_IDS.connectionStatusIcon}
+                                            style={styles.statusDot}
+                                        >
+                                            {props.connectionStatus.icon}
+                                        </View>
+                                    ) : (
+                                        <StatusDot
+                                            testID={AGENT_INPUT_TEST_IDS.connectionStatusDot}
+                                            color={props.connectionStatus.dotColor}
+                                            isPulsing={props.connectionStatus.isPulsing}
+                                            size={6}
+                                            style={styles.statusDot}
+                                        />
+                                    )}
                                     <Text
                                         testID={AGENT_INPUT_TEST_IDS.connectionStatusText}
                                         style={[styles.statusText, { color: props.connectionStatus.color }]}

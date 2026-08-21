@@ -364,7 +364,7 @@ describe('AgentInput (machine chip)', () => {
         expect(text.join(' ')).toContain('newSession.selectPathTitle');
     });
 
-    it('exposes a stable testID for the connection status text (UI e2e locator)', async () => {
+    it('exposes stable locators for the default connection status dot and text', async () => {
         const screen = await renderScreen(React.createElement(AgentInput, {
                     value: '',
                     placeholder: 'placeholder',
@@ -380,8 +380,31 @@ describe('AgentInput (machine chip)', () => {
                     },
                 }));
 
+        expect(screen.findByTestId('agent-input-connection-status-dot')).toBeTruthy();
+        expect(screen.findByTestId('agent-input-connection-status-icon')).toBeFalsy();
         const connectionStatus = screen.findByTestId('agent-input-connection-status-text');
         expect(connectionStatus).toBeTruthy();
         expect(collectText(connectionStatus?.props?.children).join(' ')).toContain('online');
+    });
+
+    it('replaces the connection status dot with a supplied icon', async () => {
+        const screen = await renderScreen(React.createElement(AgentInput, {
+                    value: '',
+                    placeholder: 'placeholder',
+                    onChangeText: () => {},
+                    onSend: () => {},
+                    autocompleteKinds: [],
+                    autocompleteSuggestions: async () => [],
+                    connectionStatus: {
+                        text: 'disconnected',
+                        color: '#a00',
+                        dotColor: '#a00',
+                        isPulsing: false,
+                        icon: React.createElement('NetworkIcon'),
+                    },
+                }));
+
+        expect(screen.findByTestId('agent-input-connection-status-icon')).toBeTruthy();
+        expect(screen.findByTestId('agent-input-connection-status-dot')).toBeFalsy();
     });
 });

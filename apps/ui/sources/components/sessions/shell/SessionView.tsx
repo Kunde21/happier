@@ -1331,20 +1331,70 @@ type SessionAgentInputRuntimeStatusBoundaryProps = Omit<
 > & {
     inactiveStatusText: string | null;
     connectedServicesRestartState: SessionConnectedServicesAuthSwitchRestartState;
+    showRelayConnectionStatus: boolean;
 };
 
 const SessionAgentInputRuntimeStatusBoundary = React.memo(function SessionAgentInputRuntimeStatusBoundary({
     inactiveStatusText,
     connectedServicesRestartState,
+    showRelayConnectionStatus,
     session,
     ...props
 }: SessionAgentInputRuntimeStatusBoundaryProps) {
+    const { theme } = useUnistyles();
+    // Phone session chrome has no global relay indicator. Borrow the activity slot only while the
+    // active relay is unavailable; connected sessions keep their more useful runtime activity.
+    const relaySocketStatus = useSocketStatus().status;
     const sessionRuntimeStatusSource = useSessionRuntimeStatusSource(session);
     const sessionStatus = useSessionStatus(sessionRuntimeStatusSource, {
         subscribeToSession: false,
         subscribeToTranscript: false,
     });
-    const connectionStatus = React.useMemo(() => ({
+    const relayConnectionStatus = React.useMemo(() => {
+        if (!showRelayConnectionStatus || relaySocketStatus === 'connected') {
+            return null;
+        }
+
+        const status = relaySocketStatus === 'connecting'
+            ? {
+                labelKey: 'status.connecting' as const,
+                color: theme.colors.status.connecting,
+                isPulsing: true,
+            }
+            : relaySocketStatus === 'error'
+                ? {
+                    labelKey: 'status.error' as const,
+                    color: theme.colors.status.error,
+                    isPulsing: false,
+                }
+                : {
+                    labelKey: 'status.disconnected' as const,
+                    color: theme.colors.status.disconnected,
+                    isPulsing: false,
+                };
+
+        return {
+            text: t(status.labelKey),
+            color: status.color,
+            dotColor: status.color,
+            isPulsing: status.isPulsing,
+            icon: (
+                <Icon
+                    testID="session-relay-connection-icon"
+                    name="wifi-high"
+                    size={ICON_SIZE.xs}
+                    color={status.color}
+                />
+            ),
+        };
+    }, [
+        relaySocketStatus,
+        showRelayConnectionStatus,
+        theme.colors.status.connecting,
+        theme.colors.status.disconnected,
+        theme.colors.status.error,
+    ]);
+    const connectionStatus = React.useMemo(() => relayConnectionStatus ?? ({
         text: connectedServicesRestartState?.status === 'restarting'
             || connectedServicesRestartState?.status === 'pending_confirmation'
             ? t('connectedServices.authSwitch.status.restarting')
@@ -1361,6 +1411,7 @@ const SessionAgentInputRuntimeStatusBoundary = React.memo(function SessionAgentI
     }), [
         connectedServicesRestartState?.status,
         inactiveStatusText,
+        relayConnectionStatus,
         sessionStatus.isPulsing,
         sessionStatus.state,
         sessionStatus.statusColor,
@@ -5788,6 +5839,7 @@ function SessionViewLoaded({
                 activeStatusBadgeKey={activeStatusBadgeKey}
                 onActiveStatusBadgeKeyChange={setActiveStatusBadgeKey}
                 connectedServicesRestartState={sessionConnectedServicesAuthSwitch.restartState}
+                showRelayConnectionStatus={deviceType === 'phone'}
                 onSend={handleAgentInputSend}
                 isSendDisabled={!shouldShowInput || isResuming || isReadOnly || isUploadingAttachments}
                 isSending={isComposerSendPending}

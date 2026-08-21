@@ -112,6 +112,8 @@ function makeSession(runningAgentCount: number): any {
 }
 
 let sessionSnapshot: any = makeSession(3);
+let deviceType: 'phone' | 'tablet' = 'tablet';
+let relaySocketStatus: 'connected' | 'connecting' | 'disconnected' | 'error' = 'connected';
 let pendingMessagesState: { messages: any[]; discarded: any[]; isLoaded: boolean } = {
     messages: [],
     discarded: [],
@@ -157,6 +159,7 @@ installSessionShellCommonModuleMocks({
             useSession: () => sessionSnapshot,
             useIsDataReady: () => true,
             useRealtimeStatus: () => 'connected',
+            useSocketStatus: () => ({ status: relaySocketStatus, lastConnectedAt: 1 }),
             useSessionMessages: () => ({ messages: [], isLoaded: true }),
             useSessionTranscriptIds: () => ({ ids: [], isLoaded: true }),
             useSessionPendingMessages: () => pendingMessagesState,
@@ -269,10 +272,10 @@ vi.mock('@/hooks/server/useFeatureEnabled', () => ({
 }));
 vi.mock('@/utils/platform/responsive', () => ({
     getDeviceType: () => 'tablet',
-    useDeviceType: () => 'tablet',
+    useDeviceType: () => deviceType,
     useHeaderHeight: () => 0,
     useIsLandscape: () => false,
-    useIsTablet: () => true,
+    useIsTablet: () => deviceType === 'tablet',
 }));
 vi.mock('@/hooks/session/useDraft', () => ({
     useDraft: () => ({ clearDraft: vi.fn(), setDraftValue: vi.fn() }),
@@ -373,6 +376,17 @@ vi.mock('@/components/sessions/agentInput', async () => {
         AgentInput: (props: any) => React.createElement(
             'View',
             { testID: 'session-composer-input' },
+            props.connectionStatus
+                ? React.createElement(
+                    'View',
+                    {
+                        testID: 'session-activity-status',
+                        statusText: props.connectionStatus.text,
+                        statusColor: props.connectionStatus.color,
+                    },
+                    props.connectionStatus.icon ?? null,
+                )
+                : null,
             ...(props.statusBadges ?? []).map(({ key, renderPopover, onPress, ...badge }: any) => (
                 React.createElement(AgentInputStatusBadge, {
                     key,
@@ -417,6 +431,8 @@ describe('SessionView (work-state chip call site)', () => {
     beforeEach(() => {
         (globalThis as { __DEV__?: boolean }).__DEV__ = false;
         sessionSnapshot = makeSession(3);
+        deviceType = 'tablet';
+        relaySocketStatus = 'connected';
         pendingMessagesState = { messages: [], discarded: [], isLoaded: true };
     });
 
@@ -452,6 +468,44 @@ describe('SessionView (work-state chip call site)', () => {
 
         expect(readPaintedLabel(screen)).toContain('agents=1');
         expect(readAnnouncedLabel(screen)).toContain('agents=1');
+
+        await screen.unmount();
+    });
+
+    it.each([
+        ['connecting', 'status.connecting'],
+        ['disconnected', 'status.disconnected'],
+        ['error', 'status.error'],
+    ] as const)('replaces mobile session activity with the %s relay state', async (socketStatus, expectedText) => {
+        deviceType = 'phone';
+        relaySocketStatus = socketStatus;
+
+        const screen = await renderSessionView();
+
+        expect(screen.findByTestId('session-activity-status')?.props.statusText).toBe(expectedText);
+        expect(screen.findByTestId('session-relay-connection-icon')).toBeTruthy();
+
+        await screen.unmount();
+    });
+
+    it('keeps session activity on mobile while the relay is connected', async () => {
+        deviceType = 'phone';
+
+        const screen = await renderSessionView();
+
+        expect(screen.findByTestId('session-activity-status')?.props.statusText).toBe('status.online');
+        expect(screen.findByTestId('session-relay-connection-icon')).toBeFalsy();
+
+        await screen.unmount();
+    });
+
+    it('keeps session activity on tablet when the relay is disconnected', async () => {
+        relaySocketStatus = 'disconnected';
+
+        const screen = await renderSessionView();
+
+        expect(screen.findByTestId('session-activity-status')?.props.statusText).toBe('status.online');
+        expect(screen.findByTestId('session-relay-connection-icon')).toBeFalsy();
 
         await screen.unmount();
     });
