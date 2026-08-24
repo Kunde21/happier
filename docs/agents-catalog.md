@@ -24,6 +24,53 @@ The goal is that both surfaces:
   - Convention (CLI): `cli.<agentId>`, `tool.<name>`, `dep.<name>`.
 - **Checklists**: higher-level groupings of capabilities that the app can render as guided setup steps.
   - Convention: `new-session`, `machine-details`, `resume.<agentId>`.
+- **Session-agent tool surface**: the set of Happier built-in tools an in-session agent (Claude, Codex, OpenCode, Pi, …) can call to act on the user's Happier account — list/send across sessions, spawn, controls, memory, subagents/execution runs.
+  - Source of truth: this document's [Session-agent tool surfaces](#session-agent-tool-surfaces-actions--built-in-tools) section.
+
+---
+
+## Session-agent tool surfaces (Actions + built-in tools)
+
+One system feeds every provider's in-session tool inventory. The Actions settings UI toggles per-action/per-surface availability (including the **Session agent** surface Leeroy's Discord message refers to); the same catalog backs the in-session MCP tools and the CLI `tools list`/`tools call` bridge.
+
+### How the inventory is built (owners)
+
+1. **Action specs** — `packages/protocol/src/actions/actionSpecs.ts` declares every action with `surfaces` (flags per surface: `ui_button`, `ui_slash_command`, `voice_tool`, `voice_action_block`, `session_agent`, `mcp`, `cli`) and optional `bindings.mcpToolName` + `inputSchema`.
+2. **Tool catalog** — `apps/cli/src/agent/tools/happierTools/catalog.ts` turns every spec with an `mcpToolName` into a built-in tool (`name`, `title`, `description`, `inputSchema`) and adds two manual tools: `change_title` (manual equivalent of `session.title.set`) and `action_execute` (umbrella: run any action by id with structured input — the only route for spec-only actions without a direct tool binding).
+3. **Availability resolution** — `packages/protocol/src/actions/actionSurfaceAvailability.ts` (`resolveActionSurfaceAvailability`) computes `available` + reason (`available | unknown_action | missing_tool_binding | unsupported_surface | disabled_by_settings | disabled_by_policy`) + remedy. Surface filtering for tools: `apps/cli/src/agent/tools/happierTools/actionToolCatalog.ts`.
+4. **Enablement (the Actions settings UI)** — `actionsSettingsV1.actions[<actionId>]` overrides: `enabled: false`, `disabledSurfaces: [...]` (e.g. disable only for `session_agent`), `approvalRequiredSurfaces: [...]`. **Default: enabled on every declared surface.** Schema owner: `packages/protocol/src/actions/actionSettings.ts`; CLI processes read the same settings from env `HAPPIER_ACTIONS_SETTINGS_V1` (`apps/cli/src/settings/actionsSettings.ts`).
+5. **Execution** — `apps/cli/src/agent/tools/happierTools/dispatchBuiltInHappierTool.ts` executes with a surface context; `session_agent`-surface calls carry an approval origin bound to the calling session's transcript, so approval-required actions surface as in-session permission prompts.
+
+### Inventory (verified 2026-08-23, `dev` @ `f3a5e40b3` + live daemon)
+
+`happier tools list --source happier` returns **52 tools** on the CLI surface. The `session_agent` surface declares **56 actions**; **50** have direct tool bindings, **6** are spec-only (reachable via `action_execute`): `approval.request.create`, `machines.list`, `paths.list_recent`, `prompt_doc.update`, `servers.list`, `session.mode.set`. Four tools are MCP/CLI-surfaced only (not session-agent): `voice_agent_start`, `execution_run_get`, `session_target_primary_set`, `session_target_tracked_set`.
+
+Grouped by capability (tool names as the agent sees them):
+
+- **Cross-session communication** (the laptop ↔ work-computer scenario): `session_list`, `session_message_send`, `session_wait_idle`, `session_messages_recent_get`, `session_status_get`, `session_activity_get`, `session_history_get`, `session_transcript_get`, `session_events_get`.
+- **Session spawn + control**: `session_spawn_new`, `session_stop`, `session_title_set`, `session_permission_mode_set`, `session_model_set`, `session_archive`, `session_unarchive`, `session_permission_respond`, `session_user_action_answer`, `session_goal_get`/`_set`/`_clear`, `session_work_state_get`, `session_usage_limit_wait_resume_enable`/`_cancel`/`check_now`/`_consume_reset_credit`.
+- **Spawn-time discovery**: `agents_backends_list`, `agents_models_list`, `agents_session_modes_list`, `agents_config_options_list`, `sessions_spawn_profiles_list`, `sessions_spawn_connected_services_list`, `sessions_spawn_mcp_servers_preview`.
+- **Subagents / execution runs / review**: `subagents_plan_start`, `subagents_delegate_start`, `execution_run_start`/`_list`/`_send`/`_stop`/`_action`/`_wait`, `review_start`.
+- **Session-local catalogs**: `session_vendor_plugin_catalog_list`, `session_skill_catalog_list`.
+- **Memory**: `memory_search`, `memory_get_window`, `memory_ensure_up_to_date` (spec-only: no direct binding — call via `action_execute`).
+- **Action introspection**: `action_spec_search`, `action_spec_get`, `action_options_resolve`.
+- **Manual/umbrella**: `change_title`, `action_execute`.
+
+### How each provider consumes the surface today
+
+- **Claude / Codex (native MCP delivery)**: the Happier MCP server registers the built-in tools with `surface: 'session_agent'` (`apps/cli/src/mcp/createHappierMcpServer.ts`; registration in `apps/cli/src/mcp/server/registerHappierMcpBuiltInTools.ts`). Codex additionally bridges a stdio MCP client to the HTTP server (`apps/cli/src/backends/codex/happyMcpStdioBridge.ts`).
+- **shell_bridge providers (auggie, qwen, kimi, kilo, copilot, cursor, …)**: the tool-delivery prompt appendix teaches the agent to discover (`happier tools list`) and invoke (`happier tools call --source happier --tool <name> --args-json <json>`) the same catalog, with `action_execute` for ActionSpec ids (`apps/cli/src/agent/tools/happierTools/runtime/buildHappierToolsPromptAppendix.ts`).
+- **Pi (tools-bridge extension)**: the generated extension (`apps/cli/src/backends/pi/bridgeExtension/piBridgeExtensionSource.ts`) bridges calls through the same `happier tools call` path, but currently registers only `change_title`, `memory_search`, `memory_get_window` — gated by launch flags. The remaining ~49 session-agent tools are callable through the bridge but never *registered*, so the model does not know they exist.
+
+### Including the full set in the Pi tools-bridge extension
+
+The bridge's call path is already generic; inclusion is a registration problem:
+
+1. At generation time, inline the session-agent tool definitions (name/title/description/inputSchema, serialized from the action specs — same source `catalog.ts` uses). The asset is refreshed write-if-changed on upgrade, so the inventory tracks the protocol package.
+2. At `session_start`, register every inlined tool whose action is enabled: filter by the launch flags (existing `--happy-*` gates) and by the effective actions settings. Settings reach the session runner through `HAPPIER_ACTIONS_SETTINGS_V1`; the extension itself stays config-independent by resolving the filter in the daemon and passing an explicit enabled-tool list flag, mirroring the existing flag-driven design.
+3. Keep `change_title`/`memory_search`/`memory_get_window` behavior-compatible (they are the manual/memory special cases of the same catalog).
+4. Approval-required actions (per `approvalRequiredSurfaces` for `session_agent`) surface as in-session permission prompts through the existing dispatch approval origin — no new approval path is needed.
+5. The prompt addition should advertise the cross-session tools with the same one-line guidance the appendix gives shell-bridge agents, so the model knows `session_list`/`session_message_send`/`session_wait_idle` exist for inter-session and cross-machine flows.
 
 ---
 
