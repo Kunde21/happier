@@ -1299,6 +1299,17 @@ export function createCodexAppServerRuntime(params: Readonly<{
     let thinking = false;
     let pendingTurn: PendingTurn | null = null;
     let latestPendingTurnId: string | null = null;
+    let resolveActiveTurnLifecycleChange!: () => void;
+    let activeTurnLifecycleChange = new Promise<void>((resolve) => {
+        resolveActiveTurnLifecycleChange = resolve;
+    });
+    const notifyActiveTurnLifecycleChanged = (): void => {
+        const resolvePreviousChange = resolveActiveTurnLifecycleChange;
+        activeTurnLifecycleChange = new Promise<void>((resolve) => {
+            resolveActiveTurnLifecycleChange = resolve;
+        });
+        resolvePreviousChange();
+    };
     let pendingTurnHasProviderAttributedActivity = false;
     const deferredUnacknowledgedTerminalNotifications = new Map<
         string,
@@ -1326,6 +1337,8 @@ export function createCodexAppServerRuntime(params: Readonly<{
         }
     };
     let clientLifecycleGeneration = 0;
+    let sessionAttachmentGeneration = 0;
+    let sessionControlsProjectionGeneration = 0;
     let nativeTurnHandoffBarrier: Promise<void> | null = null;
     const waitForNativeTurnHandoff = async (): Promise<void> => {
         while (nativeTurnHandoffBarrier) {
@@ -1334,6 +1347,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
     };
     let clientPromise: Promise<DisposableCodexAppServerClient> | null = null;
     let currentModeId: string | null = null;
+    let currentCollaborationMode: NonNullable<ReturnType<typeof resolveCodexAppServerCollaborationModeSelection>>['payload'] | null = null;
     let currentModelId: string | null = null;
     let currentReasoningEffort: string | null = null;
     let currentServiceTier: string | null = null;
@@ -1856,15 +1870,18 @@ export function createCodexAppServerRuntime(params: Readonly<{
     };
     const markActiveTurnSteerable = (): void => {
         activeTurnAcceptsSteer = true;
+        notifyActiveTurnLifecycleChanged();
         publishInFlightSteerAvailabilityIfChanged();
         startActiveTurnPendingPump();
     };
     const markActiveTurnNonSteerable = (): void => {
         activeTurnAcceptsSteer = false;
+        notifyActiveTurnLifecycleChanged();
         publishInFlightSteerAvailabilityIfChanged();
     };
     const clearActiveTurnSteerability = (): void => {
         activeTurnAcceptsSteer = false;
+        notifyActiveTurnLifecycleChanged();
         stopActiveTurnPendingPump();
         publishInFlightSteerAvailabilityIfChanged();
     };
@@ -1948,21 +1965,37 @@ export function createCodexAppServerRuntime(params: Readonly<{
         latestUsageLimitIssue = null;
     };
 
-    // `turn/steer` and `turn/interrupt` require a turn id, but we may not have observed it yet
-    // when the user acts immediately after sending a message (the id can arrive via the
-    // `turn/start` response or the `turn/started` notification). Keep this bounded, but large
-    // enough to survive transient event-loop delays in real runs.
-    const turnIdWaitTimeoutMs = 1_000;
-    const turnIdWaitPollMs = 20;
-    const waitForActiveTurnId = async (): Promise<string | null> => {
-        let turnId = pendingTurn?.turnId ?? latestPendingTurnId;
-        if (turnId) return turnId;
-        const waitStartedAt = Date.now();
-        while (!turnId && Date.now() - waitStartedAt < turnIdWaitTimeoutMs) {
-            await delay(turnIdWaitPollMs);
-            turnId = pendingTurn?.turnId ?? latestPendingTurnId;
+    const waitForActiveTurnLifecycleChangeWithin = async (
+        lifecycleChange: Promise<void>,
+        timeoutMs: number,
+    ): Promise<void> => {
+        await new Promise<void>((resolve) => {
+            const timeout = setTimeout(resolve, timeoutMs);
+            void lifecycleChange.then(() => {
+                clearTimeout(timeout);
+                resolve();
+            });
+        });
+    };
+
+    // `turn/interrupt` requires a turn id, but cancellation can race provider acknowledgement.
+    // Follow the exact pending-turn lifecycle rather than polling. Cancellation retains one
+    // bounded fallback because tearing down the client is the only way to stop a provider request
+    // that never publishes either an identity or a terminal event.
+    const waitForActiveTurnId = async (
+        candidate: PendingTurn,
+        timeoutMs: number,
+    ): Promise<string | null> => {
+        const deadline = Date.now() + timeoutMs;
+        while (pendingTurn?.promise === candidate.promise) {
+            const lifecycleChange = activeTurnLifecycleChange;
+            const turnId = pendingTurn.turnId ?? latestPendingTurnId;
+            if (turnId) return turnId;
+            const remainingMs = deadline - Date.now();
+            if (remainingMs <= 0) return null;
+            await waitForActiveTurnLifecycleChangeWithin(lifecycleChange, remainingMs);
         }
-        return turnId ?? null;
+        return null;
     };
 
     const waitForSteerableActiveTurnId = async (candidate: PendingTurn): Promise<string | null> => {
@@ -1970,12 +2003,11 @@ export function createCodexAppServerRuntime(params: Readonly<{
         // originated regular turns (including goal successors) have no providerPrompt but are
         // already marked steerable; native reviews and compaction have neither signal.
         if (!candidate.providerPrompt && !activeTurnAcceptsSteer) return null;
-        const waitStartedAt = Date.now();
         while (pendingTurn?.promise === candidate.promise) {
+            const lifecycleChange = activeTurnLifecycleChange;
             const turnId = pendingTurn.turnId ?? latestPendingTurnId;
             if (turnId && canSteerPrompt()) return turnId;
-            if (Date.now() - waitStartedAt >= turnIdWaitTimeoutMs) return null;
-            await delay(turnIdWaitPollMs);
+            await lifecycleChange;
         }
         return null;
     };
@@ -2018,7 +2050,10 @@ export function createCodexAppServerRuntime(params: Readonly<{
         publishThreadId();
     };
 
-    const publishSessionControls = async (client: DisposableCodexAppServerClient): Promise<void> => {
+    const publishSessionControls = async (
+        client: DisposableCodexAppServerClient,
+        shouldPublish?: () => boolean,
+    ): Promise<void> => {
         const environmentAuth = readCodexEnvironmentAuthState(runtimeEnv);
         await publishCodexAppServerSessionControlsMetadata({
             client,
@@ -2029,6 +2064,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
             currentModelId,
             currentReasoningEffort,
             currentServiceTier,
+            shouldPublish,
         }).catch(() => undefined);
     };
 
@@ -2084,9 +2120,11 @@ export function createCodexAppServerRuntime(params: Readonly<{
     const refreshGoalForThread = async (
         client: Pick<DisposableCodexAppServerClient, 'request'>,
         activeThreadId: string,
+        shouldPublish?: () => boolean,
     ): Promise<boolean> => {
         try {
             const response = await client.request('thread/goal/get', { threadId: activeThreadId });
+            if (shouldPublish?.() === false) return true;
             await publishGoalWorkState(response);
             return true;
         } catch (error) {
@@ -3430,6 +3468,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
         pendingTurn = startedTurnId ? { ...adoptedTurn, turnId: startedTurnId } : adoptedTurn;
         pendingTurnHasProviderAttributedActivity = true;
         latestPendingTurnId = startedTurnId ?? null;
+        notifyActiveTurnLifecycleChanged();
         activeProviderTurnItemIds.clear();
         persistedMediaDedupeKeys.clear();
         turnInFlight = true;
@@ -3461,6 +3500,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
         pendingTurn = { ...activeTurn, turnId: startedTurnId };
         const deferredTerminal = acknowledgePendingTurnStart(activeTurn, startedTurnId);
         latestPendingTurnId = startedTurnId;
+        notifyActiveTurnLifecycleChanged();
         await turnBoundaryTracker.updateActiveTurnId(startedTurnId);
         recordInProgressBestEffort(startedTurnId);
         if (deferredTerminal) {
@@ -3960,6 +4000,8 @@ export function createCodexAppServerRuntime(params: Readonly<{
         pendingTurnError?: Error;
     }>): Promise<void> => {
         clientLifecycleGeneration += 1;
+        sessionAttachmentGeneration += 1;
+        sessionControlsProjectionGeneration += 1;
         if (options?.emitUndeliverablePrompts !== false) {
             emitAllPendingProviderPromptsAsUndeliverable();
         }
@@ -4137,13 +4179,25 @@ export function createCodexAppServerRuntime(params: Readonly<{
             publishThreadId();
         }
         await publishActivePermissionProfile(startOrLoadResponse);
-        await refreshGoalForThread(client, nextThreadId).catch((error) => {
+        const attachmentGeneration = ++sessionAttachmentGeneration;
+        const controlsProjectionGeneration = ++sessionControlsProjectionGeneration;
+        const shouldPublishAttachmentProjection = (): boolean =>
+            attachmentGeneration === sessionAttachmentGeneration
+            && threadId === nextThreadId;
+        const shouldPublishControlsProjection = (): boolean =>
+            shouldPublishAttachmentProjection()
+            && controlsProjectionGeneration === sessionControlsProjectionGeneration;
+        // Goal and model/mode discovery are optional projections. The provider thread is already
+        // attached at this point, so slow or unavailable discovery endpoints must not keep the
+        // session-opening hot path pending. The generation guard prevents a late response from an
+        // older attach from overwriting the current thread's metadata.
+        void refreshGoalForThread(client, nextThreadId, shouldPublishAttachmentProjection).catch((error) => {
             logger.debug('[codex-app-server] Failed to refresh native goal state (non-fatal)', {
                 threadId: nextThreadId,
                 error,
             });
         });
-        await publishSessionControls(client);
+        void publishSessionControls(client, shouldPublishControlsProjection);
         usageLimitRecoveryScheduler.read(params.session.sessionId);
     };
 
@@ -4299,6 +4353,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
             if (startedTurnId) {
                 pendingTurn = { ...activeTurn, turnId: startedTurnId };
                 latestPendingTurnId = startedTurnId;
+                notifyActiveTurnLifecycleChanged();
                 recordInProgressBestEffort(startedTurnId);
             }
             const deferredTerminal = acknowledgePendingTurnStart(activeTurn, startedTurnId);
@@ -4424,6 +4479,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                 if (startedTurnId) {
                     pendingTurn = { ...activeTurn, turnId: startedTurnId };
                     latestPendingTurnId = startedTurnId;
+                    notifyActiveTurnLifecycleChanged();
                     recordInProgressBestEffort(startedTurnId);
                     await turnBoundaryTracker.updateActiveTurnId(startedTurnId);
                 }
@@ -4547,8 +4603,12 @@ export function createCodexAppServerRuntime(params: Readonly<{
             emitAllPendingProviderPromptsAsUndeliverable();
             markActiveTurnNonSteerable();
             const client = await ensureClient();
-            const interruptTurnId = (activeTurn.turnId ?? latestPendingTurnId) ?? (await waitForActiveTurnId());
+            const interruptTurnId = (activeTurn.turnId ?? latestPendingTurnId) ?? (await waitForActiveTurnId(
+                activeTurn,
+                readCodexAppServerRpcTimeoutMs(runtimeEnv),
+            ));
             if (!interruptTurnId) {
+                if (pendingTurn?.promise !== activeTurn.promise) return;
                 // If we can't resolve the turn id, fall back to tearing down the runtime; this will
                 // abort the active work without relying on turn-scoped cancellation.
                 await disposeClient();
@@ -4571,6 +4631,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
         reset: async () => {
             threadId = null;
             currentModeId = null;
+            currentCollaborationMode = null;
             currentModelId = null;
             currentReasoningEffort = null;
             currentServiceTier = null;
@@ -4583,32 +4644,50 @@ export function createCodexAppServerRuntime(params: Readonly<{
         },
         startOrLoad,
         setSessionMode: async (mode: string) => {
+            const controlsProjectionGeneration = ++sessionControlsProjectionGeneration;
             const client = await ensureClient();
             const nextModeId = trimSessionId(mode);
             if (!nextModeId) {
                 throw new Error('Codex app-server setSessionMode requires a non-empty mode id');
             }
-            const selection = resolveCodexAppServerCollaborationModeSelection({
-                modesResponse: await client.request('collaborationMode/list', {}),
-                modelsResponse: await client.request('model/list', {}),
+            const modesResponse = await client.request('collaborationMode/list', {});
+            let selection = resolveCodexAppServerCollaborationModeSelection({
+                modesResponse,
                 modeId: nextModeId,
                 currentModelId,
                 currentReasoningEffort,
             });
             if (!selection) {
+                selection = resolveCodexAppServerCollaborationModeSelection({
+                    modesResponse,
+                    modelsResponse: await client.request('model/list', {}),
+                    modeId: nextModeId,
+                    currentModelId,
+                    currentReasoningEffort,
+                });
+            }
+            if (!selection) {
                 throw new Error(`Unknown Codex app-server collaboration mode: ${mode}`);
             }
             currentModeId = selection.modeId;
-            await publishSessionControls(client);
+            currentCollaborationMode = selection.payload;
+            await publishSessionControls(
+                client,
+                () => controlsProjectionGeneration === sessionControlsProjectionGeneration,
+            );
             publishInFlightSteerAvailabilityIfChanged();
         },
         setSessionModel: async (model: string) => {
             currentModelId = trimSessionId(model);
+            const controlsProjectionGeneration = ++sessionControlsProjectionGeneration;
             const client = await ensureClient();
             // Apply model changes per-turn via `turn/start` (we always pass `model` there).
             // Avoid `thread/resume` here: it can be expensive (returns thread content) and failures
             // are treated as best-effort by metadata synchronizers.
-            await publishSessionControls(client);
+            await publishSessionControls(
+                client,
+                () => controlsProjectionGeneration === sessionControlsProjectionGeneration,
+            );
             publishInFlightSteerAvailabilityIfChanged();
         },
         setSessionConfigOption: async (key: string, value: unknown) => {
@@ -4618,8 +4697,12 @@ export function createCodexAppServerRuntime(params: Readonly<{
                     throw new Error('Codex app-server reasoning_effort requires a non-empty value');
                 }
                 currentReasoningEffort = nextReasoningEffort;
+                const controlsProjectionGeneration = ++sessionControlsProjectionGeneration;
                 const client = await ensureClient();
-                await publishSessionControls(client);
+                await publishSessionControls(
+                    client,
+                    () => controlsProjectionGeneration === sessionControlsProjectionGeneration,
+                );
                 publishInFlightSteerAvailabilityIfChanged();
                 return;
             }
@@ -4630,9 +4713,13 @@ export function createCodexAppServerRuntime(params: Readonly<{
                 }
                 currentServiceTier = nextServiceTier;
                 hasServiceTierOverride = true;
+                const controlsProjectionGeneration = ++sessionControlsProjectionGeneration;
                 const client = await ensureClient();
                 // Apply Speed changes per-turn via `turn/start` (we pass `serviceTier` there).
-                await publishSessionControls(client);
+                await publishSessionControls(
+                    client,
+                    () => controlsProjectionGeneration === sessionControlsProjectionGeneration,
+                );
                 publishInFlightSteerAvailabilityIfChanged();
                 return;
             }
@@ -4790,14 +4877,17 @@ export function createCodexAppServerRuntime(params: Readonly<{
                     providerPrompt: pendingProviderPrompt,
                 });
                 try {
-                    const collaborationMode = currentModeId
-                        ? resolveCodexAppServerCollaborationModeSelection({
-                            modesResponse: await client.request('collaborationMode/list', {}),
-                            modelsResponse: await client.request('model/list', {}),
-                            modeId: currentModeId,
-                            currentModelId,
-                            currentReasoningEffort,
-                        })?.payload
+                    const collaborationMode = currentCollaborationMode
+                        ? {
+                            ...currentCollaborationMode,
+                            settings: {
+                                ...currentCollaborationMode.settings,
+                                model: currentModelId ?? currentCollaborationMode.settings.model,
+                                reasoning_effort:
+                                    currentReasoningEffort
+                                    ?? currentCollaborationMode.settings.reasoning_effort,
+                            },
+                        }
                         : null;
                     const input = await buildCodexTurnInputForPrompt(promptForAttempt, params.directory, optionsForAttempt);
                     const textOnlyInput = [{ type: 'text', text: promptForAttempt }] satisfies CodexAppServerTurnInputItem[];
@@ -4851,6 +4941,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                     if (startedTurnId) {
                         pendingTurn = { ...activeTurn, turnId: startedTurnId };
                         latestPendingTurnId = startedTurnId;
+                        notifyActiveTurnLifecycleChanged();
                         recordInProgressBestEffort(startedTurnId);
                         await turnBoundaryTracker.updateActiveTurnId(startedTurnId);
                     }

@@ -7,15 +7,15 @@ import {
 } from './codexAppServerRpcTimeout';
 
 describe('codexAppServerRpcTimeout', () => {
-    it('defaults base RPC timeout to 15s when unset', () => {
-        expect(readCodexAppServerRpcTimeoutMs({} as NodeJS.ProcessEnv)).toBe(15_000);
+    it('defaults base RPC timeout to the load-tolerant 60s session-control budget', () => {
+        expect(readCodexAppServerRpcTimeoutMs({} as NodeJS.ProcessEnv)).toBe(60_000);
     });
 
     it('clamps base RPC timeout to the configured value when set', () => {
         expect(readCodexAppServerRpcTimeoutMs({ HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '1200' } as NodeJS.ProcessEnv)).toBe(1200);
-        expect(readCodexAppServerRpcTimeoutMs({ HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '0' } as NodeJS.ProcessEnv)).toBe(15_000);
-        expect(readCodexAppServerRpcTimeoutMs({ HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '-5' } as NodeJS.ProcessEnv)).toBe(15_000);
-        expect(readCodexAppServerRpcTimeoutMs({ HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '9999999' } as NodeJS.ProcessEnv)).toBe(60_000);
+        expect(readCodexAppServerRpcTimeoutMs({ HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '0' } as NodeJS.ProcessEnv)).toBe(60_000);
+        expect(readCodexAppServerRpcTimeoutMs({ HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '-5' } as NodeJS.ProcessEnv)).toBe(60_000);
+        expect(readCodexAppServerRpcTimeoutMs({ HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '9999999' } as NodeJS.ProcessEnv)).toBe(600_000);
     });
 
     it('keeps provider side-effecting turn admission and resume requests alive', () => {

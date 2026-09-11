@@ -29,6 +29,34 @@ function createSessionHarness(initialMetadata: MutableMetadata = {}): Readonly<{
 }
 
 describe('publishCodexAppServerSessionControlsMetadata', () => {
+    it('drops a completed projection when its runtime attachment is no longer current', async () => {
+        let resolveModels!: (value: unknown) => void;
+        const models = new Promise<unknown>((resolve) => {
+            resolveModels = resolve;
+        });
+        const client = {
+            request: async (method: string) => {
+                if (method === 'collaborationMode/list') return [];
+                if (method === 'model/list') return await models;
+                throw new Error(`Unexpected method: ${method}`);
+            },
+        };
+        const { session } = createSessionHarness();
+        let isCurrent = true;
+
+        const publication = publishCodexAppServerSessionControlsMetadata({
+            client,
+            session,
+            provider: 'codex',
+            shouldPublish: () => isCurrent,
+        });
+        isCurrent = false;
+        resolveModels([]);
+        await publication;
+
+        expect(session.updateMetadata).not.toHaveBeenCalled();
+    });
+
     it('still publishes model-scoped options when collaborationMode/list is unavailable', async () => {
         const client = {
             request: async (method: string) => {

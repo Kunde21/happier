@@ -459,6 +459,7 @@ export async function publishCodexAppServerSessionControlsMetadata(params: Reado
     currentModelId?: string | null;
     currentReasoningEffort?: string | null;
     currentServiceTier?: string | null;
+    shouldPublish?: () => boolean;
 }>): Promise<void> {
     const provider = normalizeString(params.provider) ?? 'codex';
     const updatedAt = typeof params.updatedAt === 'number' && Number.isFinite(params.updatedAt)
@@ -479,6 +480,8 @@ export async function publishCodexAppServerSessionControlsMetadata(params: Reado
         currentReasoningEffort: params.currentReasoningEffort,
         currentServiceTier: params.currentServiceTier,
     });
+
+    if (params.shouldPublish?.() === false) return;
 
     await Promise.resolve(params.session.updateMetadata((metadata) => ({
         ...metadata,

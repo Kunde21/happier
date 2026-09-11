@@ -148,6 +148,8 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
     rejectPermissionsProfile?: boolean;
     rejectGoalMethods?: boolean;
     rejectGoalMethodsAsInvalidRequest?: boolean;
+    omitGoalGetResponse?: boolean;
+    omitSessionControlsResponses?: boolean;
     emitGoalContinuationTurn?: boolean;
     emitGoalContinuationUsageLimitFailure?: boolean;
     emitGoalContinuationItemsBeforeStarted?: boolean;
@@ -367,6 +369,7 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '        continue;',
         '    }',
         '    if (msg.method === "thread/goal/get") {',
+        `        if (${JSON.stringify(params.omitGoalGetResponse === true)}) { continue; }`,
         `        if (${JSON.stringify(params.rejectGoalMethodsAsInvalidRequest === true)}) {`,
         '            process.stdout.write(JSON.stringify({ id: msg.id, error: { code: -32600, message: "Invalid request" } }) + "\\n");',
         '            continue;',
@@ -470,10 +473,12 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '        continue;',
         '    }',
         '    if (msg.method === "collaborationMode/list") {',
+        `        if (${JSON.stringify(params.omitSessionControlsResponses === true)}) { continue; }`,
         '        process.stdout.write(JSON.stringify({ id: msg.id, result: [{ name: "Default", mode: "default", reasoning_effort: null }, { name: "Plan", mode: "plan", reasoning_effort: "medium" }] }) + "\\n");',
         '        continue;',
         '    }',
         '    if (msg.method === "model/list") {',
+        `        if (${JSON.stringify(params.omitSessionControlsResponses === true)}) { continue; }`,
         '        process.stdout.write(JSON.stringify({ id: msg.id, result: [{ id: "gpt-5.4", displayName: "GPT-5.4", isDefault: true, supportedReasoningEfforts: ["low", "medium", "high", "xhigh"], defaultReasoningEffort: "medium" }, { id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini", supportedReasoningEfforts: ["medium", "high"], defaultReasoningEffort: "medium" }] }) + "\\n");',
         '        continue;',
         '    }',
@@ -536,7 +541,7 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '        const text = Array.isArray(msg.params?.input) ? String(msg.params.input[0]?.text ?? "unknown") : "unknown";',
         '        const matchingTurnStartCount = (await readFile(requestLogPath, "utf8").catch(() => "")).split("\\n").filter((line) => { try { const entry = JSON.parse(line); return entry.method === "turn/start" && Array.isArray(entry.params?.input) && String(entry.params.input[0]?.text ?? "") === text; } catch { return false; } }).length;',
         '        const turnId = matchingTurnStartCount > 1 ? `turn-${text}-${matchingTurnStartCount}` : `turn-${text}`;',
-        '        const completionDelayMs = text === "connected-service-invalidation-active-turn" && matchingTurnStartCount === 1 ? 120000 : text === "overlap-start" ? 180 : text === "cancel-me" ? 50 : 15;',
+        '        const completionDelayMs = text === "connected-service-invalidation-active-turn" && matchingTurnStartCount === 1 ? 120000 : text === "overlap-start" ? 180 : text === "steer-delay-over-one-second" ? 200 : text === "cancel-me" ? 50 : 15;',
         '        if (text === "usage-limit-before-turn-response") {',
         '            process.stdout.write(JSON.stringify({ method: "error", params: { threadId: msg.params?.threadId ?? null, turnId, willRetry: false, error: { message: "Usage limit reached", codexErrorInfo: "UsageLimitExceeded", additionalDetails: null } } }) + "\\n");',
         '            setTimeout(() => {',
@@ -577,7 +582,7 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '            }, 15);',
         '            continue;',
         '        }',
-        '        const respondDelayMs = (text === "connected-service-invalidation-before-acceptance" || text === "connected-service-invalidation-before-acceptance-after-activity") && matchingTurnStartCount === 1 ? 120000 : text === "steer-delay" ? 60 : (text === "overlap-start" || text === "unknown-terminal-before-turn-start-response" || text === "owned-terminal-before-turn-start-response" || text === "owned-then-unknown-terminal-before-turn-start-response" || text === "unknown-then-owned-terminal-before-turn-start-response") ? 80 : 0;',
+        '        const respondDelayMs = (text === "connected-service-invalidation-before-acceptance" || text === "connected-service-invalidation-before-acceptance-after-activity") && matchingTurnStartCount === 1 ? 120000 : (text === "steer-delay-over-one-second" || text === "cancel-delay-over-one-second") ? 1250 : text === "steer-delay" ? 60 : (text === "overlap-start" || text === "unknown-terminal-before-turn-start-response" || text === "owned-terminal-before-turn-start-response" || text === "owned-then-unknown-terminal-before-turn-start-response" || text === "unknown-then-owned-terminal-before-turn-start-response") ? 80 : 0;',
         '        if (text === "unknown-terminal-before-turn-start-response") {',
         '            setTimeout(() => {',
         '                process.stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: msg.params?.threadId ?? null, turn: { id: "turn-unknown-before-start-response" } } }) + "\\n");',
@@ -1607,6 +1612,8 @@ describe('createCodexAppServerRuntime', () => {
             rejectPermissionsProfile?: boolean;
             rejectGoalMethods?: boolean;
             rejectGoalMethodsAsInvalidRequest?: boolean;
+            omitGoalGetResponse?: boolean;
+            omitSessionControlsResponses?: boolean;
             emitGoalContinuationTurn?: boolean;
             emitGoalContinuationUsageLimitFailure?: boolean;
             emitGoalContinuationItemsBeforeStarted?: boolean;
@@ -1668,6 +1675,8 @@ describe('createCodexAppServerRuntime', () => {
             rejectPermissionsProfile: options.rejectPermissionsProfile,
             rejectGoalMethods: options.rejectGoalMethods,
             rejectGoalMethodsAsInvalidRequest: options.rejectGoalMethodsAsInvalidRequest,
+            omitGoalGetResponse: options.omitGoalGetResponse,
+            omitSessionControlsResponses: options.omitSessionControlsResponses,
             emitGoalContinuationTurn: options.emitGoalContinuationTurn,
             emitGoalContinuationUsageLimitFailure: options.emitGoalContinuationUsageLimitFailure,
             emitGoalContinuationItemsBeforeStarted: options.emitGoalContinuationItemsBeforeStarted,
@@ -1799,6 +1808,30 @@ describe('createCodexAppServerRuntime', () => {
         ]));
     });
 
+    it('does not keep session open on optional goal and session-control projections', async () => {
+        const { root } = await createRuntimeFixture('happier-codex-app-server-runtime-optional-startup-', {
+            omitGoalGetResponse: true,
+            omitSessionControlsResponses: true,
+            rpcTimeoutMs: 10_000,
+        });
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: { updateMetadata: vi.fn() } as any,
+            permissionMode: 'safe-yolo',
+        });
+
+        const startup = runtime.startOrLoad({});
+        const outcome = await Promise.race([
+            startup.then(() => 'started' as const),
+            new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 250)),
+        ]);
+
+        await runtime.reset();
+        await startup.catch(() => undefined);
+        expect(outcome).toBe('started');
+    });
+
     it('keeps a new app-server thread provisional until the first provider turn is accepted', async () => {
         const { root, requestLogPath } = await createRuntimeFixture('happier-codex-app-server-runtime-start-');
 
@@ -1815,6 +1848,15 @@ describe('createCodexAppServerRuntime', () => {
         });
 
         await runtime.startOrLoad({});
+
+        await waitForCondition(
+            () => updateMetadata.mock.results.some((result) => {
+                const value = result.value as Record<string, unknown> | undefined;
+                return value?.[SESSION_MODELS_STATE_KEY] !== undefined
+                    && value?.[SESSION_MODES_STATE_KEY] !== undefined;
+            }),
+            { timeoutMs: 2_000, intervalMs: 10, label: 'eventual Codex session controls metadata' },
+        );
 
         expect(runtime.getSessionId()).toBe('thread-started');
         expect(runtime.getPublishedSessionId()).toBeNull();
@@ -4533,7 +4575,7 @@ describe('createCodexAppServerRuntime', () => {
 
         await runtime.startOrLoad({});
 
-        const sendPromptPromise = runtime.sendPrompt('steer-delay');
+        const sendPromptPromise = runtime.sendPrompt('steer-delay-over-one-second');
         await new Promise((resolve) => setTimeout(resolve, 5));
 
         expect(runtime.isTurnInFlight()).toBe(true);
@@ -4559,8 +4601,46 @@ describe('createCodexAppServerRuntime', () => {
             expect.objectContaining({
                 params: expect.objectContaining({
                     threadId: 'thread-started',
-                    expectedTurnId: 'turn-steer-delay',
+                    expectedTurnId: 'turn-steer-delay-over-one-second',
                     input: [{ type: 'text', text: 'nudge-early' }],
+                }),
+            }),
+        ]);
+    });
+
+    it('waits for a delayed active turn id before cancelling instead of tearing down the app-server', async () => {
+        const { root, requestLogPath } = await createRuntimeFixture(
+            'happier-codex-app-server-runtime-cancel-wait-',
+            { omitTurnCompletedForPrompt: 'cancel-delay-over-one-second' },
+        );
+
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: { updateMetadata: vi.fn() } as any,
+        });
+
+        await runtime.startOrLoad({});
+        const promptOutcome = runtime.sendPrompt('cancel-delay-over-one-second').then(
+            () => 'resolved' as const,
+            () => 'rejected' as const,
+        );
+        await waitForCondition(() => runtime.isTurnInFlight(), {
+            timeoutMs: 1_000,
+            intervalMs: 10,
+            label: 'Codex app-server turn to enter in-flight state before delayed cancellation',
+        });
+
+        await runtime.cancel();
+
+        expect(await promptOutcome).toBe('resolved');
+        const requestLog = await readRequestLog(requestLogPath);
+        expect(requestLog.filter((entry) => entry.method === 'initialize')).toHaveLength(1);
+        expect(requestLog.filter((entry) => entry.method === 'turn/interrupt')).toEqual([
+            expect.objectContaining({
+                params: expect.objectContaining({
+                    threadId: 'thread-started',
+                    turnId: 'turn-cancel-delay-over-one-second',
                 }),
             }),
         ]);
@@ -7015,10 +7095,37 @@ describe('createCodexAppServerRuntime', () => {
         });
 
         await runtime.startOrLoad({});
+        await waitForCondition(async () => {
+            const catalogCalls = (await readRequestLog(requestLogPath))
+                .filter((entry) => entry.method === 'collaborationMode/list' || entry.method === 'model/list');
+            return catalogCalls.some((entry) => entry.method === 'collaborationMode/list')
+                && catalogCalls.some((entry) => entry.method === 'model/list');
+        }, {
+            timeoutMs: 2_000,
+            intervalMs: 10,
+            label: 'initial Codex session-control projection requests',
+        });
+        const catalogCallsBeforeModeChange = (await readRequestLog(requestLogPath))
+            .filter((entry) => entry.method === 'collaborationMode/list' || entry.method === 'model/list');
         await runtime.setSessionMode('plan');
+        const catalogCallsAfterModeChange = (await readRequestLog(requestLogPath))
+            .filter((entry) => entry.method === 'collaborationMode/list' || entry.method === 'model/list');
+        expect(
+            catalogCallsAfterModeChange.filter((entry) => entry.method === 'collaborationMode/list'),
+        ).toHaveLength(
+            catalogCallsBeforeModeChange.filter((entry) => entry.method === 'collaborationMode/list').length + 2,
+        );
+        expect(
+            catalogCallsAfterModeChange.filter((entry) => entry.method === 'model/list'),
+        ).toHaveLength(
+            catalogCallsBeforeModeChange.filter((entry) => entry.method === 'model/list').length + 1,
+        );
         await runtime.setSessionConfigOption('service_tier', 'fast');
         await runtime.setSessionModel('gpt-5.4');
         await runtime.setSessionConfigOption('reasoning_effort', 'high');
+        const catalogCallsBeforePrompt = (await readRequestLog(requestLogPath))
+            .filter((entry) => entry.method === 'collaborationMode/list' || entry.method === 'model/list')
+            .length;
         await runtime.sendPrompt('use-overrides');
 
         const latestMetadata = updateMetadata.mock.results.at(-1)?.value;
@@ -7044,6 +7151,9 @@ describe('createCodexAppServerRuntime', () => {
         );
 
         const requestLog = (await readFile(requestLogPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+        expect(
+            requestLog.filter((entry) => entry.method === 'collaborationMode/list' || entry.method === 'model/list'),
+        ).toHaveLength(catalogCallsBeforePrompt);
         expect(
             requestLog
                 .filter((entry) => entry.method === 'collaborationMode/list')
@@ -7203,11 +7313,24 @@ describe('createCodexAppServerRuntime', () => {
 
             await runtime.startOrLoad({});
 
-            expect(updateMetadata.mock.results.at(-1)?.value).toMatchObject({
-                [SESSION_CONFIG_OPTIONS_STATE_KEY]: {
-                    configOptions: [],
-                },
-            });
+            await waitForCondition(
+                () => updateMetadata.mock.results.some((result) => {
+                    const value = result.value as Record<string, unknown> | undefined;
+                    const configState = value?.[SESSION_CONFIG_OPTIONS_STATE_KEY] as
+                        | { configOptions?: unknown[] }
+                        | undefined;
+                    return Array.isArray(configState?.configOptions);
+                }),
+                { timeoutMs: 2_000, intervalMs: 10, label: 'eventual Codex config-options metadata' },
+            );
+
+            expect(updateMetadata.mock.results.map((result) => result.value)).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    [SESSION_CONFIG_OPTIONS_STATE_KEY]: expect.objectContaining({
+                        configOptions: [],
+                    }),
+                }),
+            ]));
         });
     }
 
@@ -7635,8 +7758,10 @@ describe('createCodexAppServerRuntime', () => {
             await runtime.startOrLoad({});
             await expect(runtime.sendPrompt('chatgpt-plan-model-incompatible')).rejects.toMatchObject({
                 runtimeAuthClassification: {
-                    kind: 'permission_denied',
+                    kind: 'plan',
                     limitCategory: 'plan_invalid',
+                    quotaScope: 'model',
+                    providerLimitId: 'gpt-5.6-sol',
                     serviceId: 'openai-codex',
                     profileId: 'free-account',
                     groupId: 'happier',
@@ -7650,8 +7775,10 @@ describe('createCodexAppServerRuntime', () => {
             expect(onConnectedServiceGroupRecovery).toHaveBeenCalledWith({
                 sessionId: 'session-plan-incompatible-group',
                 classification: expect.objectContaining({
-                    kind: 'permission_denied',
+                    kind: 'plan',
                     limitCategory: 'plan_invalid',
+                    quotaScope: 'model',
+                    providerLimitId: 'gpt-5.6-sol',
                     profileId: 'free-account',
                     groupId: 'happier',
                 }),
