@@ -9,12 +9,9 @@ import {
     WEB_START_ELLIPSIS_CONTAINER_TEXT_STYLE,
     WEB_START_ELLIPSIS_CONTENT_TEXT_STYLE,
 } from '@/components/ui/text/webStartEllipsisTextStyles';
-import { Avatar } from '@/components/ui/avatar/Avatar';
-import { AgentIcon } from '@/agents/registry/AgentIcon';
 import {
     DEFAULT_AGENT_ID,
     getAgentCore,
-    getAgentPickerIconScale,
     resolveAgentIdFromFlavor,
 } from '@/agents/catalog/catalog';
 import { resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
@@ -26,7 +23,6 @@ import type { SessionListSecondaryLineMode } from '@/sync/domains/session/listin
 import { Session } from '@/sync/domains/state/storageTypes';
 import { storage, useLocalSetting } from '@/sync/domains/state/storage';
 import type { SessionListRenderableSession } from '@/sync/domains/session/listing/sessionListRenderable';
-import { getSessionAvatarId } from '@/utils/sessions/sessionUtils';
 import { PinIcon, PinSlashIcon } from './sessionPinIcons';
 import { TagIcon } from './sessionTagIcons';
 import { DropdownMenu, type DropdownMenuItem } from '@/components/ui/forms/dropdown/DropdownMenu';
@@ -69,6 +65,11 @@ import {
 } from '@/components/sessions/actions/sessionActionIds';
 import { resolveKeyboardPlatform } from '@/keyboard/runtime';
 import { SessionListSelectionCheckbox } from './selection/SessionListSelectionCheckbox';
+import {
+    SessionListIdentity,
+    normalizeSessionListIdentityDisplay,
+    type SessionListIdentityDisplay,
+} from './SessionListIdentity';
 import { useOptionalSessionListSelectionRow } from './selection/SessionListSelectionContext';
 import { resolveSessionListSelectionPointerAction } from './selection/sessionListSelectionPointer';
 import {
@@ -118,7 +119,6 @@ function preloadSessionForkStrategyFlowModule(): void {
 }
 
 type SessionItemActivityTimeMode = 'meaningful' | 'updatedAt';
-type SessionItemIdentityDisplay = 'avatar' | 'agentLogo' | 'none';
 type SessionItemActiveColorMode = 'activityAndAttention' | 'attentionOnly' | 'allActive';
 type SessionItemWorkingIndicatorMode = 'spinner' | 'pulse';
 
@@ -192,14 +192,10 @@ type SessionItemRenderProps = Omit<SessionItemBaseProps, 'activityTimeMode' | 's
     workingIndicatorMode: SessionItemWorkingIndicatorMode;
     workingIndicatorPaused?: boolean;
     rowAttentionAnimationEnabled: boolean;
-    sessionListIdentityDisplay: SessionItemIdentityDisplay;
+    sessionListIdentityDisplay: SessionListIdentityDisplay;
     sessionListActiveColorMode: SessionItemActiveColorMode;
     hideInactiveSessions: boolean;
 }>;
-
-function normalizeSessionItemIdentityDisplay(value: unknown): SessionItemIdentityDisplay {
-    return value === 'agentLogo' || value === 'none' ? value : 'avatar';
-}
 
 function normalizeSessionItemActiveColorMode(value: unknown): SessionItemActiveColorMode {
     switch (value) {
@@ -1172,9 +1168,6 @@ const SessionItemContent = React.memo(
             }
         }, [confirmDeleteDraft, onMoveDown, onMoveToFolder, onMoveToWorkspaceRoot, onMoveUp]);
 
-        const avatarId = React.useMemo(() => {
-            return getSessionAvatarId(resolvedSession);
-        }, [resolvedSession]);
         const pendingBadge = formatPendingCountBadge(pendingCount);
         const tagChipDensity: 'default' | 'compact' | 'minimal' = isMinimal ? 'minimal' : compact ? 'compact' : 'default';
         const sourceTagChips = React.useMemo(() => {
@@ -1257,7 +1250,6 @@ const SessionItemContent = React.memo(
         });
         const avatarSize = identityMetrics.slotSize;
         const agentLogoSize = identityMetrics.agentLogoSize;
-        const agentLogoId = resolveAgentIdFromFlavor(resolvedSession.metadata?.flavor) ?? DEFAULT_AGENT_ID;
         const normalizedFolderDepth = typeof folderDepth === 'number' && Number.isFinite(folderDepth)
             ? Math.max(0, Math.min(SESSION_FOLDER_ROW_INDENT_CAP, Math.trunc(folderDepth)))
             : 0;
@@ -1385,21 +1377,14 @@ const SessionItemContent = React.memo(
                                     { opacity: identitySkeletonOpacity },
                                 ]}
                             />
-                        ) : shouldRenderSessionListAvatar ? (
-                            <Avatar
-                                id={avatarId}
-                                size={avatarSize}
-                                monochrome={shouldRenderAvatarMonochrome}
-                                flavor={resolvedSession.metadata?.flavor}
-                                hasUnreadMessages={false}
-                            />
                         ) : (
-                            <AgentIcon
-                                agentId={agentLogoId}
-                                size={agentLogoSize}
+                            <SessionListIdentity
+                                session={resolvedSession}
+                                display={resolvedSessionListIdentityDisplay}
+                                avatarSize={avatarSize}
+                                agentLogoSize={agentLogoSize}
+                                monochrome={shouldRenderAvatarMonochrome}
                                 color={sessionTitleColor}
-                                style={{ transform: [{ scale: getAgentPickerIconScale(agentLogoId) }] }}
-                                testID={`session-list-agent-logo-${resolvedSession.id}`}
                             />
                         )}
                         {!isMinimal && shouldRenderSessionListAvatar && pendingBadge ? (
@@ -1904,7 +1889,7 @@ function SessionItemFromRowModel(props: SessionItemProps & { rowModel: SessionLi
             workingIndicatorMode={rowModel.workingIndicatorMode}
             workingIndicatorPaused={rowModel.workingIndicatorPaused}
             rowAttentionAnimationEnabled={itemProps.rowAttentionAnimationEnabled !== false}
-            sessionListIdentityDisplay={normalizeSessionItemIdentityDisplay(rowModel.identityDisplay)}
+            sessionListIdentityDisplay={normalizeSessionListIdentityDisplay(rowModel.identityDisplay)}
             sessionListActiveColorMode={normalizeSessionItemActiveColorMode(rowModel.activeColorMode)}
             hideInactiveSessions={itemProps.hideInactiveSessions ?? rowModel.hideInactiveSessions}
         />

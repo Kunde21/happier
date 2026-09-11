@@ -1889,6 +1889,27 @@ export type ApplySessionReadCursorOperationResult =
       }
     | { ok: false; error: "invalid-params" | "forbidden" | "session-not-found" | "internal" };
 
+export async function markSessionReadInTx(params: Readonly<{ tx: Tx; actorUserId: string; sessionId: string }>): Promise<ApplySessionReadCursorOperationResult> {
+    const access = await ensureSessionEditAccess(params.tx, { actorUserId: params.actorUserId, sessionId: params.sessionId });
+    if (!access.ok) return { ok: false, error: access.error };
+    const session = await params.tx.session.findUnique({ where: { id: params.sessionId }, select: selectSessionActivityBadgeInputs() });
+    if (!session) return { ok: false, error: "session-not-found" };
+    const resolved = resolveSessionReadCursorOperation({ sessionSeq: session.seq, currentLastViewedSessionSeq: session.lastViewedSessionSeq, operation: { kind: "mark-read" } });
+    const nextCursor = resolved.nextLastViewedSessionSeq;
+    if (!resolved.didChange || typeof nextCursor !== "number") return { ok: true, lastViewedSessionSeq: nextCursor, participantCursors: [], badgeAttentionChanged: false, didChange: false, readState: resolved.readState };
+    const { count } = await params.tx.session.updateMany({
+        where: { id: params.sessionId, OR: [{ lastViewedSessionSeq: { lt: nextCursor } }, { lastViewedSessionSeq: null }] },
+        data: { lastViewedSessionSeq: nextCursor, ...resolveSessionUnreadSinceWrite({ stored: session, after: toSessionUnreadInputs(session, { lastViewedSessionSeq: nextCursor }), now: new Date() }) },
+    });
+    if (count === 0) {
+        const fresh = await params.tx.session.findUnique({ where: { id: params.sessionId }, select: { seq: true, lastViewedSessionSeq: true } });
+        if (!fresh) return { ok: false, error: "session-not-found" };
+        return { ok: true, lastViewedSessionSeq: fresh.lastViewedSessionSeq, participantCursors: [], badgeAttentionChanged: false, didChange: false, readState: resolveSessionReadState(fresh.seq, fresh.lastViewedSessionSeq) };
+    }
+    const participantCursors = await markSessionParticipantsChanged({ tx: params.tx, sessionId: params.sessionId });
+    return { ok: true, lastViewedSessionSeq: nextCursor, participantCursors, badgeAttentionChanged: didSessionActivityBadgeContributionChange(toSessionActivityBadgeInputs(session), { ...toSessionActivityBadgeInputs(session), lastViewedSessionSeq: nextCursor }), didChange: true, readState: resolved.readState };
+}
+
 function isValidSessionReadCursorOperation(operation: SessionReadCursorOperation): boolean {
     if (operation.kind === "mark-read" || operation.kind === "mark-unread") {
         return true;
@@ -1967,6 +1988,7 @@ export async function applySessionReadCursorOperation(params: {
         }
 
         return await inTx(async (tx) => {
+            if (operation.kind === "mark-read") return await markSessionReadInTx({ tx, actorUserId, sessionId });
             const access = await ensureSessionEditAccess(tx, { actorUserId, sessionId });
             if (!access.ok) {
                 return { ok: false, error: access.error };

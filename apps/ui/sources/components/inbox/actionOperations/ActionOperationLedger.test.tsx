@@ -6,6 +6,8 @@ import type { ActionOperationSnapshotV1 } from '@happier-dev/protocol';
 import { renderScreen, standardCleanup } from '@/dev/testkit';
 import { actionOperationStore } from '@/sync/domains/actionOperations/actionOperationStore';
 import { actionOperationReentry } from '@/sync/domains/actionOperations/actionOperationReentry';
+import { Item } from '@/components/ui/lists/Item';
+import { ItemGroupRowPositionProvider } from '@/components/ui/lists/ItemGroupRowPosition';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -71,6 +73,28 @@ function runningOperation(): ActionOperationSnapshotV1 {
 }
 
 describe('ActionOperationLedger', () => {
+    it('distributes a parent ItemGroup row across every rendered operation row', async () => {
+        const { ActionOperationRows } = await import('./ActionOperationLedger');
+        const secondOperation = { ...runningOperation(), operationId: 'operation-2' };
+        const screen = await renderScreen(
+            <ItemGroupRowPositionProvider value={{ isFirst: true, isLast: true }}>
+                <ActionOperationRows
+                    operations={[runningOperation(), secondOperation]}
+                    onOpenOperation={() => {}}
+                    nowMs={1_700_000_120_000}
+                    showDivider={false}
+                />
+            </ItemGroupRowPositionProvider>,
+        );
+
+        expect(screen.tree.root.findAllByType(Item).map((node) => node.props.showDivider)).toEqual([true, false]);
+        expect(screen.tree.root.findAllByType(ItemGroupRowPositionProvider).map((node) => node.props.value)).toEqual([
+            { isFirst: true, isLast: true },
+            { isFirst: true, isLast: false },
+            { isFirst: false, isLast: true },
+        ]);
+    });
+
     it('shows successful custody with failed setup as a needs-attention Activity row', async () => {
         const registration = actionOperationReentry.registerNewSession({
             requestId: 'spawn-setup-attention',
@@ -98,7 +122,7 @@ describe('ActionOperationLedger', () => {
             />,
         );
 
-        expect(screen.getTextContent()).toContain('Needs attention');
+        expect(screen.getTextContent()).toContain('NEEDS ATTENTION');
         expect(screen.getTextContent()).not.toContain('Session created; setup needs attention');
         expect(screen.getTextContent()).not.toContain('Succeeded');
         expect(screen.findByTestId('action-operation-row-operation-setup-attention')?.props.accessibilityLabel)
@@ -178,13 +202,39 @@ describe('ActionOperationLedger', () => {
             />,
         );
 
-        expect(screen.getTextContent()).toContain('Needs attention');
+        expect(screen.getTextContent()).toContain('NEEDS ATTENTION');
         expect(screen.getTextContent()).toContain('leeroy-mbp');
         expect(screen.getTextContent()).not.toContain('Status unavailable');
         expect(screen.findByTestId('action-operation-stop-operation-1')).toBeNull();
         await screen.pressByTestIdAsync('action-operation-dismiss-operation-1');
         expect(onDismissOperation).toHaveBeenCalledWith('operation-1');
         expect(onCancelOperation).not.toHaveBeenCalled();
+    });
+
+    it('adds an explicit Inbox-only resolution action for an admitted terminal failure', async () => {
+        const onDismissOperation = vi.fn();
+        const failed: ActionOperationSnapshotV1 = {
+            ...runningOperation(),
+            operationId: 'operation-failed-inbox',
+            revision: 3,
+            state: 'failed',
+            settledAt: 1_700_000_120_000,
+            error: { errorCode: 'failed', error: 'Failed' },
+        };
+        const { ActionOperationRows } = await import('./ActionOperationLedger');
+        const screen = await renderScreen(
+            <ActionOperationRows
+                operations={[failed]}
+                onOpenOperation={() => {}}
+                canDismissOperation={() => true}
+                onDismissOperation={onDismissOperation}
+                allowTerminalDismissal
+                nowMs={1_700_000_120_000}
+            />,
+        );
+
+        await screen.pressByTestIdAsync('action-operation-dismiss-operation-failed-inbox');
+        expect(onDismissOperation).toHaveBeenCalledWith('operation-failed-inbox');
     });
 
     it('does not repeat terminal status as visible row text', async () => {
@@ -273,6 +323,15 @@ describe('ActionOperationLedger', () => {
         await screen.pressByTestIdAsync('action-operation-stop-operation-1');
         expect(onCancelOperation).toHaveBeenCalledWith('operation-1');
         expect(onOpenOperation).not.toHaveBeenCalled();
+
+        const rowPressTarget = screen.findHostByTestId('action-operation-row-operation-1');
+        const stopPressTarget = screen.findHostByTestId('action-operation-stop-operation-1');
+        expect(rowPressTarget).not.toBeNull();
+        expect(stopPressTarget).not.toBeNull();
+
+        let ancestor = stopPressTarget?.parent ?? null;
+        while (ancestor && ancestor !== rowPressTarget) ancestor = ancestor.parent;
+        expect(ancestor).toBeNull();
     });
 
     it('marks the same visible detail seen only when its running operation terminalizes', async () => {

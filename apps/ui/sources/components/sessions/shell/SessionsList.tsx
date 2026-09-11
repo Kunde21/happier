@@ -59,6 +59,7 @@ import { ProjectGroupHeader } from './ProjectGroupHeader';
 import { SessionListHeaderFrame } from './SessionListHeaderFrame';
 import { resolveSessionListRowModelAdjacency } from './row/buildSessionListRowModels';
 import { SessionListRowModelBoundary } from './row/SessionListRowModelBoundary';
+import { useSessionListIdentityDisplay } from './SessionListIdentity';
 import type {
     SessionListRowPresentationSettings,
     SessionListSessionItem,
@@ -469,10 +470,6 @@ function normalizeRowDensity(compact: boolean, compactMinimal: boolean): Session
     return compact ? 'compact' : 'default';
 }
 
-function normalizeIdentityDisplay(value: unknown): SessionListRowPresentationSettings['identityDisplay'] {
-    return value === 'agentLogo' || value === 'none' ? value : 'avatar';
-}
-
 function normalizeActiveColorMode(value: unknown): SessionListRowPresentationSettings['activeColorMode'] {
     switch (value) {
         case 'attentionOnly':
@@ -770,7 +767,7 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
     });
     const sessionListWorkingIndicatorStyle = useSetting('sessionListNarrowWorkingIndicatorStyle');
     const sessionListAgentActivityCountEnabled = useSetting('sessionListAgentActivityCountEnabled');
-    const sessionListIdentityDisplay = useSetting('sessionListIdentityDisplay');
+    const sessionListIdentityDisplay = useSessionListIdentityDisplay();
     const sessionListActiveColorMode = useSetting('sessionListActiveColorModeV1');
     const sessionListSectionModeRaw = useSetting('sessionListSectionModeV1');
     const sessionReplayEnabled = useSetting('sessionReplayEnabled');
@@ -1064,7 +1061,7 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
             density: normalizeRowDensity(compact, compactMinimal),
             compact,
             compactMinimal,
-            identityDisplay: normalizeIdentityDisplay(sessionListIdentityDisplay),
+            identityDisplay: sessionListIdentityDisplay,
             activeColorMode: normalizeActiveColorMode(sessionListActiveColorMode),
             workingIndicatorMode: normalizeWorkingIndicatorMode(sessionListWorkingIndicatorStyle),
             workingTextMode: 'static',

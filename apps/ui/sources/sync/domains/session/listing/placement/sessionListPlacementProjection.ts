@@ -91,7 +91,7 @@ export function projectSessionListPlacement(params: Readonly<{
     // asked to keep stays in the band while unread/ready/working/failed
     // placements keep their own reason and ordering key.
     const standingSource = params.standingPolicy && sessionKey
-        ? resolveSessionAttentionStandingSource(params.standingPolicy, sessionKey)
+        ? resolveSessionAttentionStandingSource(params.standingPolicy, sessionKey, params.nowMs)
         : 'none';
     if (standingSource !== 'none') {
         return { kind: 'standing', timestamp: null, retainedWorking: false, explicitStanding: standingSource === 'override' };

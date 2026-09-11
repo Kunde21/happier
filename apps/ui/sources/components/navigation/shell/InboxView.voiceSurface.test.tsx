@@ -7,6 +7,11 @@ import { installNavigationShellCommonModuleMocks } from './navigationShellTestHe
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+vi.mock('@/components/inbox/useInboxContentModel', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/components/inbox/useInboxContentModel')>();
+    return { ...actual, useSharedInboxContentModel: actual.useInboxContentModel };
+});
+
 installNavigationShellCommonModuleMocks({
     reactNative: async () => {
         const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
