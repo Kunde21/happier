@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Platform } from 'react-native';
+import { View, Platform, type StyleProp, type ViewStyle } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 
 import { Text } from '@/components/ui/text/Text';
@@ -38,6 +38,8 @@ export type SelectionListSectionHeaderProps = Readonly<{
     rightAccessory?: SelectionListAccessory;
     /** Stable testID anchor (e.g. `<sectionTestId>:header`). */
     testID?: string;
+    /** Optional host-owned layout override; typography and accessory behavior remain canonical here. */
+    containerStyle?: StyleProp<ViewStyle>;
 }>;
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -94,7 +96,7 @@ export function SelectionListSectionHeader(
     const title = props.title.toLocaleUpperCase();
     const rightAccessory = renderSelectionListAccessory(props.rightAccessory);
     return (
-        <View testID={props.testID} style={styles.container}>
+        <View testID={props.testID} style={[styles.container, props.containerStyle]}>
             <Text style={styles.label}>{title}</Text>
             {typeof props.count === 'number' ? (
                 <Text style={[styles.count, Typography.tabular()]}>{String(props.count)}</Text>

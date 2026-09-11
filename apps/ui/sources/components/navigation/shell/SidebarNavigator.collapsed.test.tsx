@@ -18,6 +18,7 @@ const hoistedState = vi.hoisted(() => ({
     routerReplaceMock: vi.fn(),
     setActiveTabMock: vi.fn(async () => {}),
     tauriDesktop: false,
+    inboxModel: { hasContent: true },
 }));
 
 installNavigationShellCommonModuleMocks({
@@ -274,6 +275,19 @@ vi.mock('@/components/appShell/panes/AppPaneProvider', () => ({
   },
 }));
 
+vi.mock('@/components/inbox/useInboxContentModel', () => ({
+  useInboxContentModel: () => hoistedState.inboxModel,
+  InboxContentModelProvider: (props: any) => React.createElement(
+    'InboxContentModelProvider',
+    { model: props.model },
+    props.children,
+  ),
+}));
+
+vi.mock('@/hooks/inbox/useInboxAvailable', () => ({
+  useInboxAvailable: () => true,
+}));
+
 function getSidebar(tree: renderer.ReactTestRenderer) {
   return tree.findByProps({ testID: 'navigation-sidebar' });
 }
@@ -299,6 +313,17 @@ describe('SidebarNavigator (collapsed sidebar)', () => {
     hoistedState.routerReplaceMock.mockReset();
     hoistedState.setActiveTabMock.mockClear();
     hoistedState.tauriDesktop = false;
+  });
+
+  it('shares one mounted Inbox model across the sidebar and routed screen branches', async () => {
+    const { SidebarNavigator } = await import('./SidebarNavigator');
+    const { Stack } = await import('expo-router');
+    const screen = await renderScreen(<SidebarNavigator />);
+
+    const provider = screen.tree.findByType('InboxContentModelProvider' as never);
+    expect(provider.props.model).toBe(hoistedState.inboxModel);
+    expect(provider.findByType(Stack)).toBeDefined();
+    expect(provider.findByType('SidebarView' as never).props.inboxModel).toBe(hoistedState.inboxModel);
   });
 
   it.each(['web', 'ios'] as const)('preserves the mounted route through compact and wide layouts on %s', async (platform) => {
@@ -364,6 +389,7 @@ describe('SidebarNavigator (collapsed sidebar)', () => {
 
     const drawer = getSidebar(tree);
     expect(drawer.props.style.width).toBe(72);
+    expect(drawer.findByType('CollapsedSidebarView' as never).props.inboxModel).toBe(hoistedState.inboxModel);
   });
 
   it('forces the compact sidebar on narrow docked-sidebar viewports so routed content keeps width', async () => {

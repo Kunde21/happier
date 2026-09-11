@@ -3,8 +3,6 @@ import * as React from 'react';
 import { View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/ui/text/Text';
-import { useInboxHasContent } from '@/hooks/inbox/useInboxHasContent';
-import { useInboxAvailable } from '@/hooks/inbox/useInboxAvailable';
 import { useFriendsEnabled } from '@/hooks/server/useFriendsEnabled';
 import { t } from '@/text';
 import type { ItemAction } from '@/components/ui/lists/itemActions';
@@ -12,7 +10,6 @@ import { useFriendRequests } from '@/sync/domains/state/storage';
 import { runGuardedNavigation } from '@/utils/navigation/runGuardedNavigation';
 import { fireAndForget } from '@/utils/system/fireAndForget';
 import { desktopSidebarChromeStyles } from './desktopSidebarChromeStyles';
-import { DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX } from './desktopChromeMetrics';
 import { Icon, ICON_SIZE } from '@/components/ui/icons/Icon';
 import {
     shouldForceFreshNewSessionEntryFromPressEvent,
@@ -31,9 +28,7 @@ export function useSidebarHeaderActions(): SidebarHeaderActionsResult {
     const router = useRouter();
     const resolveNewSessionOrdinaryEntryRoute = useResolveNewSessionOrdinaryEntryRoute();
     const friendRequests = useFriendRequests();
-    const inboxHasContent = useInboxHasContent();
     const friendsEnabled = useFriendsEnabled();
-    const inboxEnabled = useInboxAvailable();
     const friendRequestCount = friendRequests.length;
 
     const navigate = React.useCallback((pathname: string, tag: string) => {
@@ -57,21 +52,6 @@ export function useSidebarHeaderActions(): SidebarHeaderActionsResult {
 
     const headerActions = React.useMemo((): ItemAction[] => {
         const out: ItemAction[] = [];
-
-        if (inboxEnabled) {
-            out.push({
-                id: 'inbox',
-                title: t('tabs.inbox'),
-                inlineTestID: 'sidebar-inbox-button',
-                icon: (
-                    <View style={[styles.iconButton, styles.notificationButton]}>
-                        <Icon name="mailbox" size={ICON_SIZE.md} color={theme.colors.chrome.header.foreground} />
-                        {inboxHasContent ? <View style={styles.indicatorDot} /> : null}
-                    </View>
-                ),
-                onPress: () => navigate('/(app)/inbox', 'SidebarView.nav.inbox'),
-            });
-        }
 
         if (friendsEnabled) {
             out.push({
@@ -121,8 +101,6 @@ export function useSidebarHeaderActions(): SidebarHeaderActionsResult {
     }, [
         friendRequestCount,
         friendsEnabled,
-        inboxEnabled,
-        inboxHasContent,
         navigate,
         navigateToNewSession,
         styles.badge,
@@ -137,28 +115,6 @@ export function useSidebarHeaderActions(): SidebarHeaderActionsResult {
     const topUtilityActions = React.useMemo((): ItemAction[] => {
         const out: ItemAction[] = [];
 
-        if (inboxEnabled) {
-            out.push({
-                id: 'inbox',
-                title: t('tabs.inbox'),
-                inlineTestID: 'sidebar-inbox-button',
-                icon: (
-                    <View style={styles.topNotificationButton}>
-                        {/* The one glyph in the top strip that is built here rather than named, so
-                            it has to reach for the strip's size itself or it stays behind when the
-                            others move. */}
-                        <Icon
-                            name="mailbox"
-                            size={DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX}
-                            color={theme.colors.chrome.header.foreground}
-                        />
-                        {inboxHasContent ? <View style={styles.topIndicatorDot} /> : null}
-                    </View>
-                ),
-                onPress: () => navigate('/(app)/inbox', 'SidebarView.nav.inbox'),
-            });
-        }
-
         out.push({
             id: 'settings',
             title: t('settings.title'),
@@ -169,8 +125,6 @@ export function useSidebarHeaderActions(): SidebarHeaderActionsResult {
 
         return out;
     }, [
-        inboxEnabled,
-        inboxHasContent,
         navigate,
         styles.badge,
         styles.badgeText,
@@ -181,7 +135,6 @@ export function useSidebarHeaderActions(): SidebarHeaderActionsResult {
 
     const renderHeaderOverflowVisual = React.useCallback(() => {
         const shouldShowBadge = friendRequestCount > 0;
-        const shouldShowDot = !shouldShowBadge && inboxHasContent;
 
         return (
             <View style={[styles.iconButton, styles.notificationButton]}>
@@ -192,14 +145,11 @@ export function useSidebarHeaderActions(): SidebarHeaderActionsResult {
                             {friendRequestCount > 99 ? '99+' : friendRequestCount}
                         </Text>
                     </View>
-                ) : shouldShowDot ? (
-                    <View style={styles.indicatorDot} />
                 ) : null}
             </View>
         );
     }, [
         friendRequestCount,
-        inboxHasContent,
         styles.badge,
         styles.badgeText,
         styles.iconButton,
