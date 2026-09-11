@@ -1111,7 +1111,6 @@ export async function runGemini(opts: {
               onDebug: (msg) => logger.debug(msg),
               maxRetries: 3,
               retryDelayMs: 2_000,
-              waitForResponseTimeoutMs: 120_000,
               onProviderPromptAccepted: confirmProviderAccepted,
               onProviderPromptAttemptStarted: () => {
                 didBeginProviderPromptAttempt = true;

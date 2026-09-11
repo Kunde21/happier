@@ -49,6 +49,31 @@ async function detectKiroAuthStatus(resolvedPath: string, args: ReadonlyArray<st
   };
 }
 
+async function detectCommandExitAuthStatus(
+  resolvedPath: string,
+  args: ReadonlyArray<string>,
+): Promise<CliAuthStatusDraft> {
+  const result = await runCliCommandBestEffort({
+    resolvedPath,
+    args: [...args],
+    timeoutMs: 2_000,
+  });
+
+  if (!result.ok) {
+    return {
+      state: result.exitCode === null ? 'unknown' : 'logged_out',
+      reason: result.exitCode === null ? 'probe_failed' : 'missing_credentials',
+      source: 'command',
+    };
+  }
+
+  return {
+    state: 'logged_in',
+    method: 'oauth_cli',
+    source: 'command',
+  };
+}
+
 export function createCatalogDefinedCliAuthSpec(agentId: AgentId): CliAuthSpec {
   const config = getAgentAuthProbeConfig(agentId);
 
@@ -59,6 +84,12 @@ export function createCatalogDefinedCliAuthSpec(agentId: AgentId): CliAuthSpec {
   if (config.parser === 'kiroWhoamiJson' && config.statusCommand) {
     return createCatalogCliAuthSpec(agentId, {
       detectAuthStatus: async ({ resolvedPath }) => detectKiroAuthStatus(resolvedPath, config.statusCommand ?? []),
+    });
+  }
+
+  if (config.parser === 'commandExitStatus' && config.statusCommand) {
+    return createCatalogCliAuthSpec(agentId, {
+      detectAuthStatus: async ({ resolvedPath }) => detectCommandExitAuthStatus(resolvedPath, config.statusCommand ?? []),
     });
   }
 

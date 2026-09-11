@@ -61,4 +61,28 @@ describe('createCatalogDefinedCliAuthSpec', () => {
       source: 'command',
     });
   });
+
+  it('detects Devin auth from the auth status command exit code without exposing command output', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'happier-devin-auth-'));
+    tempDirs.push(dir);
+
+    const scriptPath = join(dir, 'devin.js');
+    await writeFile(
+      scriptPath,
+      '#!/usr/bin/env node\nprocess.stdout.write("Authenticated as agent@example.com");\n',
+      'utf8',
+    );
+    await chmod(scriptPath, 0o755);
+
+    const spec = createCatalogDefinedCliAuthSpec('devin');
+    const detectAuthStatus = spec.detectAuthStatus;
+    expect(detectAuthStatus).toBeTypeOf('function');
+    if (!detectAuthStatus) throw new Error('expected detectAuthStatus');
+
+    await expect(detectAuthStatus({ resolvedPath: scriptPath })).resolves.toEqual({
+      state: 'logged_in',
+      method: 'oauth_cli',
+      source: 'command',
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { withRetry } from './withRetry';
 
@@ -42,5 +42,20 @@ describe('withRetry', () => {
       ),
     ).rejects.toBe(err);
   });
-});
 
+  it('does not retry errors rejected by the shared backoff classification', async () => {
+    const err = Object.assign(new Error('ambiguous timeout'), { retryable: false as const });
+    const operation = vi.fn(async () => {
+      throw err;
+    });
+
+    await expect(withRetry(operation, {
+      operationName: 'test',
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+    })).rejects.toBe(err);
+
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+});

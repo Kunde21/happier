@@ -90,7 +90,6 @@ import {
 import { applyProviderSessionInfoUpdate } from '@/agent/acp/runtime/providerSessionInfoState';
 import { createSessionMediaTurnState } from '@/agent/acp/runtime/sessionMediaTurnState';
 
-const DEFAULT_SESSION_CONTROL_TIMEOUT_MS = 15_000;
 const ACP_FAILURE_TRACE_ENV = 'HAPPIER_ACP_FAILURE_TRACE';
 
 type RuntimeSessionMediaMessage = Extract<AgentMessage, { type: 'session-media' }>;
@@ -131,14 +130,6 @@ type DerivedSessionModelsFromConfigOptions = Readonly<{
     modelOptions?: ReadonlyArray<SessionConfigOption>;
   }>>;
 }>;
-
-function resolveSessionControlTimeoutMs(): number {
-  const raw = (process.env.HAPPIER_ACP_SESSION_CONTROL_TIMEOUT_MS ?? '').toString().trim();
-  if (!raw) return DEFAULT_SESSION_CONTROL_TIMEOUT_MS;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SESSION_CONTROL_TIMEOUT_MS;
-  return Math.trunc(parsed);
-}
 
 function readAcpPromptFailureErrorMessage(error: unknown): string {
   return error instanceof Error
@@ -1936,31 +1927,17 @@ export function createAcpRuntime(params: {
     }
 
     if (b.setSessionMode) {
-      const controlTimeoutMs = resolveSessionControlTimeoutMs();
-      const timeoutPromise = new Promise<{ ok: false; error: Error }>((resolve) => {
-        const timer = setTimeout(
-          () => resolve({ ok: false, error: new Error('ACP session/set_mode timed out') }),
-          controlTimeoutMs,
-        );
-        timer.unref?.();
-      });
-
-      const outcome = await Promise.race([
-        b
-          .setSessionMode(activeSessionId, normalizedModeId)
-          .then(() => ({ ok: true as const }))
-          .catch((error) => ({ ok: false as const, error })),
-        timeoutPromise,
-      ]);
-      if (outcome.ok) return;
-
-      const e = outcome.error;
-      if (!b.setSessionConfigOption) throw e;
       try {
-        await b.setSessionConfigOption(activeSessionId, modeConfigOptionId, normalizedModeId);
+        await b.setSessionMode(activeSessionId, normalizedModeId);
         return;
-      } catch {
-        throw e;
+      } catch (error) {
+        if (!b.setSessionConfigOption) throw error;
+        try {
+          await b.setSessionConfigOption(activeSessionId, modeConfigOptionId, normalizedModeId);
+          return;
+        } catch {
+          throw error;
+        }
       }
     }
 
@@ -1977,7 +1954,6 @@ export function createAcpRuntime(params: {
     }
     const activeSessionId = sessionId;
 
-    const controlTimeoutMs = resolveSessionControlTimeoutMs();
     const modelConfigOptionId = (() => {
       try {
         return getAgentModelConfig(params.provider as AgentId).acpModelConfigOptionId ?? null;
@@ -2031,38 +2007,21 @@ export function createAcpRuntime(params: {
     }
 
     if (b.setSessionModel) {
-      const timeoutPromise = new Promise<{ ok: false; error: Error }>((resolve) => {
-        const timer = setTimeout(
-          () => resolve({ ok: false, error: new Error('ACP session/set_model timed out') }),
-          controlTimeoutMs,
-        );
-        timer.unref?.();
-      });
-
-      const outcome = await Promise.race([
-        b
-          .setSessionModel(activeSessionId, resolvedModelId)
-          .then(() => ({ ok: true as const }))
-          .catch((error) => ({ ok: false as const, error })),
-        timeoutPromise,
-      ]);
-      if (outcome.ok) {
-        await applyCompanionConfigUpdates();
-        return;
-      }
-
-      const e = outcome.error;
-      // Some ACP agents may not support `session/set_model` but may expose an equivalent
-      // `model` config option. Fall back best-effort; callers already treat this as non-fatal.
-      if (!b.setSessionConfigOption || !modelConfigOptionId) throw e;
-
       try {
-        await b.setSessionConfigOption(activeSessionId, modelConfigOptionId, resolvedModelId);
+        await b.setSessionModel(activeSessionId, resolvedModelId);
         await applyCompanionConfigUpdates();
         return;
-      } catch {
-        // If the fallback also fails, surface the original error so callers can retry.
-        throw e;
+      } catch (error) {
+        // A provider rejection has settled the primary request. Only then may the compatibility
+        // config-option path run; racing a timer here can duplicate an effect still in flight.
+        if (!b.setSessionConfigOption || !modelConfigOptionId) throw error;
+        try {
+          await b.setSessionConfigOption(activeSessionId, modelConfigOptionId, resolvedModelId);
+          await applyCompanionConfigUpdates();
+          return;
+        } catch {
+          throw error;
+        }
       }
     }
 

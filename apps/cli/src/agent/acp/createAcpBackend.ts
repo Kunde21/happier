@@ -43,6 +43,9 @@ export interface CreateAcpBackendOptions {
   /** Environment variables to pass to the agent */
   env?: Record<string, string>;
 
+  /** Provider-owned, process-scoped launch materialization performed immediately before spawn. */
+  prepareProcessLaunch?: AcpBackendOptions['prepareProcessLaunch'];
+
   /** Inherited process environment variables to remove before provider env overrides are applied */
   unsetEnv?: readonly string[];
 
@@ -102,6 +105,7 @@ export function createAcpBackend(options: CreateAcpBackendOptions): AgentBackend
     command: options.command,
     args: options.args,
     env: options.env,
+    prepareProcessLaunch: options.prepareProcessLaunch,
     unsetEnv: options.unsetEnv,
     mcpServers: options.mcpServers,
     permissionHandler: options.permissionHandler,

@@ -10,7 +10,8 @@ export type AgentAuthProbeParser =
   | 'piEnvOnly'
   | 'copilotGhAuth'
   | 'kiroWhoamiJson'
-  | 'cursorAboutJson';
+  | 'cursorAboutJson'
+  | 'commandExitStatus';
 
 export type AgentAuthProbeBackgroundChecks = 'safe' | 'manual_only';
 
@@ -99,6 +100,14 @@ export const AGENT_AUTH_PROBE_CONFIG: Readonly<Record<AgentId, AgentAuthProbeCon
     binaryNames: [getProviderCliRuntimeSpec('kiro').binaryName],
     statusCommand: ['whoami', '--format', 'json'],
     parser: 'kiroWhoamiJson',
+    backgroundChecks: 'manual_only',
+  },
+  devin: {
+    agentId: 'devin',
+    binaryNames: [getProviderCliRuntimeSpec('devin').binaryName],
+    statusCommand: ['auth', 'status'],
+    parser: 'commandExitStatus',
+    // The current CLI writes its log on startup, so do not invoke it as an ambient background probe.
     backgroundChecks: 'manual_only',
   },
   customAcp: {

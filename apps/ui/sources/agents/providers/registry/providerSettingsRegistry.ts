@@ -10,6 +10,7 @@ import { GEMINI_PROVIDER_SETTINGS_PLUGIN } from '../gemini/settings/plugin';
 import { KILO_PROVIDER_SETTINGS_PLUGIN } from '../kilo/settings/plugin';
 import { KIMI_PROVIDER_SETTINGS_PLUGIN } from '../kimi/settings/plugin';
 import { KIRO_PROVIDER_SETTINGS_PLUGIN } from '../kiro/settings/plugin';
+import { DEVIN_PROVIDER_SETTINGS_PLUGIN } from '../devin/settings/plugin';
 import { CUSTOM_ACP_PROVIDER_SETTINGS_PLUGIN } from '../customAcp/settings/plugin';
 import { OPENCODE_PROVIDER_SETTINGS_PLUGIN } from '../opencode/settings/plugin';
 import { PI_PROVIDER_SETTINGS_PLUGIN } from '../pi/settings/plugin';
@@ -147,6 +148,7 @@ export const PROVIDER_SETTINGS_PLUGINS = [
     KIMI_PROVIDER_SETTINGS_PLUGIN,
     KILO_PROVIDER_SETTINGS_PLUGIN,
     KIRO_PROVIDER_SETTINGS_PLUGIN,
+    DEVIN_PROVIDER_SETTINGS_PLUGIN,
     CUSTOM_ACP_PROVIDER_SETTINGS_PLUGIN,
     PI_PROVIDER_SETTINGS_PLUGIN,
     COPILOT_PROVIDER_SETTINGS_PLUGIN,

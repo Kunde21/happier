@@ -31,6 +31,16 @@ describe('AGENT_AUTH_PROBE_CONFIG', () => {
     });
   });
 
+  it('defines Devin auth probing through its non-interactive status command', () => {
+    expect(getAgentAuthProbeConfig('devin')).toMatchObject({
+      agentId: 'devin',
+      binaryNames: ['devin'],
+      statusCommand: ['auth', 'status'],
+      parser: 'commandExitStatus',
+      backgroundChecks: 'manual_only',
+    });
+  });
+
   it('keeps Codex auth probing metadata centralized', () => {
     expect(getAgentAuthProbeConfig('codex')).toMatchObject({
       statusCommand: ['login', 'status'],

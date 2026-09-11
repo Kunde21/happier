@@ -25,8 +25,6 @@ export async function withRetry<T>(
     minDelay: options.baseDelayMs,
     maxDelay: options.maxDelayMs,
     maxFailureCount: options.maxAttempts,
-    // Always retry — withRetry has no retryable/canTryAgain gating.
-    shouldRetry: () => true,
     onError: (e: unknown, failuresCount: number) => {
       failuresSoFar = failuresCount;
       const error =

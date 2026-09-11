@@ -272,6 +272,15 @@ const RETRY_CONFIG = {
   maxDelayMs: 5000,
 } as const;
 
+class AcpStartupTimeoutError extends Error {
+  readonly retryable = false;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AcpStartupTimeoutError';
+  }
+}
+
 /**
  * Extended RequestPermissionRequest with additional fields that may be present
  */
@@ -682,6 +691,12 @@ export interface AcpBackendOptions {
   /** Environment variables to pass to the agent */
   env?: NodeJS.ProcessEnv;
 
+  /** Provider-owned, process-scoped launch materialization performed immediately before spawn. */
+  prepareProcessLaunch?: () => Promise<Readonly<{
+    env?: NodeJS.ProcessEnv;
+    cleanup?: () => void | Promise<void>;
+  }>>;
+
   /** Inherited process environment variables to remove before provider env overrides are applied */
   unsetEnv?: readonly string[];
 
@@ -760,6 +775,7 @@ export type AcpPromptUsageAdapter = Readonly<{
 export class AcpBackend implements AgentBackend {
   private listeners: AgentMessageHandler[] = [];
   private process: ChildProcess | null = null;
+  private processLaunchCleanup: (() => void | Promise<void>) | null = null;
   private stderrAppender: BoundedTextFileAppender | null = null;
   private readonly summarizeStderrForLogs = createAcpStderrLogSummarizer();
   private readonly recentStderrSummaries: string[] = [];
@@ -932,7 +948,7 @@ export class AcpBackend implements AgentBackend {
   }
 
   private createStartupTimeoutError(operationName: string, timeoutMs: number): Error {
-    return new Error(
+    return new AcpStartupTimeoutError(
       `${operationName} timeout after ${timeoutMs}ms - ${this.transport.agentName} did not respond${this.buildStartupFailureDiagnosticSuffix()}`,
     );
   }
@@ -977,6 +993,18 @@ export class AcpBackend implements AgentBackend {
     }
 
     await connection?.closed.catch(() => undefined);
+    await this.cleanupPreparedProcessLaunch();
+  }
+
+  private async cleanupPreparedProcessLaunch(): Promise<void> {
+    const cleanup = this.processLaunchCleanup;
+    this.processLaunchCleanup = null;
+    if (!cleanup) return;
+    try {
+      await cleanup();
+    } catch (error) {
+      logger.debug('[AcpBackend] Failed to clean up prepared process launch state (non-fatal)', error);
+    }
   }
 
   private buildSpawnEnv(): NodeJS.ProcessEnv {
@@ -1047,13 +1075,16 @@ export class AcpBackend implements AgentBackend {
     this.lastProcessExitDetail = null;
 
     try {
+      const preparedLaunch = await this.options.prepareProcessLaunch?.();
+      this.processLaunchCleanup = preparedLaunch?.cleanup ?? null;
+
       // Spawn the ACP agent process.
       // Use cross-spawn so Windows quoting/.cmd resolution is handled safely without joining args.
       const spec = buildAcpSpawnSpec({
         command: this.options.command,
         args: this.options.args || [],
         cwd: this.options.cwd,
-        env: this.buildSpawnEnv(),
+        env: { ...this.buildSpawnEnv(), ...preparedLaunch?.env },
       });
 
 	    this.process = spawn(spec.command, spec.args, spec.options);
@@ -1729,6 +1760,7 @@ export class AcpBackend implements AgentBackend {
         status: 'error', 
         detail: error instanceof Error ? error.message : String(error) 
       });
+      await this.cleanupInitializedProcessConnection({ graceMs: 250 });
       throw error;
     }
   }
@@ -3717,6 +3749,7 @@ export class AcpBackend implements AgentBackend {
       }
     }
     await connection?.closed.catch(() => undefined);
+    await this.cleanupPreparedProcessLaunch();
 
     // Clear timeouts
     if (this.postPromptCompletionIdleTimeout) {

@@ -41,7 +41,7 @@ export interface PiBackendOptions extends AgentFactoryOptions {
 
 // `null` means Happier must not override Pi's native tool catalog. Passing
 // `--tools` would also filter extension and custom tools in current Pi releases.
-export function buildPiToolsForPermissionMode(permissionMode?: PermissionMode): string[] | null {
+export function buildPiToolsForPermissionMode(permissionMode?: string): string[] | null {
   const rawMode = typeof permissionMode === 'string' ? permissionMode : 'default';
 
   // Normalize legacy aliases into canonical permission intents.
@@ -60,7 +60,11 @@ export function buildPiToolsForPermissionMode(permissionMode?: PermissionMode): 
   if (mode === 'default' || mode === 'yolo') {
     return null;
   }
-  return ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
+  // The catalog factory is an erased runtime boundary (`opts: unknown`), so an
+  // unrecognized value can reach this launch-time allowlist despite the narrower
+  // types used by normal callers. Pi has no mid-session permission interception;
+  // fail closed rather than granting its shell and write tools.
+  return ['read', 'grep', 'find', 'ls'];
 }
 
 export function buildPiRpcArgs(opts?: Readonly<{

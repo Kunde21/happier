@@ -93,6 +93,7 @@ describe('cli.kilo capability (ACP)', () => {
             kimi: makeUnavailableCliEntry(),
             kilo: { available: true, resolvedPath },
             kiro: makeUnavailableCliEntry(),
+            devin: makeUnavailableCliEntry(),
             customAcp: makeUnavailableCliEntry(),
             pi: makeUnavailableCliEntry(),
             copilot: makeUnavailableCliEntry(),

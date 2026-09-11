@@ -109,6 +109,19 @@ describe('PROVIDER_CLI_RUNTIME_SPECS', () => {
     expect(getProviderCliRuntimeSpec('qwen').installGuideUrl).toBe('https://qwenlm.github.io/qwen-code-docs/');
     expect(getProviderCliRuntimeSpec('pi').installGuideUrl).toBe('https://github.com/badlogic/pi-mono');
     expect(getProviderCliRuntimeSpec('codex').installGuideUrl).toBeNull();
+    expect(getProviderCliRuntimeSpec('devin').installGuideUrl).toBe('https://docs.devin.ai/work-with-devin/devin-cli');
+  });
+
+  it('declares Devin as a system-first vendor-installed CLI', () => {
+    expect(getProviderCliRuntimeSpec('devin')).toMatchObject({
+      id: 'devin',
+      title: 'Devin CLI',
+      binaryName: 'devin',
+      knownCommandCandidates: [{ kind: 'homeBinDir', relativeDir: '.local/bin' }],
+      sourcePreferenceDefault: 'system-first',
+      managedInstall: null,
+      manualInstallKind: 'command',
+    });
   });
 
   it('captures ordered provider CLI fallback candidates on the runtime catalog', () => {

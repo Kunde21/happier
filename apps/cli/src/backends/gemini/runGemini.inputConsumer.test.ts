@@ -693,6 +693,7 @@ describe('runGemini input consumer migration', () => {
         prompt: expect.stringContaining('queued prompt text'),
       }),
     );
+    expect(sendGeminiPromptWithRetryMock.mock.calls[0]?.[0]).not.toHaveProperty('waitForResponseTimeoutMs');
     expect(emitReadyIfIdleMock).toHaveBeenCalledTimes(1);
   });
 

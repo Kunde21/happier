@@ -244,6 +244,7 @@ Instead:
 - add its built-in metadata in `@happier-dev/agents`
 - let `apps/cli/src/agent/acp/catalog/**` instantiate it generically
 - when provider-owned ACP behavior needs the live Happier session, expose it through the catalog entry's `getAcpRuntimeBackendOptionsResolver`; the generic catalog runner is the single place that resolves and passes those backend options. Do not branch on the agent id in the generic runner or create a second session-notification path.
+- keep static ACP differences on the built-in ACP definition: model config-option application, permission-intent-to-agent-mode mapping, and whether Happier MCP descriptors are passed through the standard ACP request. A `null` permission mapping is an intentional no-op, not a fallback mode. When an agent ignores the standard ACP MCP field but has a native MCP config model, keep that wire fact as `drop` and use one provider-owned, process-scoped config adapter rather than disabling Happier tools or mutating the user's files.
 
 Configured user-defined ACP backends/presets do not become `AgentId`s.
 They live in:

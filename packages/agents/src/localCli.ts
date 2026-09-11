@@ -123,6 +123,14 @@ export const AGENT_LOCAL_CLI_CONFIG: Readonly<Record<AgentId, AgentLocalCliConfi
       args: ['login'],
     }],
   }),
+  devin: createAgentLocalCliConfig('devin', {
+    machineLoginKey: 'devin',
+    authSupport: 'login_terminal',
+    authLaunches: [{
+      kind: 'primary',
+      args: ['auth', 'login'],
+    }],
+  }),
   customAcp: createAgentLocalCliConfig('customAcp', {
     machineLoginKey: 'custom-acp',
     authSupport: 'unsupported',

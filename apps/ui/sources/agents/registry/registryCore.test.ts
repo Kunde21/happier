@@ -55,6 +55,7 @@ describe('agents/registryCore', () => {
             { detectKey: 'codex', expected: 'codex' },
             { detectKey: 'opencode', expected: 'opencode' },
             { detectKey: 'kiro-cli', expected: 'kiro' },
+            { detectKey: 'devin', expected: 'devin' },
             { detectKey: 'custom-acp', expected: 'customAcp' },
             { detectKey: '  ', expected: null },
             { detectKey: 'unknown', expected: null },
@@ -107,6 +108,17 @@ describe('agents/registryCore', () => {
         expect(customAcp.cli.detectKey).toBe('custom-acp');
     });
 
+    it('provides Devin as a resumable catalog ACP provider', () => {
+        expect(getAgentCore('devin')).toMatchObject({
+            id: 'devin',
+            cli: { detectKey: 'devin', machineLoginKey: 'devin' },
+            sessionModes: { kind: 'acpAgentModes' },
+            model: { acpModelConfigOptionId: 'model', acpModelSetMethod: 'config_option' },
+            resume: { vendorResumeIdField: 'devinSessionId', supportsVendorResume: true },
+            tools: { delivery: 'unsupported', support: 'unsupported' },
+        });
+    });
+
     it('provides a conservative first-class Grok core config', () => {
         const grok = getAgentCore('grok');
         expect(grok).toMatchObject({
@@ -128,7 +140,7 @@ describe('agents/registryCore', () => {
     });
 
     it('uses generic installer guidance instead of hardcoded package-manager commands', () => {
-        for (const agentId of ['codex', 'opencode', 'qwen', 'kilo', 'kiro', 'customAcp', 'pi', 'copilot', 'grok'] as const) {
+        for (const agentId of ['codex', 'opencode', 'qwen', 'kilo', 'kiro', 'devin', 'customAcp', 'pi', 'copilot', 'grok'] as const) {
             const core = getAgentCore(agentId);
             expect(core.cli.installBanner.installKind).toBe('ifAvailable');
             expect(core.cli.installBanner.installCommand).toBeUndefined();

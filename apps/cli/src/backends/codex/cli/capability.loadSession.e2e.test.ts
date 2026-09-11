@@ -95,6 +95,7 @@ describe('cli.codex capability (ACP)', () => {
               kimi: makeUnavailableCliEntry(),
               kilo: makeUnavailableCliEntry(),
               kiro: makeUnavailableCliEntry(),
+              devin: makeUnavailableCliEntry(),
               customAcp: makeUnavailableCliEntry(),
               pi: makeUnavailableCliEntry(),
               copilot: makeUnavailableCliEntry(),

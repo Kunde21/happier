@@ -39,6 +39,16 @@ describe('AGENT_LOCAL_CLI_CONFIG', () => {
     });
   });
 
+  it('uses Devin auth login as its terminal authentication flow', () => {
+    expect(getAgentLocalCliConfig('devin')).toMatchObject({
+      agentId: 'devin',
+      detectKey: 'devin',
+      machineLoginKey: 'devin',
+      authSupport: 'login_terminal',
+      authLaunches: [{ kind: 'primary', command: 'devin', args: ['auth', 'login'] }],
+    });
+  });
+
   it('keeps Claude login launch metadata centralized', () => {
     expect(getAgentLocalCliConfig('claude')).toMatchObject({
       detectKey: 'claude',

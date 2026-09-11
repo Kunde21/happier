@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { EventMessage } from '@/agent/core/AgentMessage';
 import type { SessionConfigOption } from '@/agent/acp/AcpBackend';
@@ -622,6 +622,49 @@ describe('createAcpRuntime (session models)', () => {
     await runtime.setSessionModel('model-b');
 
     expect(lastSetConfig).toEqual({ sessionId: 'sess_main', configId: 'model', value: 'model-b' });
+  });
+
+  it('does not issue a fallback while a slow session/set_model request is still pending', async () => {
+    vi.useFakeTimers();
+    const previousTimeout = process.env.HAPPIER_ACP_SESSION_CONTROL_TIMEOUT_MS;
+    process.env.HAPPIER_ACP_SESSION_CONTROL_TIMEOUT_MS = '1';
+    let resolveModel!: () => void;
+    let settled = false;
+    const setSessionConfigOption = vi.fn(async () => undefined);
+    const backend = createFakeAcpRuntimeBackend({
+      setSessionConfigOption,
+      setSessionModel: async () => await new Promise<void>((resolve) => {
+        resolveModel = resolve;
+      }),
+    });
+    const runtime = createAcpRuntime({
+      provider: 'codex',
+      directory: '/tmp',
+      session: createBasicSessionClient(),
+      messageBuffer: new MessageBuffer(),
+      mcpServers: {},
+      permissionHandler: createApprovedPermissionHandler(),
+      onThinkingChange: () => {},
+      ensureBackend: async () => backend,
+    });
+
+    try {
+      await runtime.startOrLoad({ resumeId: null });
+      const pending = runtime.setSessionModel('model-b').then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(settled).toBe(false);
+      expect(setSessionConfigOption).not.toHaveBeenCalled();
+
+      resolveModel();
+      await pending;
+    } finally {
+      vi.useRealTimers();
+      if (previousTimeout === undefined) delete process.env.HAPPIER_ACP_SESSION_CONTROL_TIMEOUT_MS;
+      else process.env.HAPPIER_ACP_SESSION_CONTROL_TIMEOUT_MS = previousTimeout;
+    }
   });
 
   it('surfaces session/set_model errors when the provider declares no config-option fallback', async () => {

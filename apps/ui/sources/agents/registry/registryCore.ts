@@ -25,6 +25,7 @@ import { QWEN_CORE } from '@/agents/providers/qwen/core';
 import { KIMI_CORE } from '@/agents/providers/kimi/core';
 import { KILO_CORE } from '@/agents/providers/kilo/core';
 import { KIRO_CORE } from '@/agents/providers/kiro/core';
+import { DEVIN_CORE } from '@/agents/providers/devin/core';
 import { CUSTOM_ACP_CORE } from '@/agents/providers/customAcp/core';
 import { PI_CORE } from '@/agents/providers/pi/core';
 import { COPILOT_CORE } from '@/agents/providers/copilot/core';
@@ -220,6 +221,7 @@ export const AGENTS_CORE = Object.freeze({
     kimi: KIMI_CORE,
     kilo: KILO_CORE,
     kiro: KIRO_CORE,
+    devin: DEVIN_CORE,
     customAcp: CUSTOM_ACP_CORE,
     pi: PI_CORE,
     copilot: COPILOT_CORE,

@@ -289,6 +289,10 @@ describe('buildPiToolsForPermissionMode', () => {
   ] as const)('maps $mode to tools list', ({ mode, expected }) => {
     expect(buildPiToolsForPermissionMode(mode)).toEqual(expected);
   });
+
+  it.each(['readOnly', 'yolo!', 'bypass'] as const)('fails closed for unknown mode %s', (mode) => {
+    expect(buildPiToolsForPermissionMode(mode)).toEqual(['read', 'grep', 'find', 'ls']);
+  });
 });
 
 describe('buildPiRpcArgs', () => {
