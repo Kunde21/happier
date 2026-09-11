@@ -314,6 +314,17 @@ export const AGENT_MODEL_CONFIG: Readonly<Record<AgentId, AgentModelConfig>> = O
     defaultMode: 'default',
     allowedModes: ['default'],
   },
+  devin: {
+    supportsSelection: true,
+    supportsFreeform: false,
+    nonAcpApplyScope: 'next_prompt',
+    acpApplyBehavior: 'set_model',
+    acpModelConfigOptionId: 'model',
+    acpModelSetMethod: 'config_option',
+    dynamicProbe: 'auto',
+    defaultMode: 'default',
+    allowedModes: ['default'],
+  },
   customAcp: {
     supportsSelection: true,
     supportsFreeform: true,

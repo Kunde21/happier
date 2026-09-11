@@ -10,6 +10,7 @@ import { agent as claude } from '@/backends/claude';
 import { agent as codex } from '@/backends/codex';
 import { agent as copilot } from '@/backends/copilot';
 import { agent as cursor } from '@/backends/cursor';
+import { agent as devin } from '@/backends/devin';
 import { agent as gemini } from '@/backends/gemini';
 import { agent as grok } from '@/backends/grok';
 import { agent as kimi } from '@/backends/kimi';
@@ -68,6 +69,7 @@ export const AGENTS: Partial<Record<CatalogAgentId, AgentCatalogEntry>> = {
   pi,
   copilot,
   cursor,
+  devin,
 };
 
 export function requireCatalogEntry(agentId: CatalogAgentId): AgentCatalogEntry {

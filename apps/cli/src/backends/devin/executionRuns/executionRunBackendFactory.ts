@@ -1,0 +1,30 @@
+import { getAgentModelConfig } from '@happier-dev/agents';
+
+import { createDevinBackend } from '@/backends/devin/acp/backend';
+import { permissionModeForExecutionRunPolicy } from '@/agent/executionRuns/policy/permissionModeForExecutionRunPolicy';
+import type { ExecutionRunBackendFactory } from '@/agent/executionRuns/registry/executionRunBackendTypes';
+import { withExecutionRunBackendModelOptions } from '@/agent/executionRuns/runtime/applyExecutionRunBackendModelOptions';
+
+const modelConfig = getAgentModelConfig('devin');
+
+export const executionRunBackendFactory: ExecutionRunBackendFactory = (options) => {
+  const backend = createDevinBackend({
+    cwd: options.cwd,
+    env: options.isolation?.env,
+    permissionHandler: options.permissionHandler,
+    permissionMode: permissionModeForExecutionRunPolicy(options.permissionMode),
+  });
+
+  return withExecutionRunBackendModelOptions(backend, {
+    ...(options.modelId ? { modelId: options.modelId } : {}),
+    modelApply: {
+      method: modelConfig.acpModelSetMethod ?? 'set_model',
+      ...(modelConfig.acpModelConfigOptionId
+        ? { configOptionId: modelConfig.acpModelConfigOptionId }
+        : {}),
+    },
+    ...(options.sessionConfigOptionOverrides
+      ? { sessionConfigOptionOverrides: options.sessionConfigOptionOverrides }
+      : {}),
+  });
+};

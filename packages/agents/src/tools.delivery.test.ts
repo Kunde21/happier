@@ -44,4 +44,11 @@ describe('agent tools delivery capability', () => {
     expect(usesNativeMcpTools('grok')).toBe(true);
     expect(isAgentToolsUnsupported('grok')).toBe(false);
   });
+
+  it('classifies Devin as native MCP through its provider config adapter', () => {
+    expect(getAgentToolsCapability('devin')).toEqual({ delivery: 'native_mcp', support: 'supported' });
+    expect(usesNativeMcpTools('devin')).toBe(true);
+    expect(usesShellBridgeTools('devin')).toBe(false);
+    expect(isAgentToolsUnsupported('devin')).toBe(false);
+  });
 });

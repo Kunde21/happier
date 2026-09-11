@@ -352,6 +352,34 @@ export const AGENTS_CORE = {
             nativeImageGeneration: NO_NATIVE_IMAGE_GENERATION,
         },
     },
+    devin: {
+        id: 'devin',
+        cliSubcommand: 'devin',
+        detectKey: providerDetectKey('devin'),
+        flavorAliases: ['devin-cli'],
+        cloudConnect: null,
+        connectedServices: null,
+        resume: { vendorResume: 'supported', vendorResumeIdField: 'devinSessionId' },
+        sessionStorage: { direct: true, persisted: true },
+        sessionCapabilities: {
+            sessionListing: 'unsupported',
+            sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
+            sessionRollback: { conversation: 'unsupported' },
+        },
+        handoff: { vendorStateTransfer: 'unsupported' },
+        localControl: { supported: false, attachStrategy: 'unsupported' },
+        runtimeInput: {
+            inFlightSteerSupported: false,
+            terminalPromptInjectionSupported: false,
+        },
+        // Devin loads session MCP servers through its provider-owned process config adapter.
+        tools: { delivery: 'native_mcp', support: 'supported' },
+        media: {
+            acceptsImageInput: 'experimental',
+            emitsSessionMedia: GENERIC_SESSION_MEDIA_OUTPUT,
+            nativeImageGeneration: NO_NATIVE_IMAGE_GENERATION,
+        },
+    },
     customAcp: {
         id: 'customAcp',
         cliSubcommand: 'customAcp',

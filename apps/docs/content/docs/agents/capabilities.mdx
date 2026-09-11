@@ -14,7 +14,7 @@ rather than the state of things whenever someone last updated a wiki page. A
 dash means the agent does not support that capability, not that Happier has not
 got to it yet.
 
-3 of the 14 agents are marked Stable: Claude, Codex, OpenCode.
+3 of the 15 agents are marked Stable: Claude, Codex, OpenCode.
 The rest are Experimental — they work, and people use them daily, but their
 integration is younger and more likely to change. Availability of an agent is
 separate from availability of a feature; see
@@ -33,6 +33,7 @@ separate from availability of a feature; see
 | **Kimi** | `happier kimi` | Experimental | Queried from the agent | Vendor recipe |
 | **Kilo** | `happier kilo` | Experimental | Queried from the agent, custom ids allowed | `@kilocode/cli` |
 | **Kiro** | `happier kiro` | Experimental | Fixed list, custom ids allowed | Vendor's own installer |
+| **Devin** | `happier devin` | Experimental | Queried from the agent | Vendor's own installer |
 | **Custom ACP** | `happier customAcp` | Experimental | Queried from the agent, custom ids allowed | Vendor recipe |
 | **Pi** | `happier pi` | Experimental | Queried from the agent, custom ids allowed | `@earendil-works/pi-coding-agent` |
 | **Copilot** | `happier copilot` | Experimental | Queried from the agent | `@github/copilot` |
@@ -48,7 +49,7 @@ that speaks the Agent Client Protocol, so its row describes the adapter rather
 than a particular vendor. See [Custom ACP](/agents/custom-acp).
 
 Several subcommands accept aliases, so the name you already have in your fingers
-usually works: `codex` also answers to `codex-acp`, `codex-mcp`, `openai`, `gpt`; `opencode` also answers to `open-code`; `qwen` also answers to `qwen-code`; `kimi` also answers to `kimi-cli`; `kilo` also answers to `kilocode`; `kiro` also answers to `kiro-cli`; `customAcp` also answers to `custom-acp`; `pi` also answers to `pi-coding-agent`; `copilot` also answers to `github-copilot`, `copilot-cli`; `cursor` also answers to `cursor-agent`; `grok` also answers to `grok-build`, `grok-cli`.
+usually works: `codex` also answers to `codex-acp`, `codex-mcp`, `openai`, `gpt`; `opencode` also answers to `open-code`; `qwen` also answers to `qwen-code`; `kimi` also answers to `kimi-cli`; `kilo` also answers to `kilocode`; `kiro` also answers to `kiro-cli`; `devin` also answers to `devin-cli`; `customAcp` also answers to `custom-acp`; `pi` also answers to `pi-coding-agent`; `copilot` also answers to `github-copilot`, `copilot-cli`; `cursor` also answers to `cursor-agent`; `grok` also answers to `grok-build`, `grok-cli`.
 
 ## Sessions
 
@@ -66,6 +67,7 @@ work everywhere. They do not.
 | **Kimi** | Yes | — | — | — | — |
 | **Kilo** | Yes | — | — | — | — |
 | **Kiro** | Experimental | — | — | — | — |
+| **Devin** | Yes | — | — | — | — |
 | **Custom ACP** | — | — | — | — | — |
 | **Pi** | Yes | — | — | — | — |
 | **Copilot** | Yes | — | — | — | — |
@@ -96,6 +98,7 @@ you can actually browse and import is described in
 | **Kimi** | — | — | — | — |
 | **Kilo** | — | Agent modes, from the agent | Yes | — |
 | **Kiro** | — | Agent modes, from the agent | Yes | — |
+| **Devin** | — | Agent modes, from the agent | Yes | — |
 | **Custom ACP** | — | Agent modes, from the agent | Yes | — |
 | **Pi** | Yes | — | — | — |
 | **Copilot** | — | Agent modes, from the agent | Yes | — |
@@ -126,6 +129,7 @@ mode. Codex, for instance, reaches `plan` through the Mode control.
 | **Kimi** | Yes | Experimental | — | — | — |
 | **Kilo** | Yes | Experimental | — | — | — |
 | **Kiro** | Yes | Experimental | — | Yes (`native_mcp`) | — |
+| **Devin** | Yes | Experimental | — | Yes (`native_mcp`) | — |
 | **Custom ACP** | Yes | Experimental | — | Yes (`native_mcp`) | — |
 | **Pi** | Experimental | Experimental | — | — | `openai-codex`, `openai`, `claude-subscription`, `anthropic` |
 | **Copilot** | Yes | Experimental | — | — | — |
@@ -161,6 +165,7 @@ some declarations to lag the runtime.
 | **Kimi** | Agent-managed | Automatic |
 | **Kilo** | Agent-managed | Automatic |
 | **Kiro** | Agent-managed | Manual only |
+| **Devin** | Agent-managed | Manual only |
 | **Custom ACP** | Agent-managed | Manual only |
 | **Pi** | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Automatic |
 | **Copilot** | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` | Automatic |

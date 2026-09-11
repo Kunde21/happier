@@ -7,7 +7,7 @@ import {
 } from '@happier-dev/protocol';
 import type { AnyAgentRuntimeKindsManifest } from './runtimeKinds.js';
 
-export const AGENT_IDS = ['claude', 'codex', 'opencode', 'gemini', 'auggie', 'qwen', 'kimi', 'kilo', 'kiro', 'customAcp', 'pi', 'copilot', 'cursor', 'grok'] as const;
+export const AGENT_IDS = ['claude', 'codex', 'opencode', 'gemini', 'auggie', 'qwen', 'kimi', 'kilo', 'kiro', 'devin', 'customAcp', 'pi', 'copilot', 'cursor', 'grok'] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 export const PERMISSION_MODES = SESSION_PERMISSION_MODES;
@@ -73,6 +73,7 @@ export type VendorResumeIdField =
     | 'kimiSessionId'
     | 'kiloSessionId'
     | 'kiroSessionId'
+    | 'devinSessionId'
     | 'piSessionId'
     | 'copilotSessionId'
     | 'cursorSessionId'
