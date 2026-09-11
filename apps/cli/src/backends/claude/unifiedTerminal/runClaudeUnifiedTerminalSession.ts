@@ -200,6 +200,13 @@ export class ClaudeUnifiedTerminalHostUnavailableError extends Error {
   }
 }
 
+export function resolveClaudeUnifiedInitialHostLivenessTimeoutMs(
+  explicitTimeoutMs: number | undefined,
+  startupReadinessTimeoutMs: number,
+): number {
+  return explicitTimeoutMs ?? startupReadinessTimeoutMs;
+}
+
 export type ClaudeUnifiedTerminalSessionOptions<Mode extends EnhancedMode = EnhancedMode> = Readonly<{
   path: string;
   happySessionId?: string | null | undefined;
@@ -2410,8 +2417,10 @@ export async function runClaudeUnifiedTerminalSession<Mode extends EnhancedMode 
           logger.debug('[unified]: failed to dispose Claude unified controller dependency (non-fatal)', error);
         },
         initialLivenessTimeoutMs:
-          opts.initialHostLivenessTimeoutMs ??
-          Math.min(configuration.claudeUnifiedTerminalStartupReadinessTimeoutMs, 1_000),
+          resolveClaudeUnifiedInitialHostLivenessTimeoutMs(
+            opts.initialHostLivenessTimeoutMs,
+            configuration.claudeUnifiedTerminalStartupReadinessTimeoutMs,
+          ),
         initialLivenessPollMs:
           opts.initialHostLivenessPollMs ??
           Math.min(configuration.claudeUnifiedTerminalStartupReadinessPollMs, 50),
