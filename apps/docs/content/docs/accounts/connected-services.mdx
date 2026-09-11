@@ -286,6 +286,13 @@ dead account.
 Reorder members to set the fallback order, and enable or disable individual
 accounts without removing them.
 
+If a provider reports more than one independent allowance, the pool's
+**Usage limits** row can either track all of them (the default) or a selected
+set. For example, a separate Spark or Fable allowance can have its own pool
+without changing the model of any running session. Limits that an account is
+not currently reporting stay visible in the selection and are treated as
+unknown, rather than silently falling back to every allowance.
+
 ### When it switches
 
 Automatic switching is **off by default** — turn it on per pool. Once on, it

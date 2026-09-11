@@ -50,6 +50,7 @@ const DISPLAY_NAMES = {
   kimi: 'Kimi',
   kilo: 'Kilo',
   kiro: 'Kiro',
+  devin: 'Devin',
   customAcp: 'Custom ACP',
   pi: 'Pi',
   copilot: 'Copilot',

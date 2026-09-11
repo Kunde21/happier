@@ -124,6 +124,25 @@ understand without erasing the opt-in. This projection preserves the strict read
 `cli-v0.2.11` and `server-v0.2.11` (commit `98ea8fb76733b1dd785d38c31360179cafa84824`);
 it can be removed when those strict response readers are no longer supported.
 
+### Model-entitlement pool disable opt-in (development)
+
+`autoDisablePlanInvalidAccounts` is optional and absent means false. Updated V3
+clients negotiate the field independently with
+`x-happier-connected-service-auto-disable-plan-invalid: 1`; the response boundary
+omits it for older strict readers without disturbing the existing quota-reset
+Accept negotiation. Writes require the corresponding server feature bit.
+
+Only the exact Codex ChatGPT-account unsupported-model response becomes
+model-scoped `plan_invalid` evidence. The daemon records a 24-hour per-model
+exclusion and, when the pool opt-in is true, disables that member. Manual
+re-enable clears the automatic-disable marker and runtime blockers. Generic
+`plan_invalid` evidence does not persistently disable an account.
+
+Updated V3 clients persist the marker and disabled flag together through the
+member PATCH's optional `state` plus `expectedRuntimeStateRevision` fields. They
+send that shape only after observing the negotiated opt-in; older clients never
+author it, and ordinary member PATCH requests retain their predecessor shape.
+
 The same response boundary masks the opt-in while its server feature or dependencies
 are disabled, without changing the stored policy. Existing recovery reads therefore
 observe automatic spending as disabled; re-enabling the feature restores the saved choice.
@@ -133,6 +152,21 @@ persisted-policy parser rejects the new field and falls back to its complete def
 policy. Do not roll back a database containing this opt-in to that reader without a
 separately validated, authorized data reconciliation. No database rewrite is performed
 by the response projection.
+
+### Account-pool quota-limit selection (development)
+
+`quotaLimitSelection` is optional in the V1 pool policy and absence means all
+provider-reported allowances. Updated clients author it only when the server
+advertises `connectedServices.poolQuotaLimitSelection`; `selected` always
+contains at least one unique provider allowance ID, while `all` contains none.
+
+Updated group readers send
+`x-happier-connected-service-pool-quota-limit-selection: 1`. The existing V3
+group response boundary omits the field for strict predecessor readers while
+preserving the independently negotiated quota-reset and plan-disable fields.
+When the field is absent in storage, a negotiated reader receives the explicit
+`all` shape. Older-client PATCH operations remain merges and cannot erase a
+stored selection.
 
 ### Session draft rollout
 
