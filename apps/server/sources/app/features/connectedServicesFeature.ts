@@ -19,6 +19,8 @@ export function resolveConnectedServicesFeature(
                 accountGroups: { enabled: accountGroupsEnabled },
                 accountFallback: { enabled: accountFallbackEnabled },
                 autoQuotaReset: { enabled: true },
+                autoDisablePlanInvalid: { enabled: true },
+                poolQuotaLimitSelection: { enabled: true },
             },
         },
         capabilities: {

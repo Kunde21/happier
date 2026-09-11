@@ -13,6 +13,8 @@ describe("resolveConnectedServicesFeature", () => {
             accountGroups: { enabled: true },
             accountFallback: { enabled: true },
             autoQuotaReset: { enabled: true },
+            autoDisablePlanInvalid: { enabled: true },
+            poolQuotaLimitSelection: { enabled: true },
         });
         expect(feature.capabilities?.connectedServices).toEqual({
             credentialDelete: { revisionGuard: true },
@@ -34,6 +36,8 @@ describe("resolveConnectedServicesFeature", () => {
             accountGroups: { enabled: true },
             accountFallback: { enabled: true },
             autoQuotaReset: { enabled: true },
+            autoDisablePlanInvalid: { enabled: true },
+            poolQuotaLimitSelection: { enabled: true },
         });
     });
 
@@ -50,6 +54,8 @@ describe("resolveConnectedServicesFeature", () => {
             accountGroups: { enabled: false },
             accountFallback: { enabled: false },
             autoQuotaReset: { enabled: true },
+            autoDisablePlanInvalid: { enabled: true },
+            poolQuotaLimitSelection: { enabled: true },
         });
     });
 });

@@ -211,15 +211,26 @@ describe("connectRoutes connected service auth groups (integration)", () => {
         const user = await createAccount("pk-groups-auto-reset");
         await createConnectedProfile(user.id, "openai-codex", "work");
         const app = await createReadyApp();
-        const headers = { ...authHeaders(user.id), accept: "application/json; happier-connected-service-auto-quota-reset=1" };
+        const quotaResetHeaders = { ...authHeaders(user.id), accept: "application/json; happier-connected-service-auto-quota-reset=1" };
+        const headers = {
+            ...quotaResetHeaders,
+            "x-happier-connected-service-auto-disable-plan-invalid": "1",
+            "x-happier-connected-service-pool-quota-limit-selection": "1",
+        };
         const url = "/v3/connect/openai-codex/groups/reset-pool";
         const create = await app.inject({ method: "POST", url: "/v3/connect/openai-codex/groups", headers,
-            payload: { groupId: "reset-pool", displayName: null, activeProfileId: "work", members: [{ profileId: "work", priority: 10 }], policy: { autoUseQuotaResetsWhenExhausted: true } },
+            payload: { groupId: "reset-pool", displayName: null, activeProfileId: "work", members: [{ profileId: "work", priority: 10 }], policy: { autoUseQuotaResetsWhenExhausted: true, autoDisablePlanInvalidAccounts: true, quotaLimitSelection: { mode: "selected", providerLimitIds: ["standard"] } } },
         });
         expect(create.statusCode).toBe(200);
         expect(create.json().group.policy.autoUseQuotaResetsWhenExhausted).toBe(true);
         const oldRead = await app.inject({ method: "GET", url, headers: authHeaders(user.id) });
         expect(oldRead.json().group.policy).not.toHaveProperty("autoUseQuotaResetsWhenExhausted");
+        expect(oldRead.json().group.policy).not.toHaveProperty("autoDisablePlanInvalidAccounts");
+        expect(oldRead.json().group.policy).not.toHaveProperty("quotaLimitSelection");
+        const quotaResetOnlyRead = await app.inject({ method: "GET", url, headers: quotaResetHeaders });
+        expect(quotaResetOnlyRead.json().group.policy.autoUseQuotaResetsWhenExhausted).toBe(true);
+        expect(quotaResetOnlyRead.json().group.policy).not.toHaveProperty("autoDisablePlanInvalidAccounts");
+        expect(quotaResetOnlyRead.json().group.policy).not.toHaveProperty("quotaLimitSelection");
         const oldList = await app.inject({ method: "GET", url: "/v3/connect/openai-codex/groups", headers: authHeaders(user.id) });
         expect(oldList.json().groups[0].policy).not.toHaveProperty("autoUseQuotaResetsWhenExhausted");
         const oldEdit = await app.inject({ method: "PATCH", url, headers: authHeaders(user.id), payload: {
@@ -228,13 +239,21 @@ describe("connectRoutes connected service auth groups (integration)", () => {
         expect(oldEdit.statusCode).toBe(200);
         expect(oldEdit.json().group.policy).not.toHaveProperty("autoUseQuotaResetsWhenExhausted");
         const newRead = await app.inject({ method: "GET", url, headers });
-        expect(newRead.json().group.policy).toMatchObject({ autoUseQuotaResetsWhenExhausted: true, cooldownMs: 1234 });
+        expect(newRead.json().group.policy).toMatchObject({ autoUseQuotaResetsWhenExhausted: true, autoDisablePlanInvalidAccounts: true, quotaLimitSelection: { mode: "selected", providerLimitIds: ["standard"] }, cooldownMs: 1234 });
         process.env.HAPPIER_FEATURE_CONNECTED_SERVICES_QUOTAS__ENABLED = "0";
         const disabledRead = await app.inject({ method: "GET", url, headers });
         expect(disabledRead.json().group.policy).not.toHaveProperty("autoUseQuotaResetsWhenExhausted");
         process.env.HAPPIER_FEATURE_CONNECTED_SERVICES_QUOTAS__ENABLED = "1";
         const restoredRead = await app.inject({ method: "GET", url, headers });
         expect(restoredRead.json().group.policy.autoUseQuotaResetsWhenExhausted).toBe(true);
+
+        const createDefault = await app.inject({ method: "POST", url: "/v3/connect/openai-codex/groups", headers,
+            payload: { groupId: "default-limits-pool", displayName: null, activeProfileId: "work", members: [{ profileId: "work", priority: 10 }] },
+        });
+        expect(createDefault.statusCode).toBe(200);
+        expect(createDefault.json().group.policy.quotaLimitSelection).toEqual({ mode: "all", providerLimitIds: [] });
+        const oldDefaultRead = await app.inject({ method: "GET", url: "/v3/connect/openai-codex/groups/default-limits-pool", headers: authHeaders(user.id) });
+        expect(oldDefaultRead.json().group.policy).not.toHaveProperty("quotaLimitSelection");
     });
 
     it.each(["claude-subscription", "openai-codex"])("rejects quota-reset opt-in when the service or quota feature cannot support it (%s)", async (serviceId) => {
@@ -1480,28 +1499,60 @@ describe("connectRoutes connected service auth groups (integration)", () => {
             method: "PATCH",
             url: "/v3/connect/openai-codex/groups/codex-main/members/backup",
             headers: authHeaders(user.id),
-            payload: { enabled: false, priority: 50, expectedGeneration: 1 },
+            payload: {
+                enabled: false,
+                priority: 50,
+                expectedGeneration: 1,
+                expectedRuntimeStateRevision: 0,
+                state: {
+                    autoDisabledReason: "model_not_entitled",
+                    lastFailureKind: "plan",
+                    lastFailureCode: "model_not_entitled",
+                    modelUnavailableUntilMsByModelId: { "gpt-5.6-sol": 86_401_000 },
+                    lastObservedAtMs: 1_000,
+                },
+            },
         });
         expect(disabled.statusCode).toBe(200);
         expect(disabled.json()).toEqual({
             group: expect.objectContaining({
                 generation: 2,
+                runtimeStateRevision: 1,
                 members: expect.arrayContaining([
-                    expect.objectContaining({ profileId: "backup", enabled: false, priority: 50 }),
+                    expect.objectContaining({
+                        profileId: "backup",
+                        enabled: false,
+                        priority: 50,
+                        state: expect.objectContaining({ autoDisabledReason: "model_not_entitled" }),
+                    }),
                 ]),
             }),
+        });
+        const reenabled = await app.inject({
+            method: "PATCH",
+            url: "/v3/connect/openai-codex/groups/codex-main/members/backup",
+            headers: authHeaders(user.id),
+            payload: { enabled: true, expectedGeneration: 2 },
+        });
+        expect(reenabled.statusCode).toBe(200);
+        expect(reenabled.json().group).toMatchObject({
+            generation: 3,
+            runtimeStateRevision: 2,
+            members: expect.arrayContaining([
+                expect.objectContaining({ profileId: "backup", enabled: true, state: {} }),
+            ]),
         });
 
         const removed = await app.inject({
             method: "DELETE",
-            url: "/v3/connect/openai-codex/groups/codex-main/members/backup?expectedGeneration=2",
+            url: "/v3/connect/openai-codex/groups/codex-main/members/backup?expectedGeneration=3",
             headers: { "x-test-user-id": user.id },
         });
         expect(removed.statusCode).toBe(200);
         expect(removed.json()).toEqual({
             group: expect.objectContaining({
                 activeProfileId: "work",
-                generation: 3,
+                generation: 4,
                 members: [
                     expect.objectContaining({ profileId: "work" }),
                 ],

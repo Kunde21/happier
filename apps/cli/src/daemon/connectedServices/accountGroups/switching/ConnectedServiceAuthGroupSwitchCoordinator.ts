@@ -7,6 +7,7 @@ import {
   type ConnectedServiceAuthGroupMemberRuntimeState,
   type ConnectedServiceAuthGroupPolicyV1,
 } from '../selection/selectConnectedServiceAuthGroupCandidate';
+import { shouldHandleConnectedServiceProviderLimitFailure } from '../quotas/quotaLimitSelection';
 import { resolveConnectedServiceAuthGroupPreTurnQuotaProbeProfileIds } from '../selection/resolveConnectedServiceAuthGroupPreTurnQuotaProbeProfileIds';
 import {
   readConnectedServiceAuthGenerationApplyFailure,
@@ -183,6 +184,8 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
       loaded: ConnectedServiceAuthGroupSwitchState;
       reason: string;
       limitCategory?: string | null;
+      quotaScope?: string | null;
+      providerLimitId?: string | null;
       observedProfileId?: string | null;
       retryAtMs?: number | null;
       retryAfterMs?: number | null;
@@ -292,6 +295,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
     activeProfileId: string | null | undefined;
     reason: string;
     allowCurrentProfileRetry?: boolean;
+    providerLimitId?: string | null;
   }>): Promise<ReturnType<typeof selectConnectedServiceAuthGroupCandidate>> {
     const memberStatesByProfileId = new Map(input.state.memberStatesByProfileId);
     const unavailableProfileIds = new Set<string>();
@@ -304,6 +308,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
         members: input.state.members,
         memberStatesByProfileId,
         unavailableProfileIds,
+        ...(input.providerLimitId === undefined ? {} : { providerLimitId: input.providerLimitId }),
         ...(input.allowCurrentProfileRetry === undefined
           ? {}
           : { allowCurrentProfileRetry: input.allowCurrentProfileRetry }),
@@ -569,6 +574,8 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
     loaded: ConnectedServiceAuthGroupSwitchState;
     reason: string;
     limitCategory?: string | null;
+    quotaScope?: string | null;
+    providerLimitId?: string | null;
     observedProfileId?: string | null;
     retryAtMs?: number | null;
     retryAfterMs?: number | null;
@@ -589,6 +596,8 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
           loaded,
           reason: input.reason,
           limitCategory: input.limitCategory,
+          quotaScope: input.quotaScope,
+          providerLimitId: input.providerLimitId,
           observedProfileId: input.observedProfileId,
           retryAtMs: input.retryAtMs,
           retryAfterMs: input.retryAfterMs,
@@ -775,6 +784,19 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
     phase: ConnectedServiceAuthGroupSwitchPipelinePhase;
     result: ConnectedServiceAuthGroupSwitchResult;
   }> | null {
+    if (
+      input.trigger === 'classified_failure'
+      && !shouldHandleConnectedServiceProviderLimitFailure({
+        selection: input.loaded.policy.quotaLimitSelection,
+        reason: input.request.reason,
+        providerLimitId: input.request.providerLimitId,
+      })
+    ) {
+      return {
+        phase: 'policy',
+        result: { status: 'switch_reason_disabled', generation: input.loaded.generation },
+      };
+    }
     if (input.loaded.policy.recoveryMode === 'off') {
       return {
         phase: 'policy',
@@ -1026,6 +1048,8 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
           loaded,
           reason: input.reason,
           limitCategory: input.limitCategory,
+          quotaScope: input.quotaScope,
+          providerLimitId: input.providerLimitId,
           observedProfileId: input.observedProfileId,
           retryAtMs: input.retryAtMs,
           retryAfterMs: input.retryAfterMs,
@@ -1246,6 +1270,9 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
         state: loaded,
         activeProfileId: trigger === 'pre_turn' ? loaded.activeProfileId : selectionActiveProfileId,
         reason: input.reason,
+        ...(trigger === 'classified_failure' && input.providerLimitId !== undefined
+          ? { providerLimitId: input.providerLimitId }
+          : {}),
         ...(trigger === 'pre_turn'
           ? { allowCurrentProfileRetry: allowLoadedActiveProfileRetry }
           : { allowCurrentProfileRetry: input.allowCurrentProfileRetry === true }),
@@ -1264,6 +1291,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
             state: loaded,
             activeProfileId: selectionActiveProfileId,
             reason: input.reason,
+            ...(input.providerLimitId === undefined ? {} : { providerLimitId: input.providerLimitId }),
           });
         }
       }
@@ -1288,6 +1316,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
           }
           selected = await this.selectPreparedCandidate({
             state: loaded, activeProfileId: loaded.activeProfileId, reason: input.reason, allowCurrentProfileRetry: true,
+            ...(input.providerLimitId === undefined ? {} : { providerLimitId: input.providerLimitId }),
           });
           for (const excluded of selected.excluded) {
             if (excluded.reason === 'credential_unavailable') unavailableProfileIds.add(excluded.profileId);
@@ -1303,6 +1332,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
               state: loaded,
               activeProfileId: loaded.activeProfileId,
               reason: input.reason,
+              ...(input.providerLimitId === undefined ? {} : { providerLimitId: input.providerLimitId }),
             });
           }
           return null;

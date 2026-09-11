@@ -57,7 +57,9 @@ export const UpdateAuthGroupMemberBodySchema = z
     .object({
         priority: z.number().int().optional(),
         enabled: z.boolean().optional(),
+        state: ConnectedServiceAuthGroupMemberStateV1Schema.removeDefault().optional(),
         expectedGeneration: z.number().int().nonnegative().optional(),
+        expectedRuntimeStateRevision: z.number().int().nonnegative().optional(),
     })
     .strict();
 

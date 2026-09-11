@@ -73,6 +73,21 @@ describe('DEFAULT_CONNECTED_SERVICE_AUTH_GROUP_POLICY_V1', () => {
 });
 
 describe('selectConnectedServiceAuthGroupCandidate', () => {
+  it('excludes a member only for the model whose entitlement cooldown is active', () => {
+    const params = {
+      nowMs: 1_000,
+      quotaFreshnessMs: 60_000,
+      activeProfileId: null,
+      policy: ConnectedServiceAuthGroupPolicyV1Schema.parse({}),
+      members: [member('primary', 1, 1), member('backup', 2, 2)],
+      memberStatesByProfileId: new Map([
+        ['primary', { modelUnavailableUntilMsByModelId: { 'gpt-5.6-sol': 86_401_000 } }],
+      ]),
+    } as const;
+
+    expect(selectConnectedServiceAuthGroupCandidate({ ...params, providerLimitId: 'gpt-5.6-sol' }).selected?.profileId).toBe('backup');
+    expect(selectConnectedServiceAuthGroupCandidate({ ...params, providerLimitId: 'gpt-5.6-terra' }).selected?.profileId).toBe('primary');
+  });
   it('does not treat the active profile as a meaningfully better soft-switch target', () => {
     expect(isConnectedServiceAuthGroupSoftSwitchCandidateMeaningfullyBetter({
       activeProfileId: 'active',

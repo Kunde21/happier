@@ -2466,6 +2466,7 @@ export class ConnectedServiceQuotasCoordinator {
       serviceId: input.serviceId,
       groupId: input.groupId,
       capturedAtMs: input.now,
+      quotaLimitSelection: input.group.policy.quotaLimitSelection,
     }).get(input.profileId) ?? null;
     const quotaSnapshot = runtimeState?.quotaSnapshot ?? null;
     if (!quotaSnapshot) return null;
@@ -2925,6 +2926,7 @@ export class ConnectedServiceQuotasCoordinator {
     });
     let outcome: ConnectedServiceGroupQuotaProbeResult = result('complete');
     let activeProfileId: string | null = null;
+    let quotaLimitSelection: ConnectedServiceAuthGroupV1['policy']['quotaLimitSelection'];
     const runtimeQuotaSnapshots = this.runtimeQuotaSnapshots;
     try {
       if (!groupId || profileIds.length === 0) return outcome;
@@ -2964,6 +2966,7 @@ export class ConnectedServiceQuotasCoordinator {
         signal: deadlineAtMs === null ? undefined : deadlineController.signal,
       });
       activeProfileId = group?.activeProfileId?.trim() || null;
+      quotaLimitSelection = group?.policy.quotaLimitSelection;
       if (deadlineExceeded()) {
         outcome = result('incomplete', 'deadline_exceeded');
         return outcome;
@@ -3127,6 +3130,7 @@ export class ConnectedServiceQuotasCoordinator {
             serviceId,
             groupId,
             capturedAtMs: Math.max(0, Math.trunc(this.now())),
+            quotaLimitSelection,
           }).get(activeProfileId)?.quotaSnapshot ?? null
         : null;
       this.recordDiagnostic?.({

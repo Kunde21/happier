@@ -35,6 +35,7 @@ import {
     setConnectedServiceAuthGroupActiveProfileV3,
 } from '@/sync/api/account/apiConnectedServiceAuthGroupsV3';
 import { PoolMembersSelectField, type PoolMembershipCandidate } from './PoolMembersSelectField';
+import { PoolQuotaLimitsSelectField } from './PoolQuotaLimitsSelectField';
 import { sync } from '@/sync/sync';
 import { useProfile, useSettings } from '@/sync/store/hooks';
 import { t } from '@/text';
@@ -72,6 +73,8 @@ import { commitPoolMemberReorder, computePoolMemberPriorities, type ReorderableG
 import { commitPoolMembershipBatch } from './commitPoolMembershipBatch';
 import { PoolMembersDropOverlay } from './PoolMembersDropOverlay';
 import { Icon } from '@/components/ui/icons/Icon';
+import { useConnectedServiceQuotaSnapshots } from '@/hooks/server/connectedServices/useConnectedServiceQuotaSnapshots';
+import { connectedServiceProfileKey } from '@/sync/domains/connectedServices/connectedServiceProfilePreferences';
 
 type GroupStrategy = ConnectedServiceAuthGroupPolicyV1['strategy'];
 type GroupRecoveryMode = ConnectedServiceAuthGroupPolicyV1['recoveryMode'];
@@ -220,6 +223,8 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
     const accountGroupsEnabled = useFeatureEnabled('connectedServices.accountGroups');
     const accountFallbackEnabled = useFeatureEnabled('connectedServices.accountFallback');
     const autoQuotaResetEnabled = useFeatureEnabled('connectedServices.autoQuotaReset');
+    const autoDisablePlanInvalidEnabled = useFeatureEnabled('connectedServices.autoDisablePlanInvalid');
+    const poolQuotaLimitSelectionEnabled = useFeatureEnabled('connectedServices.poolQuotaLimitSelection');
     const [groupsState, setGroupsState] = React.useState<PoolDetailGroupsState>(EMPTY_GROUPS_STATE);
     const [strategyOpen, setStrategyOpen] = React.useState(false);
     const [recoveryModeOpen, setRecoveryModeOpen] = React.useState(false);
@@ -238,6 +243,20 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
     const groups = groupsState.groups;
     const groupsLoadStatus = groupsState.loadStatus;
     const group = groups.find((candidate) => candidate.serviceId === serviceId && candidate.groupId === groupId) ?? null;
+    const quotaProfileRefs = React.useMemo(() => {
+        if (!serviceId || !group) return [];
+        const profileById = new Map(profiles.map((candidate) => [readProfileId(candidate), candidate]));
+        return group.members.map((member) => ({
+            serviceId,
+            profileId: member.profileId,
+            credentialHealthStatus: (profileById.get(member.profileId) as { status?: unknown } | undefined)?.status,
+        }));
+    }, [group, profiles, serviceId]);
+    const quotaSnapshots = useConnectedServiceQuotaSnapshots(quotaProfileRefs);
+    const poolQuotaSnapshotList = React.useMemo(
+        () => quotaProfileRefs.map((entry) => quotaSnapshots.snapshotsByKey[connectedServiceProfileKey(entry)] ?? null),
+        [quotaProfileRefs, quotaSnapshots.snapshotsByKey],
+    );
 
     const runtimeGroupCapability = React.useMemo(
         () => serviceId
@@ -414,6 +433,16 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
     const handleSetAutoQuotaReset = (autoUseQuotaResetsWhenExhausted: boolean) => {
         if (autoQuotaResetEnabled && runtimeGroupCapability.quotaResetSupported) {
             void patchPolicy({ autoUseQuotaResetsWhenExhausted });
+        }
+    };
+    const handleSetAutoDisablePlanInvalid = (autoDisablePlanInvalidAccounts: boolean) => {
+        if (autoDisablePlanInvalidEnabled && fallbackControlsEnabled) {
+            void patchPolicy({ autoDisablePlanInvalidAccounts });
+        }
+    };
+    const handleSetQuotaLimitSelection = (quotaLimitSelection: NonNullable<ConnectedServiceAuthGroupPolicyV1['quotaLimitSelection']>) => {
+        if (poolQuotaLimitSelectionEnabled && fallbackControlsEnabled) {
+            void patchPolicy({ quotaLimitSelection });
         }
     };
 
@@ -1012,6 +1041,25 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
                     )}
                     showChevron={false}
                 />
+                {autoDisablePlanInvalidEnabled ? (
+                    <Item
+                        testID="connected-services-pool-detail:auto-disable-plan-invalid"
+                        title={t('connectedServices.detail.groupDetail.autoDisablePlanInvalidTitle')}
+                        subtitle={t('connectedServices.detail.groupDetail.autoDisablePlanInvalidSubtitle')}
+                        disabled={!fallbackControlsEnabled}
+                        rightElement={(
+                            <Switch
+                                testID="connected-services-pool-detail:auto-disable-plan-invalid:toggle"
+                                value={group.policy.autoDisablePlanInvalidAccounts === true}
+                                onValueChange={fallbackControlsEnabled ? handleSetAutoDisablePlanInvalid : undefined}
+                                disabled={!fallbackControlsEnabled}
+                                accessibilityLabel={t('connectedServices.detail.groupDetail.autoDisablePlanInvalidTitle')}
+                                compact
+                            />
+                        )}
+                        showChevron={false}
+                    />
+                ) : null}
                 {autoQuotaResetEnabled && runtimeGroupCapability.quotaResetSupported ? (
                     <Item
                         testID="connected-services-pool-detail:auto-quota-reset"
@@ -1027,6 +1075,14 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
                             />
                         )}
                         showChevron={false}
+                    />
+                ) : null}
+                {poolQuotaLimitSelectionEnabled ? (
+                    <PoolQuotaLimitsSelectField
+                        snapshots={poolQuotaSnapshotList}
+                        selection={group.policy.quotaLimitSelection}
+                        onChange={handleSetQuotaLimitSelection}
+                        disabled={!fallbackControlsEnabled}
                     />
                 ) : null}
                 <DropdownMenu

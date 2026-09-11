@@ -25,8 +25,10 @@ describe('classifyCodexConnectedServiceAuthFailure', () => {
     });
 
     expect(result).toMatchObject({
-      kind: 'permission_denied',
+      kind: 'plan',
       limitCategory: 'plan_invalid',
+      quotaScope: 'model',
+      providerLimitId: 'gpt-5.6-sol',
       source: 'structured_provider_error',
     });
   });
@@ -46,8 +48,10 @@ describe('classifyCodexConnectedServiceAuthFailure', () => {
     });
 
     expect(result).toMatchObject({
-      kind: 'permission_denied',
+      kind: 'plan',
       limitCategory: 'plan_invalid',
+      quotaScope: 'model',
+      providerLimitId: 'gpt-5.6-sol',
       source: 'structured_provider_error',
     });
   });

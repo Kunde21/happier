@@ -1,4 +1,5 @@
 import type {
+  ConnectedServiceAuthGroupQuotaLimitSelectionV1,
   ConnectedServiceQuotaMeterV1,
   ProviderAccountUsageSnapshotV1,
 } from '@happier-dev/protocol';
@@ -11,6 +12,7 @@ import {
   type ProviderLimitCategory,
 } from '../../quotas/normalization';
 import type { ConnectedServiceAuthGroupMemberRuntimeState } from '../selection/selectConnectedServiceAuthGroupCandidate';
+import { selectConnectedServiceAuthGroupQuotaMeters } from './quotaLimitSelection';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -67,22 +69,26 @@ function isExhausted(meters: ReadonlyArray<NormalizedQuotaMeter>): boolean {
 
 export function projectProviderAccountUsageSnapshotToAuthGroupRuntimeState(
   snapshot: ProviderAccountUsageSnapshotV1,
+  selection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1,
 ): ConnectedServiceAuthGroupMemberRuntimeState | null {
   if (snapshot.state !== 'loaded_data' || snapshot.meters.length === 0) return null;
   return buildConnectedServiceAuthGroupRuntimeStateFromMeters({
     capturedAtMs: snapshot.fetchedAtMs,
     meters: snapshot.meters,
+    selection,
   });
 }
 
 export function buildConnectedServiceAuthGroupRuntimeStateFromMeters(input: Readonly<{
   capturedAtMs: number;
   meters: readonly ConnectedServiceQuotaMeterV1[];
+  selection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1;
 }>): ConnectedServiceAuthGroupMemberRuntimeState {
-  const normalizedMeters = input.meters.map(normalizeConnectedServiceAuthGroupQuotaMeter);
+  const selectedMeters = selectConnectedServiceAuthGroupQuotaMeters(input.meters, input.selection);
+  const normalizedMeters = selectedMeters.map(normalizeConnectedServiceAuthGroupQuotaMeter);
   const effectiveMeter = selectEffectiveQuotaMeter(normalizedMeters);
   return {
-    providerResetsAtMs: effectiveMeter?.resetAtMs ?? readProviderResetsAtMs(input),
+    providerResetsAtMs: effectiveMeter?.resetAtMs ?? readProviderResetsAtMs({ meters: selectedMeters }),
     quotaSnapshot: {
       capturedAtMs: input.capturedAtMs,
       effectiveMeterId: effectiveMeter?.meterId ?? null,
@@ -94,8 +100,10 @@ export function buildConnectedServiceAuthGroupRuntimeStateFromMeters(input: Read
         resetAtMs: meter.resetAtMs,
         providerLimitId: meter.providerLimitId,
       })),
-      exhausted: isExhausted(normalizedMeters),
-      planUnavailable: input.meters.length > 0 && input.meters.every((meter) => meter.status === 'unavailable'),
+      ...(selectedMeters.length > 0 ? {
+        exhausted: isExhausted(normalizedMeters),
+        planUnavailable: selectedMeters.every((meter) => meter.status === 'unavailable'),
+      } : {}),
     },
   };
 }

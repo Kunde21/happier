@@ -99,7 +99,49 @@ function createSnapshot(profileId: string, remainingPct: number): ProviderAccoun
   };
 }
 
+function createMultiLimitSnapshot(profileId: string): ProviderAccountUsageSnapshotV1 {
+  const snapshot = createSnapshot(profileId, 90);
+  return {
+    ...snapshot,
+    meters: [
+      { ...snapshot.meters[0]!, meterId: 'standard:weekly', providerLimitId: 'standard', remainingPct: 90, utilizationPct: 10 },
+      { ...snapshot.meters[0]!, meterId: 'spark:weekly', providerLimitId: 'spark', remainingPct: 0, utilizationPct: 100 },
+    ],
+  };
+}
+
 describe('buildConnectedServiceAuthGroupSwitchStateFromAccountUsage', () => {
+  it('derives every switching field from the pool-selected provider limits', () => {
+    const group = createGroup();
+    group.policy.quotaLimitSelection = { mode: 'selected', providerLimitIds: ['standard'] };
+    const snapshot = createMultiLimitSnapshot('exhausted');
+    const result = buildConnectedServiceAuthGroupSwitchStateFromAccountUsage({
+      group,
+      accountUsageStore: { resolveBySource: () => snapshot },
+    });
+
+    expect(result.state.memberStatesByProfileId.get('exhausted')?.quotaSnapshot).toMatchObject({
+      exhausted: false,
+      effectiveRemainingPercent: 90,
+      effectiveMeterId: 'standard:weekly',
+      meters: [expect.objectContaining({ providerLimitId: 'standard' })],
+    });
+  });
+
+  it('keeps a selected but currently unreported limit unknown instead of falling back to all meters', () => {
+    const group = createGroup();
+    group.policy.quotaLimitSelection = { mode: 'selected', providerLimitIds: ['future-limit'] };
+    const result = buildConnectedServiceAuthGroupSwitchStateFromAccountUsage({
+      group,
+      accountUsageStore: { resolveBySource: () => createMultiLimitSnapshot('exhausted') },
+    });
+    expect(result.state.memberStatesByProfileId.get('exhausted')?.quotaSnapshot).toMatchObject({
+      effectiveMeterId: null,
+      effectiveRemainingPercent: null,
+      meters: [],
+    });
+    expect(result.state.memberStatesByProfileId.get('exhausted')?.quotaSnapshot).not.toHaveProperty('exhausted');
+  });
   it('builds group member runtime state from source-backed provider usage using the active group generation', () => {
     const group = createGroup();
     const exhausted = createSnapshot('exhausted', 0);

@@ -605,9 +605,28 @@ describe('connectedServiceSchemas', () => {
         for (const name of ['ConnectedServiceAuthGroupPolicyV1Schema', 'ConnectedServiceAuthGroupPolicyPatchV1Schema']) {
             const schema = expectSchema(name);
             expect(schema.parse({})).not.toHaveProperty('autoUseQuotaResetsWhenExhausted');
+            expect(schema.parse({})).not.toHaveProperty('autoDisablePlanInvalidAccounts');
             expect(schema.parse({ autoUseQuotaResetsWhenExhausted: true })).toMatchObject({ autoUseQuotaResetsWhenExhausted: true });
             expect(schema.parse({ autoUseQuotaResetsWhenExhausted: false })).toMatchObject({ autoUseQuotaResetsWhenExhausted: false });
             expect(schema.safeParse({ autoUseQuotaResetsWhenExhausted: 'true' }).success).toBe(false);
+            expect(schema.parse({ autoDisablePlanInvalidAccounts: true })).toMatchObject({ autoDisablePlanInvalidAccounts: true });
+            expect(schema.safeParse({ autoDisablePlanInvalidAccounts: 'true' }).success).toBe(false);
+        }
+    });
+
+    it('accepts only canonical optional quota-limit selections', () => {
+        for (const name of ['ConnectedServiceAuthGroupPolicyV1Schema', 'ConnectedServiceAuthGroupPolicyPatchV1Schema']) {
+            const schema = expectSchema(name);
+            expect(schema.parse({})).not.toHaveProperty('quotaLimitSelection');
+            expect(schema.parse({ quotaLimitSelection: { mode: 'all', providerLimitIds: [] } })).toMatchObject({
+                quotaLimitSelection: { mode: 'all', providerLimitIds: [] },
+            });
+            expect(schema.parse({ quotaLimitSelection: { mode: 'selected', providerLimitIds: ['spark', 'standard'] } })).toMatchObject({
+                quotaLimitSelection: { mode: 'selected', providerLimitIds: ['spark', 'standard'] },
+            });
+            expect(schema.safeParse({ quotaLimitSelection: { mode: 'all', providerLimitIds: ['spark'] } }).success).toBe(false);
+            expect(schema.safeParse({ quotaLimitSelection: { mode: 'selected', providerLimitIds: [] } }).success).toBe(false);
+            expect(schema.safeParse({ quotaLimitSelection: { mode: 'selected', providerLimitIds: [' spark ', 'spark'] } }).success).toBe(false);
         }
     });
 
@@ -961,6 +980,21 @@ describe('connectedServiceSchemas', () => {
             enabled: false,
             expectedGeneration: 4,
         });
+        expect(ConnectedServiceAuthGroupMemberPatchRequestV1Schema.parse({
+            enabled: false,
+            state: { autoDisabledReason: 'model_not_entitled' },
+            expectedGeneration: 4,
+            expectedRuntimeStateRevision: 2,
+        })).toEqual({
+            enabled: false,
+            state: { autoDisabledReason: 'model_not_entitled' },
+            expectedGeneration: 4,
+            expectedRuntimeStateRevision: 2,
+        });
+        expect(ConnectedServiceAuthGroupMemberPatchRequestV1Schema.safeParse({
+            state: { autoDisabledReason: 'model_not_entitled' },
+            expectedGeneration: 4,
+        }).success).toBe(false);
         expect(ConnectedServiceAuthGroupMemberPatchRequestV1Schema.safeParse({
             enabled: false,
         }).success).toBe(false);

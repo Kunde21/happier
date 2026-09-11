@@ -222,7 +222,9 @@ export async function handleConnectedServiceRuntimeAuthFailure(input: Readonly<{
     action: input.classification.action,
     planType: input.classification.planType,
     switchesThisTurn: input.switchesThisTurn,
-    sessionSwitchesThisHour: input.sessionSwitchesThisHour,
+    ...(input.sessionSwitchesThisHour === undefined
+      ? {}
+      : { sessionSwitchesThisHour: input.sessionSwitchesThisHour }),
     ...(input.allowCurrentProfileRetry === undefined
       ? {}
       : { allowCurrentProfileRetry: input.allowCurrentProfileRetry }),

@@ -27,6 +27,8 @@ export type ConnectedServiceGroupMemberViewModel = Readonly<{
     validationBlockedUntilMs: number | null;
     lastObservedAtMs: number | null;
     lastFailureKind: string | null;
+    lastFailureCode: string | null;
+    autoDisabledReason: 'model_not_entitled' | null;
     readiness: ConnectedServiceGroupMemberReadiness;
     blocker: ConnectedServiceGroupMemberBlocker | null;
 }>;
@@ -76,6 +78,7 @@ const connectedServiceAuthGroupPolicyKeys = [
     'strategy',
     'autoSwitch',
     'autoUseQuotaResetsWhenExhausted',
+    'autoDisablePlanInvalidAccounts',
     'switchOn',
     'cooldownMs',
     'honorProviderResetsAt',
@@ -173,6 +176,8 @@ export function normalizeConnectedServiceGroupMember(value: unknown): ConnectedS
         validationBlockedUntilMs,
         lastObservedAtMs: readNumber(state.lastObservedAtMs),
         lastFailureKind: readConnectedServiceGroupString(state.lastFailureKind) || null,
+        lastFailureCode: readConnectedServiceGroupString(state.lastFailureCode) || null,
+        autoDisabledReason: state.autoDisabledReason === 'model_not_entitled' ? 'model_not_entitled' : null,
         readiness: !enabled ? 'disabled' : blocker?.kind ?? 'ready',
         blocker,
     };
@@ -389,7 +394,9 @@ export function formatConnectedServiceGroupMemberSubtitle(
         member.enabled ? t('connectedServices.detail.groups.memberEnabled') : t('connectedServices.detail.groups.memberDisabled'),
         t('connectedServices.detail.groups.memberPriority', { priority: member.priority }),
         formatConnectedServiceGroupMemberBlocker(member.blocker),
-        member.lastFailureKind
+        member.autoDisabledReason === 'model_not_entitled'
+            ? t('connectedServices.detail.groups.memberAutoDisabledModelNotEntitled')
+            : member.lastFailureKind
             ? t('connectedServices.detail.groups.memberLastFailure', { reason: member.lastFailureKind })
             : null,
     ];

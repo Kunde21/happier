@@ -8,6 +8,10 @@ import {
     ConnectedServiceIdSchema,
     CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER,
     CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
+    CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER,
+    CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
+    CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER,
+    CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
     type ConnectedServiceAuthGroupV1,
     readConnectedServiceManualActiveProfileRuntimeBlocker,
     type ConnectedServiceManualActiveProfileRuntimeBlocker,
@@ -98,6 +102,10 @@ function parsePolicyPatchForRequest(policy: unknown, serviceId: string): Connect
             || !resolveConnectedServiceRuntimeFallbackCapability(service.data).quotaResetSupported
             || !isServerFeatureEnabledForRequest("connectedServices.autoQuotaReset", process.env)) return null;
     }
+    if (parsed.success && parsed.data.autoDisablePlanInvalidAccounts === true
+        && !isServerFeatureEnabledForRequest("connectedServices.autoDisablePlanInvalid", process.env)) return null;
+    if (parsed.success && parsed.data.quotaLimitSelection !== undefined
+        && !isServerFeatureEnabledForRequest("connectedServices.poolQuotaLimitSelection", process.env)) return null;
     return parsed.success ? parsed.data : null;
 }
 
@@ -205,10 +213,33 @@ function canReadAutomaticQuotaResetPolicy(headers: Record<string, string | strin
         && isServerFeatureEnabledForRequest("connectedServices.autoQuotaReset", process.env);
 }
 
-function projectAuthGroupForReader(group: ConnectedServiceAuthGroupV1, exposeAutomaticQuotaReset: boolean): ConnectedServiceAuthGroupV1 {
-    if (exposeAutomaticQuotaReset) return group;
-    // Released V1 readers are strict. Preserve their response shape, not a second policy owner.
-    const { autoUseQuotaResetsWhenExhausted: _optIn, ...policy } = group.policy;
+function canReadAutomaticPlanInvalidDisablePolicy(headers: Record<string, string | string[] | undefined>): boolean {
+    return headers[CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER] === CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE
+        && isServerFeatureEnabledForRequest("connectedServices.autoDisablePlanInvalid", process.env);
+}
+
+function canReadPoolQuotaLimitSelection(headers: Record<string, string | string[] | undefined>): boolean {
+    return headers[CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER] === CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE
+        && isServerFeatureEnabledForRequest("connectedServices.poolQuotaLimitSelection", process.env);
+}
+
+function projectAuthGroupForReader(group: ConnectedServiceAuthGroupV1, headers: Record<string, string | string[] | undefined>): ConnectedServiceAuthGroupV1 {
+    // Released V1 readers are strict. Preserve each negotiated response shape, not a second policy owner.
+    let policy = group.policy;
+    if (!canReadAutomaticQuotaResetPolicy(headers)) {
+        const { autoUseQuotaResetsWhenExhausted: _quotaReset, ...projected } = policy;
+        policy = projected;
+    }
+    if (!canReadAutomaticPlanInvalidDisablePolicy(headers)) {
+        const { autoDisablePlanInvalidAccounts: _autoDisable, ...projected } = policy;
+        policy = projected;
+    }
+    if (!canReadPoolQuotaLimitSelection(headers)) {
+        const { quotaLimitSelection: _selection, ...projected } = policy;
+        policy = projected;
+    } else if (!policy.quotaLimitSelection) {
+        policy = { ...policy, quotaLimitSelection: { mode: 'all', providerLimitIds: [] } };
+    }
     return { ...group, policy };
 }
 
@@ -219,7 +250,7 @@ async function loadGroupEnvelope(params: {
     headers: Record<string, string | string[] | undefined>;
 }): Promise<AuthGroupEnvelopeResponse | null> {
     const group = await findAuthGroupForAccount(params);
-    return group ? { group: projectAuthGroupForReader(group, canReadAutomaticQuotaResetPolicy(params.headers)) } : null;
+    return group ? { group: projectAuthGroupForReader(group, params.headers) } : null;
 }
 
 export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
@@ -234,8 +265,7 @@ export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
             accountId: request.userId,
             serviceId: request.params.serviceId,
         });
-        const exposeAutomaticQuotaReset = canReadAutomaticQuotaResetPolicy(request.headers);
-        return reply.send({ groups: groups.map((group) => projectAuthGroupForReader(group, exposeAutomaticQuotaReset)) });
+        return reply.send({ groups: groups.map((group) => projectAuthGroupForReader(group, request.headers)) });
     });
 
     app.post("/v3/connect/:serviceId/groups", {
@@ -677,6 +707,9 @@ export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
         if (request.body.expectedGeneration === undefined) {
             return reply.code(400).send({ error: "connect_group_generation_required" });
         }
+        if (request.body.state !== undefined && request.body.expectedRuntimeStateRevision === undefined) {
+            return reply.code(400).send({ error: "connect_group_runtime_state_revision_required" });
+        }
         const expectedGeneration = request.body.expectedGeneration;
         const result = await inTx(async (tx) => {
             const mutationResult = await updateAuthGroupMemberAndBumpGenerationInTx(tx, {
@@ -686,7 +719,9 @@ export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
                 profileId,
                 priority: request.body.priority,
                 enabled: request.body.enabled,
+                state: request.body.state,
                 expectedGeneration,
+                expectedRuntimeStateRevision: request.body.expectedRuntimeStateRevision,
             });
             if (mutationResult === "updated") {
                 await recordConnectedServiceAccountProfileChange(tx, { accountId: request.userId });
@@ -696,6 +731,12 @@ export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
         if (result === "not_found") return reply.code(404).send({ error: "connect_group_member_not_found" });
         if (typeof result === "object" && result.type === "generation_conflict") {
             return reply.code(409).send({ error: "connect_group_generation_conflict", generation: result.generation });
+        }
+        if (typeof result === "object" && result.type === "runtime_state_revision_conflict") {
+            return reply.code(409).send({
+                error: "connect_group_runtime_state_revision_conflict",
+                runtimeStateRevision: result.runtimeStateRevision,
+            });
         }
         const envelope = await loadGroupEnvelope({ headers: request.headers, accountId: request.userId, serviceId, groupId });
         if (!envelope) return reply.code(404).send({ error: "connect_group_not_found" });

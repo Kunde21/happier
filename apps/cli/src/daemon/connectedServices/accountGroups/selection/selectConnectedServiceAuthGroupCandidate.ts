@@ -3,6 +3,7 @@ import {
   ConnectedServiceAuthGroupPolicyV1Schema,
   isConnectedServiceCredentialHealthStatusUsable,
   type ConnectedServiceCredentialHealthStatusV1,
+  type ConnectedServiceAuthGroupPolicyV1 as ProtocolConnectedServiceAuthGroupPolicyV1,
 } from '@happier-dev/protocol';
 import {
   reconcileMemberRuntimeStateWithFreshQuotaEvidence,
@@ -16,29 +17,7 @@ export {
   type ConnectedServiceAuthGroupPositiveEvidence,
 } from '../memberRuntimeState';
 
-export type ConnectedServiceAuthGroupPolicyV1 = Readonly<{
-  v: 1;
-  strategy: 'priority' | 'least_limited' | 'manual';
-  autoSwitch: boolean;
-  switchOn: Readonly<{
-    usageLimit: boolean;
-    authExpired: boolean;
-    accountChanged: boolean;
-    refreshFailure: boolean;
-  }>;
-  cooldownMs: number;
-  honorProviderResetsAt: boolean;
-  autoRestorePrimaryWhenReset: boolean;
-  autoUseQuotaResetsWhenExhausted?: boolean;
-  maxSwitchesPerTurn: number;
-  maxSwitchesPerSessionHour: number;
-  softSwitchRemainingPercent: number;
-  probeIfSnapshotOlderThanMs: number;
-  preTurnProbeMode: 'never' | 'when_stale' | 'always_for_group';
-  preTurnProbeOrder: 'current_first_then_candidates' | 'candidates_first_then_current';
-  recoveryMode: 'off' | 'wait_until_reset' | 'switch_then_resume' | 'switch_or_wait';
-  resumePromptMode: 'standard' | 'off' | 'custom';
-}>;
+export type ConnectedServiceAuthGroupPolicyV1 = Readonly<ProtocolConnectedServiceAuthGroupPolicyV1>;
 
 /**
  * Derived from the protocol schema default so the daemon default never drifts from the canonical
@@ -83,9 +62,12 @@ export type ConnectedServiceAuthGroupMemberRuntimeState = Readonly<{
   capacityLimitedUntilMs?: number | null;
   authInvalidUntilMs?: number | null;
   planUnavailableUntilMs?: number | null;
+  modelUnavailableUntilMsByModelId?: Readonly<Record<string, number>>;
   validationBlockedUntilMs?: number | null;
   providerResetsAtMs?: number | null;
   lastFailureKind?: string | null;
+  lastFailureCode?: string | null;
+  autoDisabledReason?: 'model_not_entitled' | null;
   lastObservedAtMs?: number | null;
   quotaSnapshot?: ConnectedServiceAuthGroupQuotaSnapshot | null;
 }>;
@@ -636,6 +618,7 @@ export function selectConnectedServiceAuthGroupCandidate(params: Readonly<{
   memberStatesByProfileId: ReadonlyMap<string, ConnectedServiceAuthGroupMemberRuntimeState>;
   allowCurrentProfileRetry?: boolean;
   unavailableProfileIds?: ReadonlySet<string>;
+  providerLimitId?: string | null;
 }>): ConnectedServiceAuthGroupCandidateSelection {
   if (params.policy.strategy === 'manual') {
     return {
@@ -708,6 +691,21 @@ export function selectConnectedServiceAuthGroupCandidate(params: Readonly<{
         profileId: member.profileId,
         decision: 'excluded',
         exclusionReason: 'credential_unavailable',
+        quotaEvidence,
+      });
+      continue;
+    }
+    const providerLimitId = params.providerLimitId?.trim();
+    const modelUnavailableUntilMs = providerLimitId
+      ? numberOrNull(effectiveState?.modelUnavailableUntilMsByModelId?.[providerLimitId])
+      : null;
+    if (modelUnavailableUntilMs !== null && modelUnavailableUntilMs > params.nowMs) {
+      excluded.push({ profileId: member.profileId, reason: 'plan_unavailable', retryAtMs: modelUnavailableUntilMs });
+      decisionTraceCandidates.push({
+        profileId: member.profileId,
+        decision: 'excluded',
+        exclusionReason: 'plan_unavailable',
+        retryAtMs: modelUnavailableUntilMs,
         quotaEvidence,
       });
       continue;

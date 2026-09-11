@@ -5,12 +5,28 @@ import { t } from '@/text';
 import {
     formatConnectedServiceGroupMemberSubtitle,
     formatConnectedServiceGroupSubtitle,
+    normalizeConnectedServiceGroupMember,
     parseConnectedServiceGroupViewModels,
     resolveConnectedServiceGroupMemberIdentity,
     resolveConnectedServiceGroupProfileTitle,
 } from './connectedServiceGroupViewModel';
 
 describe('connectedServiceGroupViewModel', () => {
+    it('surfaces the automatic model-entitlement disable reason instead of a generic plan failure', () => {
+        const member = normalizeConnectedServiceGroupMember({
+            profileId: 'free-account',
+            enabled: false,
+            state: {
+                lastFailureKind: 'plan',
+                lastFailureCode: 'model_not_entitled',
+                autoDisabledReason: 'model_not_entitled',
+            },
+        });
+        expect(member).not.toBeNull();
+        expect(formatConnectedServiceGroupMemberSubtitle(member!, null)).toContain(
+            t('connectedServices.detail.groups.memberAutoDisabledModelNotEntitled'),
+        );
+    });
     it('normalizes legacy group projections into a stable group view model', () => {
         const [group] = parseConnectedServiceGroupViewModels([{
             groupId: 'primary',

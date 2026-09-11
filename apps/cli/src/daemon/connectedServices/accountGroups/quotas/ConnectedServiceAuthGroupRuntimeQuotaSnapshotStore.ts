@@ -1,4 +1,5 @@
 import type {
+  ConnectedServiceAuthGroupQuotaLimitSelectionV1,
   ConnectedServiceId,
   ConnectedServiceQuotaSnapshotV1,
 } from '@happier-dev/protocol';
@@ -202,6 +203,7 @@ export class ConnectedServiceAuthGroupRuntimeQuotaSnapshotStore {
     serviceId: ConnectedServiceId;
     groupId: string;
     capturedAtMs: number;
+    quotaLimitSelection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1;
   }>): Map<string, ConnectedServiceAuthGroupMemberRuntimeState> {
     void input.capturedAtMs;
     const states = new Map<string, ConnectedServiceAuthGroupMemberRuntimeState>();
@@ -210,22 +212,26 @@ export class ConnectedServiceAuthGroupRuntimeQuotaSnapshotStore {
       if (!key.startsWith(prefix)) continue;
       const profileId = key.slice(prefix.length);
       const profileSnapshot = this.snapshotsByProfileKey.get(profileSnapshotKey({ serviceId: input.serviceId, profileId }));
-      states.set(profileId, buildMemberState(selectFreshestSnapshot(snapshot, profileSnapshot) ?? snapshot));
+      states.set(profileId, buildMemberState(selectFreshestSnapshot(snapshot, profileSnapshot) ?? snapshot, input.quotaLimitSelection));
     }
     const profilePrefix = `${input.serviceId}\0`;
     for (const [key, snapshot] of this.snapshotsByProfileKey.entries()) {
       if (!key.startsWith(profilePrefix)) continue;
       const profileId = key.slice(profilePrefix.length);
       if (states.has(profileId)) continue;
-      states.set(profileId, buildMemberState(snapshot));
+      states.set(profileId, buildMemberState(snapshot, input.quotaLimitSelection));
     }
     return states;
   }
 }
 
-function buildMemberState(snapshot: ConnectedServiceQuotaSnapshotV1): ConnectedServiceAuthGroupMemberRuntimeState {
+function buildMemberState(
+  snapshot: ConnectedServiceQuotaSnapshotV1,
+  quotaLimitSelection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1,
+): ConnectedServiceAuthGroupMemberRuntimeState {
   return buildConnectedServiceAuthGroupRuntimeStateFromMeters({
     capturedAtMs: snapshot.fetchedAt,
     meters: snapshot.meters,
+    selection: quotaLimitSelection,
   });
 }

@@ -121,6 +121,27 @@ describe('mapCodexRateLimitSnapshotToQuotaSnapshot', () => {
     }
   });
 
+  it('preserves every app-server allowance identity from rateLimitsByLimitId', () => {
+    const snapshot = mapCodexRateLimitSnapshotToQuotaSnapshot({
+      serviceId: 'openai-codex',
+      profileId: 'work',
+      fetchedAt: 1_768_000_000_000,
+      rawSnapshot: {
+        rateLimits: { limitId: 'standard', primary: { usedPercent: 20 } },
+        rateLimitsByLimitId: {
+          standard: { limitId: 'standard', primary: { usedPercent: 20 } },
+          spark: { limitId: 'spark', limitName: 'Spark', modelId: 'gpt-5-spark', primary: { usedPercent: 75 } },
+        },
+      },
+    });
+
+    expect(snapshot.meters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ meterId: 'standard:primary', providerLimitId: 'standard', utilizationPct: 20 }),
+      expect.objectContaining({ meterId: 'spark:primary', providerLimitId: 'spark', modelId: 'gpt-5-spark', utilizationPct: 75 }),
+    ]));
+    expect(snapshot.meters.filter((meter) => meter.providerLimitId === 'standard')).toHaveLength(1);
+  });
+
   it('converts relative resets_in_seconds to absolute reset timestamps at mapping time (RD-QUO-1)', () => {
     const fetchedAt = 1_768_000_000_000;
     const snapshot = mapCodexRateLimitSnapshotToQuotaSnapshot({
