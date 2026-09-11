@@ -144,6 +144,7 @@ Model changes are capability-driven and provider-specific:
 - **Claude**: applies on the next prompt (no session restart required).
 - **Codex (MCP)**: model is decided when the MCP session starts; changing model means starting a new MCP session.
 - **Codex/OpenCode/Kilo/Auggie (ACP)**: Happier applies model changes live when `session/set_model` is supported; otherwise it falls back to provider config options when available.
+- **Devin (ACP)**: Happier reads the live model choices from Devin's `model` config option and applies a change with `session/set_config_option`.
 - **Gemini (ACP)**: model changes may require recreating the underlying ACP process; Happier preserves context using replay/history so the session still continues.
 
 For the full guide to engine picking, dynamic/static model lists, custom model ids, model-specific options, and favorite models, see [Model and engine selection](/agents/model-and-engine-selection).
@@ -354,6 +355,18 @@ In Happier, **permissions remain the primary control** for Codex. Happier maps y
 Model IDs can also vary by Codex build and account. If model selection isn’t shown in the app for your Codex session, you can still set it via the CLI (when supported by your installed Codex backend).
 
 The UI’s **Effective** line is the source of truth for what your current session will do.
+
+### Devin (experimental)
+
+Devin sessions and execution runs use the installed, machine-authenticated Devin CLI through `devin acp`. Happier maps explicit permission choices to Devin's advertised modes:
+
+- **Default** sends no permission override, so Devin keeps the user's configured permission behavior.
+- **Read only** uses `ask`.
+- **Safe YOLO** uses `smart`.
+- **YOLO** uses `bypass`.
+- **Plan** uses `plan`.
+
+Happier can resume Devin sessions and switch among the live model choices reported by the CLI. Devin currently ignores MCP servers supplied in the standard ACP session request, so Happier delivers the built-in Happier tools and your selected MCP servers through a protected, process-scoped Devin MCP configuration. Your existing user-level Devin MCP servers are merged into that temporary configuration, and Happier removes it when the agent process ends. Happier does not modify the MCP configuration in your home directory or project.
 
 ### Claude
 

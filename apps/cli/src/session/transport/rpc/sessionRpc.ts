@@ -1,4 +1,5 @@
 import { createSessionScopedSocket } from '@/api/session/sockets';
+import { randomUUID } from 'node:crypto';
 import { SOCKET_RPC_EVENTS } from '@happier-dev/protocol/socketRpc';
 import { createRpcCallError } from '@happier-dev/protocol/rpcErrors';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from '@/api/encryption';
@@ -13,11 +14,17 @@ export async function callSessionRpc(params: Readonly<{
   ctx: SessionEncryptionContext;
   method: string;
   request: unknown;
-  timeoutMs?: number;
+  timeoutMs?: number | null;
 }>): Promise<unknown> {
   const socket = createSessionScopedSocket({ token: params.token, sessionId: params.sessionId });
-  const timeoutMs = typeof params.timeoutMs === 'number' && params.timeoutMs > 0 ? params.timeoutMs : 20_000;
-  const connectTimeoutMs = typeof params.timeoutMs === 'number' && params.timeoutMs > 0 ? timeoutMs : resolveSessionControlSocketConnectTimeoutMs();
+  const timeoutMs = params.timeoutMs === null
+    ? null
+    : typeof params.timeoutMs === 'number' && params.timeoutMs > 0
+      ? params.timeoutMs
+      : 20_000;
+  const connectTimeoutMs = typeof params.timeoutMs === 'number' && params.timeoutMs > 0
+    ? params.timeoutMs
+    : resolveSessionControlSocketConnectTimeoutMs();
   let cleanedUp = false;
 
   const cleanupSocket = () => {
@@ -47,18 +54,28 @@ export async function callSessionRpc(params: Readonly<{
 
     const response = await new Promise<{ ok: boolean; result?: unknown; error?: string; errorCode?: string }>((resolve, reject) => {
       let settled = false;
-      let timer: ReturnType<typeof setTimeout>;
+      let timer: ReturnType<typeof setTimeout> | null = null;
       const finish = (fn: () => void) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
+        socket.off('disconnect', onDisconnect);
         fn();
       };
-      timer = setTimeout(() => finish(() => reject(new Error('RPC call timeout'))), timeoutMs);
+      const onDisconnect = () => finish(() => reject(new Error('RPC socket disconnected before acknowledgement')));
+      socket.on('disconnect', onDisconnect);
+      if (timeoutMs !== null) {
+        timer = setTimeout(() => finish(() => reject(new Error('RPC call timeout'))), timeoutMs);
+      }
       try {
         socket.emit(
           SOCKET_RPC_EVENTS.CALL,
-          { method: params.method, params: rpcParams },
+          {
+            method: params.method,
+            params: rpcParams,
+            requestId: randomUUID(),
+            ...(typeof params.timeoutMs === 'number' ? { timeoutMs: params.timeoutMs } : {}),
+          },
           (payload: { ok: boolean; result?: unknown; error?: string; errorCode?: string }) => {
             finish(() => resolve(payload));
           },

@@ -1695,7 +1695,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): Readonly<{
             : {};
         const connectedServicesByTarget = new Map<
           string,
-          Readonly<{ bindings: ConnectedServiceBindingsV1 | undefined; defaultServiceIds: readonly string[] }>
+          Readonly<{ bindings: ConnectedServiceBindingsV1 | null | undefined; defaultServiceIds: readonly string[] }>
         >();
         for (const backendTargetKey of backendTargetKeys) {
           const rawSelection = Object.prototype.hasOwnProperty.call(connectedServicesByBackendTargetKey, backendTargetKey)
@@ -1745,7 +1745,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): Readonly<{
                 runClass: (parsed.data as any).runClass ?? 'bounded',
                 ioMode: (parsed.data as any).ioMode ?? 'request_response',
                 launchOrigin: resolveExecutionRunLaunchOrigin(ctx),
-                ...(connectedServices ? { connectedServices } : {}),
+                ...(connectedServices !== undefined ? { connectedServices } : {}),
                 ...(connectedServicesDefaultServiceIds.length > 0
                   ? { connectedServicesDefaultServiceIds }
                   : {}),
@@ -1924,7 +1924,7 @@ export function createActionExecutor(deps: ActionExecutorDeps): Readonly<{
             if (!normalized.ok) {
               return { ok: false, errorCode: 'invalid_parameters', error: normalized.error };
             }
-            if (normalized.bindings) {
+            if (normalized.bindings !== undefined) {
               request.connectedServices = normalized.bindings;
             } else {
               delete request.connectedServices;
@@ -2022,7 +2022,6 @@ export function createActionExecutor(deps: ActionExecutorDeps): Readonly<{
           const res = await deps.executionRunWait(sessionId, {
             runId: (parsed.data as any).runId,
             ...(typeof (parsed.data as any).timeoutSeconds === 'number' ? { timeoutSeconds: (parsed.data as any).timeoutSeconds } : {}),
-            ...(typeof (parsed.data as any).pollIntervalMs === 'number' ? { pollIntervalMs: (parsed.data as any).pollIntervalMs } : {}),
           }, opts);
           return { ok: true, result: res };
         }

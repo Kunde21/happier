@@ -1,13 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from '@/api/encryption';
 
+const socketHandlers = new Map<string, Array<(...args: unknown[]) => void>>();
 const socket = {
   connect: vi.fn(),
   disconnect: vi.fn(),
   close: vi.fn(),
   emit: vi.fn(),
+  on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+    socketHandlers.set(event, [...(socketHandlers.get(event) ?? []), handler]);
+    return socket;
+  }),
+  off: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+    socketHandlers.set(event, (socketHandlers.get(event) ?? []).filter((candidate) => candidate !== handler));
+    return socket;
+  }),
 };
 const axiosGet = vi.hoisted(() => vi.fn());
+
+function triggerSocketEvent(event: string, ...args: unknown[]): void {
+  for (const handler of socketHandlers.get(event) ?? []) handler(...args);
+}
 
 vi.mock('@/api/session/sockets', () => ({
   createUserScopedSocket: vi.fn(() => socket),
@@ -28,12 +41,14 @@ vi.mock('@/configuration', () => ({
 }));
 
 import { RPC_ERROR_CODES, RPC_ERROR_MESSAGES } from '@happier-dev/protocol/rpc';
+import { SOCKET_RPC_EVENTS } from '@happier-dev/protocol/socketRpc';
 
 import { callMachineRpc } from './machineRpc';
 
 describe('callMachineRpc', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    socketHandlers.clear();
   });
 
   it('encrypts and sends exactly one account-scoped call to the requested machine', async () => {
@@ -44,6 +59,7 @@ describe('callMachineRpc', () => {
     };
     socket.emit.mockImplementation((_event, payload, callback) => {
       expect(payload.method).toBe('machine-session:spawn-happy-session');
+      expect(payload.timeoutMs).toBe(100);
       expect(decrypt(machineKey, 'dataKey', decodeBase64(payload.params, 'base64'))).toEqual({ sessionId: 'session-1' });
       expect(payload.authorization).toEqual({ kind: 'session.write', sessionId: 'session-1' });
       callback({
@@ -66,6 +82,40 @@ describe('callMachineRpc', () => {
     expect(socket.disconnect).toHaveBeenCalledTimes(1);
     // A reached machine never pays for the replacement chain.
     expect(axiosGet).not.toHaveBeenCalled();
+  });
+
+  it('rejects promptly and cleans up when the socket disconnects before acknowledgement', async () => {
+    const machineKey = new Uint8Array(32).fill(3);
+    const credentials = {
+      token: 'account-token',
+      encryption: { type: 'dataKey' as const, publicKey: machineKey, machineKey },
+    };
+    socket.emit.mockImplementation(() => undefined);
+
+    const result = callMachineRpc({
+      credentials,
+      machineId: 'machine-session',
+      method: 'spawn-happy-session',
+      request: { sessionId: 'session-1' },
+      timeoutMs: 10_000,
+    });
+
+    await vi.waitFor(() => {
+      expect(socketHandlers.get('disconnect')).toHaveLength(1);
+    });
+    triggerSocketEvent('disconnect', 'transport close');
+
+    await expect(result).rejects.toThrow('RPC socket disconnected before acknowledgement');
+    const requestId = socket.emit.mock.calls[0]?.[1]?.requestId;
+    expect(requestId).toEqual(expect.any(String));
+    expect(socket.emit.mock.calls[0]?.[0]).toBe(SOCKET_RPC_EVENTS.CALL);
+    expect(socket.emit.mock.calls[1]).toEqual([
+      SOCKET_RPC_EVENTS.CANCEL,
+      { requestId },
+    ]);
+    expect(socket.disconnect).toHaveBeenCalledTimes(1);
+    expect(socket.close).toHaveBeenCalledTimes(1);
+    expect(socketHandlers.get('disconnect')).toHaveLength(0);
   });
 
   /**
@@ -197,7 +247,13 @@ describe('callMachineRpc', () => {
         timeoutMs: 10,
       })).rejects.toMatchObject({ code: 'MACHINE_RPC_TIMEOUT' });
 
-      expect(socket.emit).toHaveBeenCalledTimes(1);
+      const requestId = socket.emit.mock.calls[0]?.[1]?.requestId;
+      expect(requestId).toEqual(expect.any(String));
+      expect(socket.emit.mock.calls[0]?.[0]).toBe(SOCKET_RPC_EVENTS.CALL);
+      expect(socket.emit.mock.calls[1]).toEqual([
+        SOCKET_RPC_EVENTS.CANCEL,
+        { requestId },
+      ]);
       expect(axiosGet).not.toHaveBeenCalled();
     });
   });

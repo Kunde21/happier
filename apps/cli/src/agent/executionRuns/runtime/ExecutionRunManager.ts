@@ -103,6 +103,10 @@ export class ExecutionRunManager {
   private readonly markerWriteChains = new Map<string, Promise<void>>();
   private readonly terminalMarkerWritePromises = new Map<string, Promise<void>>();
   private readonly terminalRuntimeActivityPromises = new Map<string, Promise<void>>();
+  private readonly terminalStateWaiters = new Map<string, Readonly<{
+    promise: Promise<void>;
+    resolve: () => void;
+  }>>();
   private readonly runLifecycleTails = new Map<string, Promise<void>>();
   private readonly voiceAgentManager: VoiceAgentManager;
   private readonly onPublicStateUpdated: ((run: ExecutionRunPublicState) => void) | null;
@@ -362,6 +366,22 @@ export class ExecutionRunManager {
   }
 
   async waitForTerminal(runId: string): Promise<void> {
+    if (this.runs.get(runId)?.status === 'running') {
+      let waiter = this.terminalStateWaiters.get(runId);
+      if (!waiter) {
+        let resolve!: () => void;
+        const promise = new Promise<void>((settle) => {
+          resolve = settle;
+        });
+        waiter = { promise, resolve };
+        this.terminalStateWaiters.set(runId, waiter);
+      }
+      if (this.runs.get(runId)?.status !== 'running') {
+        this.terminalStateWaiters.delete(runId);
+        waiter.resolve();
+      }
+      await waiter.promise;
+    }
     const ctrl = this.controllers.get(runId);
     if (ctrl) {
       await ctrl.terminalPromise;
@@ -488,6 +508,13 @@ export class ExecutionRunManager {
       terminalMarkerWritePromises: this.terminalMarkerWritePromises,
     });
     const current = this.runs.get(runId);
+    if (!current || current.status !== 'running') {
+      const waiter = this.terminalStateWaiters.get(runId);
+      if (waiter) {
+        this.terminalStateWaiters.delete(runId);
+        waiter.resolve();
+      }
+    }
     if (wasRunning && current && current.status !== 'running') {
       this.trackRunRuntimeActivityTerminal(runId, `execution_run_${current.status}`);
       if (current.notifyParentOnCompletion === true && this.enqueueParentSessionInput) {

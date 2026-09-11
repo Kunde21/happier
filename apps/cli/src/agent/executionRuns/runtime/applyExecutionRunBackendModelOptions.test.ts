@@ -89,6 +89,19 @@ describe('withExecutionRunBackendModelOptions', () => {
     expect(setSessionConfigOption).toHaveBeenCalledWith('session-loaded', 'reasoning_effort', 'high');
   });
 
+  it('uses the configured ACP option instead of legacy session/set_model when required by the provider', async () => {
+    const { backend, setSessionModel, setSessionConfigOption } = createConfigurableBackend();
+    const wrapped = withExecutionRunBackendModelOptions(backend, {
+      modelId: 'claude-sonnet-4.6',
+      modelApply: { method: 'config_option', configOptionId: 'model' },
+    });
+
+    await wrapped.startSession();
+
+    expect(setSessionModel).not.toHaveBeenCalled();
+    expect(setSessionConfigOption).toHaveBeenCalledWith('session-123', 'model', 'claude-sonnet-4.6');
+  });
+
   it('returns the backend untouched when no options are supplied', async () => {
     const { backend, setSessionModel, setSessionConfigOption } = createConfigurableBackend();
     const wrapped = withExecutionRunBackendModelOptions(backend, {});

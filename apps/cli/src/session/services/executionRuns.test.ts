@@ -571,6 +571,22 @@ describe('startExecutionRun', () => {
         listExecutionRunMarkers.mockReset();
     });
 
+    it('keeps the effectful start request under execution-run lifecycle ownership', async () => {
+        callSessionRpc.mockResolvedValueOnce({ ok: true, data: { runId: 'run-1' } });
+
+        await startExecutionRun({
+            token: 'token',
+            sessionId: 'sess-1',
+            ctx: { encryptionKey: new Uint8Array([1, 2, 3, 4]), encryptionVariant: 'legacy' },
+            request: { intent: 'review' },
+        });
+
+        expect(callSessionRpc).toHaveBeenCalledWith(expect.objectContaining({
+            method: 'sess-1:execution.run.start',
+            timeoutMs: null,
+        }));
+    });
+
     it('reports protocol unsupported when a live runtime lacks the start method', async () => {
         callSessionRpc.mockRejectedValueOnce(new Error('RPC method not available'));
 
@@ -899,16 +915,13 @@ describe('waitForExecutionRun', () => {
         vi.useRealTimers();
     });
 
-    it('does not apply a product timeout when timeoutMs is null', async () => {
-        vi.useFakeTimers();
+    it('waits through one event-driven daemon RPC when timeoutMs is null', async () => {
         const succeededRun = createRun({ runId: 'run_1', status: 'succeeded', startedAtMs: 1 });
-        callSessionRpc
-            .mockResolvedValueOnce({
-                run: createRun({ runId: 'run_1', status: 'running', startedAtMs: 1 }),
-            })
-            .mockResolvedValueOnce({
-                run: succeededRun,
-            });
+        callSessionRpc.mockResolvedValueOnce({
+            ok: true,
+            status: 'succeeded',
+            result: { run: succeededRun },
+        });
 
         const waitPromise = waitForExecutionRun({
             token: 'token',
@@ -916,28 +929,31 @@ describe('waitForExecutionRun', () => {
             ctx: { encryptionKey: new Uint8Array([1, 2, 3, 4]), encryptionVariant: 'legacy' },
             runId: 'run_1',
             timeoutMs: null,
-            pollIntervalMs: 1_000,
         });
-
-        await vi.advanceTimersByTimeAsync(1_000);
 
         await expect(waitPromise).resolves.toEqual({
             ok: true,
             status: 'succeeded',
             result: { run: succeededRun },
         });
-        expect(callSessionRpc).toHaveBeenCalledTimes(2);
+        expect(callSessionRpc).toHaveBeenCalledOnce();
+        expect(callSessionRpc).toHaveBeenCalledWith(expect.objectContaining({
+            method: 'sess-1:execution.run.wait',
+            request: { runId: 'run_1' },
+            timeoutMs: null,
+        }));
     });
 
-    it('clamps tiny poll intervals to avoid near-zero-delay server loops', async () => {
-        const succeededRun = createRun({ runId: 'run_1', status: 'succeeded', startedAtMs: 1 });
-        callSessionRpc
-            .mockResolvedValueOnce({
-                run: createRun({ runId: 'run_1', status: 'running', startedAtMs: 1 }),
-            })
-            .mockResolvedValueOnce({
-                run: succeededRun,
-            });
+    it('uses the daemon observation timeout without polling get repeatedly', async () => {
+        callSessionRpc.mockResolvedValueOnce({
+            ok: true,
+            status: 'running',
+            disposition: 'observation_timeout',
+            runId: 'run_1',
+            timeoutMs: 1_000,
+            observedAtMs: 1_200,
+            deadlineAtMs: 1_200,
+        });
 
         const waitPromise = waitForExecutionRun({
             token: 'token',
@@ -945,7 +961,6 @@ describe('waitForExecutionRun', () => {
             ctx: { encryptionKey: new Uint8Array([1, 2, 3, 4]), encryptionVariant: 'legacy' },
             runId: 'run_1',
             timeoutMs: 100,
-            pollIntervalMs: 1,
         });
 
         await expect(waitPromise).resolves.toMatchObject({
@@ -953,8 +968,12 @@ describe('waitForExecutionRun', () => {
             status: 'running',
             disposition: 'observation_timeout',
             runId: 'run_1',
-            timeoutMs: 100,
+            timeoutMs: 1_000,
         });
-        expect(callSessionRpc).toHaveBeenCalledTimes(1);
+        expect(callSessionRpc).toHaveBeenCalledOnce();
+        expect(callSessionRpc).toHaveBeenCalledWith(expect.objectContaining({
+            method: 'sess-1:execution.run.wait',
+            request: { runId: 'run_1', timeoutSeconds: 1 },
+        }));
     });
 });

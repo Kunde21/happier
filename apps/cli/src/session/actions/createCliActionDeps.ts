@@ -89,10 +89,7 @@ import {
   stopExecutionRun,
   waitForExecutionRun,
 } from '@/session/services/executionRuns';
-import {
-  normalizeExecutionRunWaitPollIntervalMs,
-  normalizeExecutionRunWaitTimeoutMs,
-} from '@/session/services/executionRunWaitTiming';
+import { normalizeExecutionRunWaitTimeoutMs } from '@/session/services/executionRunWaitTiming';
 import { resolveSessionTransportContext } from '@/session/services/resolveSessionTransportContext';
 import { fetchSessionById, fetchSessionByIdCompat, type RawSessionRecord } from '@/session/transport/http/sessionsHttp';
 import { callSessionRpc } from '@/session/transport/rpc/sessionRpc';
@@ -644,22 +641,15 @@ export function createCliActionDeps(params: Readonly<{
   const sessionTransportCache = new Map<string, ResolvedSessionTransport>();
   let usageLimitRecoveryFeatureEnabledPromise: Promise<boolean> | null = null;
   let accountProfilePromise: Promise<Awaited<ReturnType<typeof fetchAccountProfile>> | null> | null = null;
-  const actionFeatureDecisionPromises = new Map<FeatureId, Promise<boolean>>();
   const ambiguousSpawnActionRequestIds = new Set<string>();
 
   const resolveActionFeatureEnabled = async (featureId: FeatureId): Promise<boolean> => {
-    const cached = actionFeatureDecisionPromises.get(featureId);
-    if (cached) return await cached;
-    const promise = resolveCliFeatureDecisionForServer({
+    const resolved = await resolveCliFeatureDecisionForServer({
       featureId,
       env: process.env,
       serverUrl: resolveServerHttpBaseUrl(),
-      timeoutMs: 800,
-    })
-      .then((resolved) => resolved.decision.state === 'enabled')
-      .catch(() => false);
-    actionFeatureDecisionPromises.set(featureId, promise);
-    return await promise;
+    });
+    return resolved.decision.state === 'enabled';
   };
 
   const readActionAccountSettings = async (): Promise<Readonly<Record<string, unknown>>> => {
@@ -1291,12 +1281,6 @@ export function createCliActionDeps(params: Readonly<{
         return { ok: false, code: transport.code, ...(transport.candidates ? { candidates: transport.candidates } : {}) };
       }
 
-      const pollIntervalEnvRaw = (process.env.HAPPIER_SESSION_RUN_WAIT_POLL_INTERVAL_MS ?? '').trim();
-      const pollIntervalMs =
-        typeof (request as any)?.pollIntervalMs === 'number'
-          ? normalizeExecutionRunWaitPollIntervalMs((request as any).pollIntervalMs)
-          : normalizeExecutionRunWaitPollIntervalMs(pollIntervalEnvRaw);
-
       return await waitForExecutionRun({
         token: params.token,
         sessionId: transport.sessionId,
@@ -1304,7 +1288,6 @@ export function createCliActionDeps(params: Readonly<{
         ctx: transport.ctx,
         runId: String((request as any)?.runId ?? ''),
         timeoutMs: normalizeExecutionRunWaitTimeoutMs((request as any)?.timeoutSeconds),
-        pollIntervalMs,
       });
     },
     reviewStartInline: async ({ sessionId, input }) => {

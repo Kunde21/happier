@@ -76,6 +76,46 @@ function createDelayedJsonBackend(responseText: string, delayMs: number): AgentB
 }
 
 describe('ExecutionRunManager start request idempotency', () => {
+  it('keeps a waiter from the first running publication pending until canonical terminal state', async () => {
+    const backend = createStaticJsonBackend('{"summary":"unused","findings":[]}');
+    backend.sendPrompt = async () => {};
+    backend.waitForResponseComplete = async () => await new Promise<void>(() => {});
+    let manager!: ExecutionRunManager;
+    let waiter: Promise<void> | null = null;
+    let waiterSettled = false;
+    manager = new ExecutionRunManager({
+      parentProvider: 'claude',
+      cwd: process.cwd(),
+      createBackend: () => backend,
+      sendAcp: () => {},
+      onPublicStateUpdated: (run) => {
+        if (run.status !== 'running' || waiter) return;
+        waiter = manager.waitForTerminal(run.runId);
+        void waiter.then(() => {
+          waiterSettled = true;
+        });
+      },
+    });
+
+    const started = await manager.start({
+      sessionId: 'parent_session_1',
+      intent: 'review',
+      backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
+      instructions: 'Wait for stop.',
+      permissionMode: 'read_only',
+      retentionPolicy: 'ephemeral',
+      runClass: 'bounded',
+      ioMode: 'request_response',
+    });
+    await flushAsyncEffects();
+    expect(waiter).not.toBeNull();
+    expect(waiterSettled).toBe(false);
+
+    await manager.stop(started.runId);
+    await expect(waiter).resolves.toBeUndefined();
+    expect(waiterSettled).toBe(true);
+  });
+
   it('returns the same run handle for the same correlated start without creating a duplicate backend', async () => {
     const createBackend = vi.fn(() => createStaticJsonBackend('{"summary":"ok","findings":[]}'));
     const manager = new ExecutionRunManager({
@@ -364,6 +404,7 @@ describe('ExecutionRunManager (review intent)', () => {
 
     expect(parentInputs).toHaveLength(1);
     expect(parentInputs[0]?.text).toContain(started.runId);
+    expect(parentInputs[0]?.text).toContain('Final result:\ndone');
     expect((parentInputs[0]?.meta as any)?.happierStructuredInputV1).toMatchObject({
       v: 1,
       executionRunCompletion: {
@@ -371,6 +412,7 @@ describe('ExecutionRunManager (review intent)', () => {
         runId: started.runId,
         status: 'succeeded',
         canInspect: true,
+        summary: 'done',
       },
     });
     const toolResult = [...sent].reverse().find((m) => (m.body as any)?.type === 'tool-result');

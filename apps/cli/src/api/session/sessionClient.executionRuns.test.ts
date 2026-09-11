@@ -165,8 +165,8 @@ describe('ApiSessionClient execution-run backend wiring', () => {
     await client.executionRuns.stop({ runId: 'run_1' });
     await client.executionRuns.action({ runId: 'run_1', actionId: 'review.apply' });
     expect(typeof (client.executionRuns as any).wait).toBe('function');
-    await (client.executionRuns as any).wait({ runId: 'run_1', timeoutSeconds: 2, pollIntervalMs: 10 });
-    await (client.executionRuns as any).wait({ runId: 'run_2', pollIntervalMs: 10 });
+    await (client.executionRuns as any).wait({ runId: 'run_1', timeoutSeconds: 2 });
+    await (client.executionRuns as any).wait({ runId: 'run_2' });
 
     expect(sessionSocketStubState.executionRunServiceMocks.startExecutionRun).toHaveBeenCalledWith(expect.objectContaining({
       token: 'tok',
@@ -234,7 +234,6 @@ describe('ApiSessionClient execution-run backend wiring', () => {
       mode: 'plain',
       runId: 'run_1',
       timeoutMs: 2_000,
-      pollIntervalMs: 10,
       ctx: expect.objectContaining({
         encryptionVariant: 'dataKey',
         encryptionKey: expect.any(Uint8Array),
@@ -246,7 +245,6 @@ describe('ApiSessionClient execution-run backend wiring', () => {
       mode: 'plain',
       runId: 'run_2',
       timeoutMs: null,
-      pollIntervalMs: 10,
       ctx: expect.objectContaining({
         encryptionVariant: 'dataKey',
         encryptionKey: expect.any(Uint8Array),

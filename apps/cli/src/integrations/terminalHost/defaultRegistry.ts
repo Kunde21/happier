@@ -1,6 +1,9 @@
 import { configuration } from '@/configuration';
 import { createTmuxTerminalHostAdapter } from '@/integrations/tmux';
-import { createZellijTerminalHostAdapter } from '@/integrations/zellij/adapter';
+import {
+  createZellijTerminalHostAdapter,
+  DEFAULT_ZELLIJ_STARTUP_ACTION_TIMEOUT_MS,
+} from '@/integrations/zellij/adapter';
 import { resolveZellijRuntimeBinary } from '@/integrations/zellij/runtimeBinary';
 
 import { createTerminalHostRegistry, type TerminalHostRegistry } from './registry';
@@ -15,6 +18,10 @@ export async function createDefaultTerminalHostRegistry(): Promise<TerminalHostR
           zellijBinary,
           happyHomeDir: configuration.happyHomeDir,
           actionTimeoutMs: configuration.claudeUnifiedTerminalHostActionTimeoutMs,
+          startupActionTimeoutMs: Math.max(
+            configuration.claudeUnifiedTerminalHostActionTimeoutMs,
+            DEFAULT_ZELLIJ_STARTUP_ACTION_TIMEOUT_MS,
+          ),
         }),
       ]
       : []),

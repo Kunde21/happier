@@ -52,6 +52,7 @@ const DEFAULT_INPUT_STABILITY_DELAY_MS = 50;
  */
 const LIVENESS_INSPECTION_FRESHNESS_MS = 100;
 const DEFAULT_ACTION_TIMEOUT_MS = 15_000;
+export const DEFAULT_ZELLIJ_STARTUP_ACTION_TIMEOUT_MS = 60_000;
 const DEFAULT_LAUNCH_PANE_DISCOVERY_POLL_MS = 50;
 const DEFAULT_SESSION_DISCOVERY_ACTION_TIMEOUT_MS = 1_000;
 const MAX_LIVENESS_SCREEN_DUMP_CHARS = 2_000;
@@ -655,6 +656,7 @@ async function cleanupZellijSessionAndRethrowStartupError(params: Readonly<{
   env: Readonly<Record<string, string>>;
   sessionName: string;
   actionTimeoutMs: number;
+  cleanupActionTimeoutMs?: number;
   error: unknown;
 }>): Promise<never> {
   const startupError = normalizeZellijStartupError({
@@ -667,7 +669,7 @@ async function cleanupZellijSessionAndRethrowStartupError(params: Readonly<{
     zellijBinary: params.zellijBinary,
     env: params.env,
     sessionName: params.sessionName,
-    actionTimeoutMs: params.actionTimeoutMs,
+    actionTimeoutMs: params.cleanupActionTimeoutMs ?? params.actionTimeoutMs,
     audit: {
       actor: 'zellij.adapter',
       reason: 'startup-cleanup',
@@ -930,6 +932,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
   pasteMaxBytes?: number;
   inputStabilityDelayMs?: number;
   actionTimeoutMs?: number;
+  startupActionTimeoutMs?: number;
   promptSubmitVerification?: TerminalPromptSubmitVerificationPolicy | undefined;
   prepareSocketDir?: ((socketDir: string) => Promise<void>) | undefined;
   inspectSocketPresence?: InspectZellijSessionSocketPresence | undefined;
@@ -938,6 +941,9 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
   const prepareSocketDir = params.prepareSocketDir ?? prepareZellijSocketDir;
   const inspectSocketPresence = params.inspectSocketPresence ?? inspectZellijSessionSocketPresence;
   const actionTimeoutMs = Math.max(1, Math.trunc(params.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS));
+  const startupActionTimeoutMs = Math.max(1, Math.trunc(
+    params.startupActionTimeoutMs ?? params.actionTimeoutMs ?? DEFAULT_ZELLIJ_STARTUP_ACTION_TIMEOUT_MS,
+  ));
   const pasteMaxBytes = Math.max(0, Math.trunc(params.pasteMaxBytes ?? resolveZellijActionPasteSafeBytes()));
   const promptSubmitVerification = params.promptSubmitVerification;
   const env: Readonly<Record<string, string>> = {
@@ -1114,7 +1120,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
           sessionName: activeSessionName,
           cwd: opts.workingDirectory,
           ...(params.defaultShell ? { defaultShell: params.defaultShell } : {}),
-          timeoutMs: actionTimeoutMs,
+          timeoutMs: startupActionTimeoutMs,
         });
         let result = await attachCreateBackground();
         if (
@@ -1126,7 +1132,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
             const panes = await actions.listPanes({
               zellijBinary: params.zellijBinary,
               env: sessionEnv(env, activeSessionName),
-              timeoutMs: actionTimeoutMs,
+              timeoutMs: startupActionTimeoutMs,
             });
             collisionConfirmedDead = isZellijCollisionSessionConfirmedDead(panes);
           } catch (error) {
@@ -1165,7 +1171,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
           const startupError = createZellijStartupActionFailedError({
             action: 'attach',
             sessionName: activeSessionName,
-            actionTimeoutMs,
+            actionTimeoutMs: startupActionTimeoutMs,
             cmd: buildZellijAttachCreateBackgroundCmd({
               zellijBinary: params.zellijBinary,
               sessionName: activeSessionName,
@@ -1181,7 +1187,8 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
             zellijBinary: params.zellijBinary,
             env,
             sessionName: activeSessionName,
-            actionTimeoutMs,
+            actionTimeoutMs: startupActionTimeoutMs,
+            cleanupActionTimeoutMs: actionTimeoutMs,
             error: startupError,
           });
         }
@@ -1192,7 +1199,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
           sessionName: activeSessionName,
           cwd: opts.workingDirectory,
           ...(params.defaultShell ? { defaultShell: params.defaultShell } : {}),
-          timeoutMs: actionTimeoutMs,
+          timeoutMs: startupActionTimeoutMs,
         });
       }
     } catch (error) {
@@ -1202,7 +1209,8 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
         zellijBinary: params.zellijBinary,
         env,
         sessionName: activeSessionName,
-        actionTimeoutMs,
+        actionTimeoutMs: startupActionTimeoutMs,
+        cleanupActionTimeoutMs: actionTimeoutMs,
         error,
       });
     }
@@ -1214,7 +1222,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
           zellijBinary: params.zellijBinary,
           env,
           sessionName: activeSessionName,
-          actionTimeoutMs,
+          actionTimeoutMs: startupActionTimeoutMs,
         })).flatMap((pane) => {
           const paneId = resolveTerminalPaneActionId(pane);
           return paneId === null ? [] : [paneId];
@@ -1226,7 +1234,8 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
         zellijBinary: params.zellijBinary,
         env,
         sessionName: activeSessionName,
-        actionTimeoutMs,
+        actionTimeoutMs: startupActionTimeoutMs,
+        cleanupActionTimeoutMs: actionTimeoutMs,
         error,
       });
     }
@@ -1247,7 +1256,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
             sessionName: activeSessionName,
             cwd: opts.workingDirectory,
             command: opts.spawnArgv,
-            timeoutMs: actionTimeoutMs,
+            timeoutMs: startupActionTimeoutMs,
           });
         } catch (error) {
           return cleanupZellijSessionAndRethrowStartupError({
@@ -1255,7 +1264,8 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
             zellijBinary: params.zellijBinary,
             env,
             sessionName: activeSessionName,
-            actionTimeoutMs,
+            actionTimeoutMs: startupActionTimeoutMs,
+            cleanupActionTimeoutMs: actionTimeoutMs,
             error,
           });
         }
@@ -1265,11 +1275,12 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
             zellijBinary: params.zellijBinary,
             env,
             sessionName: activeSessionName,
-            actionTimeoutMs,
+            actionTimeoutMs: startupActionTimeoutMs,
+            cleanupActionTimeoutMs: actionTimeoutMs,
             error: createZellijStartupActionFailedError({
               action: 'run',
               sessionName: activeSessionName,
-              actionTimeoutMs,
+              actionTimeoutMs: startupActionTimeoutMs,
               cmd: buildZellijRunCommandCmd({
                 zellijBinary: params.zellijBinary,
                 sessionName: activeSessionName,
@@ -1295,7 +1306,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
           sessionName: activeSessionName,
           cwd: opts.workingDirectory,
           command: opts.spawnArgv,
-          timeoutMs: actionTimeoutMs,
+          timeoutMs: startupActionTimeoutMs,
         });
       }
       let launchedPane: { paneId: string; panes: readonly ZellijPane[] };
@@ -1307,7 +1318,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
           sessionName: activeSessionName,
           paneIdFromRun,
           preExistingPaneIds,
-          actionTimeoutMs,
+          actionTimeoutMs: startupActionTimeoutMs,
         });
       } finally {
         detachedCommandHandle?.dispose();
@@ -1321,7 +1332,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
         preExistingPaneIds,
         initialPanes: launchedPane.panes,
         expectedCommandFragments,
-        actionTimeoutMs,
+        actionTimeoutMs: startupActionTimeoutMs,
       });
       const currentPaneId = resolvePostCleanupCommandPaneId({
         previousPaneId: paneId,
@@ -1348,7 +1359,8 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
         zellijBinary: params.zellijBinary,
         env,
         sessionName: activeSessionName,
-        actionTimeoutMs,
+        actionTimeoutMs: startupActionTimeoutMs,
+        cleanupActionTimeoutMs: actionTimeoutMs,
         error,
       });
     }
@@ -1515,7 +1527,7 @@ export function createZellijTerminalHostAdapter(params: Readonly<{
         // Prompt staging/Enter is a separate terminal operation from the completed paste/write.
         // Give it its own bounded clock so a loaded host cannot consume the submission budget.
         const submissionDeadline = createTerminalHostDeadline(
-          input.scheduling.timeoutMs ?? actionTimeoutMs,
+          injectionTimeoutMs,
         );
         failurePhase = 'after_enter_unknown';
         duplicateRisk = 'likely';

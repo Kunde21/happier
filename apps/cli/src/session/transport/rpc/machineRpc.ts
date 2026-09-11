@@ -9,6 +9,7 @@ import { SOCKET_RPC_EVENTS } from '@happier-dev/protocol/socketRpc';
 import { createRpcCallError, isRpcMethodNotAvailableError } from '@happier-dev/protocol/rpcErrors';
 import { resolveCanonicalMachineId } from '@happier-dev/protocol';
 import type { SocketRpcAuthorizationContext } from '@happier-dev/protocol/rpc';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Calls exactly one account-scoped machine RPC against exactly the machine id it
@@ -49,24 +50,47 @@ async function callExactMachineRpc(params: Readonly<{
       machineEncryption.encryptionVariant,
       params.request,
     ));
+    const requestId = randomUUID();
     const response = await new Promise<{ ok: boolean; result?: unknown; error?: string; errorCode?: string }>((resolve, reject) => {
       let settled = false;
-      let timer: ReturnType<typeof setTimeout>;
+      let requestEmitted = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const cancelRequest = () => {
+        if (!requestEmitted) return;
+        try {
+          socket.emit(SOCKET_RPC_EVENTS.CANCEL, { requestId });
+        } catch {
+          // The caller outcome remains the disconnect/timeout; server-side
+          // caller-disconnect cleanup is the cancellation backstop.
+        }
+      };
       const finish = (callback: () => void) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
+        socket.off('disconnect', onDisconnect);
         callback();
       };
-      timer = setTimeout(() => finish(() => reject(Object.assign(new Error('Machine RPC call timeout'), {
-        code: 'MACHINE_RPC_TIMEOUT',
-      }))), timeoutMs);
+      const onDisconnect = () => finish(() => {
+        cancelRequest();
+        reject(new Error('RPC socket disconnected before acknowledgement'));
+      });
+      socket.on('disconnect', onDisconnect);
+      timer = setTimeout(() => finish(() => {
+        cancelRequest();
+        reject(Object.assign(new Error('Machine RPC call timeout'), {
+          code: 'MACHINE_RPC_TIMEOUT',
+        }));
+      }), timeoutMs);
       try {
+        requestEmitted = true;
         socket.emit(
           SOCKET_RPC_EVENTS.CALL,
           {
             method: `${machineId}:${params.method}`,
             params: encryptedRequest,
+            requestId,
+            timeoutMs,
             ...(params.authorization ? { authorization: params.authorization } : {}),
           },
           (payload: { ok: boolean; result?: unknown; error?: string; errorCode?: string }) => finish(() => resolve(payload)),

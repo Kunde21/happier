@@ -1,4 +1,4 @@
-import type { RpcHandlerRegistrar } from '@/api/rpc/types';
+import type { RpcHandlerContext, RpcHandlerRegistrar } from '@/api/rpc/types';
 import { createHash } from 'node:crypto';
 import type { ACPMessageData, ACPProvider } from '@/api/session/sessionMessageTypes';
 import type { AcpSendFn } from '@/agent/acp/bridge/acpSessionForwarding';
@@ -172,6 +172,18 @@ export function registerExecutionRunHandlers(
   });
 
   let cachedServerSnapshot: CliServerFeaturesSnapshot | undefined;
+
+  function readRunResult(runId: string, includeStructured: boolean): Readonly<Record<string, unknown>> | null {
+    const run = manager.getPublic(runId);
+    if (!run) return null;
+    const structuredMeta = includeStructured ? manager.getStructuredMeta(runId) : null;
+    const latestToolResult = manager.getLatestToolResult(runId);
+    return {
+      run,
+      ...(latestToolResult ? { latestToolResult } : {}),
+      ...(structuredMeta ? { structuredMeta } : {}),
+    };
+  }
 
   function isExecutionRunsEnabled(): boolean {
     return resolveCliFeatureDecision({ featureId: 'execution.runs', env: process.env }).state === 'enabled';
@@ -432,15 +444,83 @@ export function registerExecutionRunHandlers(
     if (!isExecutionRunsEnabled()) return executionRunsDisabled();
     const parsed = ExecutionRunGetRequestSchema.safeParse(raw);
     if (!parsed.success) return invalidParams();
-    const run = manager.getPublic(parsed.data.runId);
-    if (!run) return { ok: false, error: 'Not found', errorCode: 'execution_run_not_found' };
-    const structuredMeta = parsed.data.includeStructured ? manager.getStructuredMeta(parsed.data.runId) : null;
-    const latestToolResult = manager.getLatestToolResult(parsed.data.runId);
-    return {
-      run,
-      ...(latestToolResult ? { latestToolResult } : {}),
-      ...(structuredMeta ? { structuredMeta } : {}),
-    };
+    const result = readRunResult(parsed.data.runId, parsed.data.includeStructured === true);
+    return result ?? { ok: false, error: 'Not found', errorCode: 'execution_run_not_found' };
+  });
+
+  rpc.registerHandler(SESSION_RPC_METHODS.EXECUTION_RUN_WAIT, async (
+    raw: unknown,
+    _legacyLocalOptions?: undefined,
+    context?: RpcHandlerContext,
+  ) => {
+    if (!isExecutionRunsEnabled()) return { ok: false, code: 'execution_run_not_allowed', message: 'Execution runs feature disabled' };
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, code: 'execution_run_invalid_action_input', message: 'Invalid params' };
+    const request = raw as Record<string, unknown>;
+    const rawRunId = request.runId;
+    const runId = typeof rawRunId === 'string'
+      ? rawRunId.trim()
+      : '';
+    const rawTimeoutSeconds = request.timeoutSeconds;
+    const timeoutMs = typeof rawTimeoutSeconds === 'number' && Number.isFinite(rawTimeoutSeconds) && rawTimeoutSeconds > 0
+      ? Math.max(1, Math.floor(rawTimeoutSeconds * 1_000))
+      : null;
+    if (!runId) return { ok: false, code: 'execution_run_invalid_action_input', message: 'Invalid params' };
+
+    const initial = readRunResult(runId, true);
+    if (!initial) return { ok: false, code: 'execution_run_not_found', message: 'Not found' };
+    const initialStatus = (initial.run as ExecutionRunPublicState).status;
+    if (initialStatus !== 'running') return { ok: true, status: initialStatus, result: initial };
+
+    context?.signal.throwIfAborted();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let removeAbortListener = () => {};
+    const deadlineAtMs = timeoutMs === null ? null : Date.now() + timeoutMs;
+    const observationTimedOut = Symbol('execution-run-observation-timeout');
+    const outcomes: Array<Promise<null | typeof observationTimedOut>> = [
+      manager.waitForTerminal(runId).then(() => null),
+    ];
+    if (timeoutMs !== null) {
+      outcomes.push(
+          new Promise<typeof observationTimedOut>((resolve) => {
+            timer = setTimeout(() => resolve(observationTimedOut), timeoutMs);
+          }),
+      );
+    }
+    if (context?.signal) {
+      outcomes.push(new Promise<never>((_resolve, reject) => {
+        const onAbort = () => reject(
+          context.signal.reason ?? new Error('RPC request cancelled by caller'),
+        );
+        context.signal.addEventListener('abort', onAbort, { once: true });
+        removeAbortListener = () => context.signal.removeEventListener('abort', onAbort);
+        if (context.signal.aborted) onAbort();
+      }));
+    }
+    let outcome: null | typeof observationTimedOut;
+    try {
+      outcome = await Promise.race(outcomes);
+    } finally {
+      if (timer) clearTimeout(timer);
+      removeAbortListener();
+    }
+
+    const result = readRunResult(runId, true);
+    if (!result) return { ok: false, code: 'execution_run_not_found', message: 'Not found' };
+    const status = (result.run as ExecutionRunPublicState).status;
+    if (status !== 'running') return { ok: true, status, result };
+    if (outcome === observationTimedOut && timeoutMs !== null) {
+      const observedAtMs = Date.now();
+      return {
+        ok: true,
+        status: 'running',
+        disposition: 'observation_timeout',
+        runId,
+        timeoutMs,
+        observedAtMs,
+        deadlineAtMs: deadlineAtMs!,
+      };
+    }
+    return { ok: false, code: 'execution_run_failed', message: 'Execution run wait ended before terminal state' };
   });
 
   rpc.registerHandler(SESSION_RPC_METHODS.EXECUTION_RUN_SEND, async (raw: unknown) => {

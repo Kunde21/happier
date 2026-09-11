@@ -19,6 +19,25 @@ import { registerExecutionRunHandlers as registerExecutionRunHandlersBase } from
 import { ExecutionBudgetRegistry } from '@/daemon/executionBudget/ExecutionBudgetRegistry';
 import { runGit } from '@/scm/rpc/__tests__/testRpcHarness';
 import { reloadConfiguration } from '@/configuration';
+import { SOCKET_RPC_EVENTS } from '@happier-dev/protocol/socketRpc';
+import type { Socket } from 'socket.io-client';
+
+function createRpcSocketBoundary() {
+  const handlers = new Map<string, Array<(payload: unknown) => void>>();
+  const socket = {
+    emit: vi.fn(),
+    on: vi.fn((event: string, handler: (payload: unknown) => void) => {
+      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+      return socket;
+    }),
+  };
+  return {
+    socket: socket as unknown as Socket,
+    trigger(event: string, payload: unknown) {
+      for (const handler of handlers.get(event) ?? []) handler(payload);
+    },
+  };
+}
 
 vi.mock('@/persistence', () => ({
   readCredentials: vi.fn(),
@@ -316,6 +335,97 @@ function createCancelRaceBackend(params: Readonly<{
 }
 
 describe('executionRuns session RPC handlers', () => {
+  it('waits on the manager lifecycle without polling get', async () => {
+    const client = createEncryptedRpcTestClient({
+      scopePrefix: 'sess_1',
+      registerHandlers: (rpc) => {
+        registerExecutionRunHandlers(rpc, {
+          sessionId: 'sess_1',
+          cwd: process.cwd(),
+          parentProvider: 'claude',
+          createBackend: () => createDelayedBackend('done', 60_000),
+          sendAcp: () => {},
+        });
+      },
+    });
+
+    const started = await client.call<ExecutionRunStartResponse, any>(SESSION_RPC_METHODS.EXECUTION_RUN_START, {
+      intent: 'delegate',
+      backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
+      instructions: 'Delegate.',
+      permissionMode: 'read_only',
+      retentionPolicy: 'ephemeral',
+      runClass: 'bounded',
+      ioMode: 'request_response',
+    });
+
+    await expect(client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_WAIT, {
+      runId: started.runId,
+      timeoutSeconds: 0.001,
+    })).resolves.toMatchObject({
+      ok: true,
+      status: 'running',
+      disposition: 'observation_timeout',
+      runId: started.runId,
+      timeoutMs: 1,
+    });
+
+    await expect(client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_STOP, {
+      runId: started.runId,
+    })).resolves.toEqual({ ok: true });
+
+    await expect(client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_WAIT, {
+      runId: started.runId,
+    })).resolves.toMatchObject({
+      ok: true,
+      status: 'cancelled',
+      result: { run: { runId: started.runId, status: 'cancelled' } },
+    });
+  });
+
+  it('releases a parked execution-run wait when its transport request is cancelled', async () => {
+    const client = createEncryptedRpcTestClient({
+      scopePrefix: 'sess_1',
+      registerHandlers: (rpc) => {
+        registerExecutionRunHandlers(rpc, {
+          sessionId: 'sess_1',
+          cwd: process.cwd(),
+          parentProvider: 'claude',
+          createBackend: () => createDelayedBackend('done', 60_000),
+          sendAcp: () => {},
+        });
+      },
+    });
+    const boundary = createRpcSocketBoundary();
+    client.manager.onSocketConnect(boundary.socket);
+    const started = await client.call<ExecutionRunStartResponse, any>(SESSION_RPC_METHODS.EXECUTION_RUN_START, {
+      intent: 'delegate',
+      backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
+      instructions: 'Delegate.',
+      permissionMode: 'read_only',
+      retentionPolicy: 'ephemeral',
+      runClass: 'bounded',
+      ioMode: 'request_response',
+    });
+
+    const waiting = client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_WAIT, {
+      runId: started.runId,
+    }, {
+      requestId: 'target-wait-1',
+    });
+    await vi.waitFor(() => expect(client.manager.getActiveHandlerExecutions()).toContainEqual(
+      expect.objectContaining({ method: SESSION_RPC_METHODS.EXECUTION_RUN_WAIT }),
+    ));
+
+    boundary.trigger(SOCKET_RPC_EVENTS.CANCEL, { requestId: 'target-wait-1' });
+
+    await expect(waiting).resolves.toEqual({ error: 'RPC request cancelled by caller' });
+    expect(client.manager.getInFlightRequestCount()).toBe(0);
+    await expect(client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_STOP, {
+      runId: started.runId,
+    })).resolves.toEqual({ ok: true });
+  });
+
   it('threads one prepared execution contribution handle into the canonical manager', async () => {
     const reports: SessionRuntimeActivityContribution[] = [];
     const runtimeActivityContributionHandle = {

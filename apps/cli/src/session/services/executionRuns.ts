@@ -20,14 +20,12 @@ import type {
     SessionStoredContentEncryptionMode,
 } from '@/session/transport/encryption/sessionEncryptionContext';
 import { callSessionRpc } from '@/session/transport/rpc/sessionRpc';
-import { delay } from '@/utils/time';
 import { applyExecutionRunListRequest } from './applyExecutionRunListRequest';
 import {
     findExecutionRunPublicStateInHistoryRows,
     listExecutionRunPublicStatesFromHistoryRows,
 } from './deriveExecutionRunPublicStatesFromHistory';
 import { readRawSessionHistoryRows } from './getSessionHistory';
-import { normalizeExecutionRunWaitPollIntervalMs } from './executionRunWaitTiming';
 
 type ExecutionRunRpcContext = Readonly<{
     token: string;
@@ -395,7 +393,7 @@ export function normalizeExecutionRunRpcPayload<T>(payload: unknown): ExecutionR
 }
 
 async function callExecutionRunRpc(
-    params: ExecutionRunRpcContext & Readonly<{ methodSuffix: string; request: unknown }>,
+    params: ExecutionRunRpcContext & Readonly<{ methodSuffix: string; request: unknown; timeoutMs?: number | null }>,
 ): Promise<ExecutionRunServiceResult<unknown>> {
     const payload = await callSessionRpc({
         token: params.token,
@@ -404,6 +402,7 @@ async function callExecutionRunRpc(
         ctx: params.ctx,
         method: `${params.sessionId}:${params.methodSuffix}`,
         request: params.request,
+        ...(typeof params.timeoutMs === 'number' || params.timeoutMs === null ? { timeoutMs: params.timeoutMs } : {}),
     });
     return normalizeExecutionRunRpcPayload(payload);
 }
@@ -419,6 +418,7 @@ export async function startExecutionRun(
         const result = await callExecutionRunRpc({
             ...params,
             methodSuffix: SESSION_RPC_METHODS.EXECUTION_RUN_START,
+            timeoutMs: null,
         });
         if (!result.ok) {
             const fallbackCode = classifyExecutionRunServiceFallback(result);
@@ -656,47 +656,81 @@ export async function waitForExecutionRun(
         Readonly<{
             runId: string;
             timeoutMs: number | null;
-            pollIntervalMs: number;
         }>,
 ): Promise<WaitForExecutionRunResult> {
-    const request = ExecutionRunGetRequestSchema.parse({ runId: params.runId });
+    const runId = ExecutionRunGetRequestSchema.parse({ runId: params.runId }).runId;
     const timeoutMs =
         typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) && params.timeoutMs > 0
             ? params.timeoutMs
             : null;
-    const pollIntervalMs = normalizeExecutionRunWaitPollIntervalMs(params.pollIntervalMs);
-    const deadlineMs = timeoutMs === null ? null : Date.now() + timeoutMs;
-
-    while (deadlineMs === null || Date.now() <= deadlineMs) {
-        const result = await getExecutionRun({
+    let response: ExecutionRunServiceResult<unknown>;
+    try {
+        response = await callExecutionRunRpc({
             token: params.token,
             sessionId: params.sessionId,
             mode: params.mode,
             ctx: params.ctx,
-            request,
+            methodSuffix: SESSION_RPC_METHODS.EXECUTION_RUN_WAIT,
+            request: {
+                runId,
+                ...(timeoutMs === null
+                    ? {}
+                    : { timeoutSeconds: Math.max(1, Math.ceil(timeoutMs / 1_000)) }),
+            },
+            // The daemon owns the observation deadline. Do not impose a second client-side
+            // product timeout or turn a long, healthy run into a transport failure.
+            timeoutMs: null,
         });
-        if (!result.ok) {
-            return result;
-        }
-        const status = (result.data as { run?: { status?: unknown } } | null)?.run?.status;
-        if (isExecutionRunTerminalStatus(status)) {
-            return {
-                ok: true,
-                status,
-                result: result.data,
-            };
-        }
-        await delay(pollIntervalMs);
+    } catch (error) {
+        const fallbackCode = classifyExecutionRunRpcFallback(error);
+        if (!fallbackCode) throw error;
+        response = toExecutionRunFallbackExhaustedError(error, fallbackCode);
     }
-
-    const observedAtMs = Date.now();
+    if (!response.ok) {
+        if (!isFallbackSafeExecutionRunServiceError(response)) return response;
+        // Compatibility/recovery is a single snapshot, never a polling loop. This lets a newer
+        // caller observe an already-terminal run from an older daemon or durable marker without
+        // recreating the socket churn that execution.run.wait exists to remove.
+        const snapshot = await getExecutionRun({
+            token: params.token,
+            sessionId: params.sessionId,
+            mode: params.mode,
+            ctx: params.ctx,
+            request: { runId },
+        });
+        if (snapshot.ok) {
+            const snapshotStatus = (snapshot.data as { run?: { status?: unknown } } | null)?.run?.status;
+            if (isExecutionRunTerminalStatus(snapshotStatus)) {
+                return { ok: true, status: snapshotStatus, result: snapshot.data };
+            }
+        }
+        return response;
+    }
+    const payload = response.data as Record<string, unknown> | null;
+    const status = payload?.status;
+    if (isExecutionRunTerminalStatus(status) && payload && Object.prototype.hasOwnProperty.call(payload, 'result')) {
+        return { ok: true, status, result: payload.result };
+    }
+    if (
+        status === 'running'
+        && payload?.disposition === 'observation_timeout'
+        && typeof payload.timeoutMs === 'number'
+        && typeof payload.observedAtMs === 'number'
+        && typeof payload.deadlineAtMs === 'number'
+    ) {
+        return {
+            ok: true,
+            status: 'running',
+            disposition: 'observation_timeout',
+            runId,
+            timeoutMs: payload.timeoutMs,
+            observedAtMs: payload.observedAtMs,
+            deadlineAtMs: payload.deadlineAtMs,
+        };
+    }
     return {
-        ok: true,
-        status: 'running',
-        disposition: 'observation_timeout',
-        runId: params.runId,
-        timeoutMs: timeoutMs!,
-        observedAtMs,
-        deadlineAtMs: deadlineMs!,
+        ok: false,
+        code: 'execution_run_invalid_response',
+        message: 'Invalid execution run wait response',
     };
 }

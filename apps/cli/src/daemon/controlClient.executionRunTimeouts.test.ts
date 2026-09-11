@@ -16,8 +16,8 @@ const PROOF = {
 };
 
 describe('resolveExecutionRunConnectedServiceMaterializeTimeoutMs (A1)', () => {
-  it('defaults to a materialization-sized bound, NOT the generic 10s daemonPost default', () => {
-    expect(resolveExecutionRunConnectedServiceMaterializeTimeoutMs({})).toBe(120_000);
+  it('covers the daemon materialization tail backstop plus the materialization work itself', () => {
+    expect(resolveExecutionRunConnectedServiceMaterializeTimeoutMs({})).toBe(600_000);
   });
 
   it('honors the env override within bounds', () => {
@@ -33,7 +33,7 @@ describe('resolveExecutionRunConnectedServiceMaterializeTimeoutMs (A1)', () => {
     })).toBe(600_000);
     expect(resolveExecutionRunConnectedServiceMaterializeTimeoutMs({
       HAPPIER_EXECUTION_RUN_CS_MATERIALIZE_TIMEOUT_MS: 'garbage',
-    })).toBe(120_000);
+    })).toBe(600_000);
   });
 });
 

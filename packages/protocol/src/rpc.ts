@@ -310,6 +310,7 @@ export const SESSION_RPC_METHODS = {
   EXECUTION_RUN_STOP: 'execution.run.stop',
   EXECUTION_RUN_LIST: 'execution.run.list',
   EXECUTION_RUN_GET: 'execution.run.get',
+  EXECUTION_RUN_WAIT: 'execution.run.wait',
   EXECUTION_RUN_ACTION: 'execution.run.action',
   SESSION_ROLLBACK: 'session.rollback',
   EPHEMERAL_TASK_RUN: 'ephemeral.task.run',

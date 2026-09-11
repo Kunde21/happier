@@ -7385,12 +7385,10 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
       const connectedServicesQuotasEnabled = await resolveConnectedServicesQuotasDaemonEnabled({
         env: process.env,
         serverUrl: configuration.serverUrl,
-        timeoutMs: 1500,
       });
       connectedServicesSubscriptionEnabled = await resolveConnectedServicesQuotasDaemonEnabled({
         env: process.env,
         serverUrl: configuration.serverUrl,
-        timeoutMs: 1500,
         featureId: 'connectedServices.subscription',
       });
       const quotaGroupFreshnessMs = resolvePositiveIntEnv(

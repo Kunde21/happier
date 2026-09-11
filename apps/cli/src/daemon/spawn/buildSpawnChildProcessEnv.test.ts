@@ -1,19 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { HAPPIER_DAEMON_SPAWN_SELF_MIGRATE_CGROUP_ENV_KEY } from '@/daemon/platform/linux/daemonSpawnedSessionCgroupSelfMigration';
 import { resolveFileLogLevel } from '@/ui/logFileLevel';
 import { buildSpawnChildProcessEnv } from './buildSpawnChildProcessEnv';
 
 describe('buildSpawnChildProcessEnv', () => {
-  const buildOnLinux = (params: Parameters<typeof buildSpawnChildProcessEnv>[0]) => {
-    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
-    try {
-      return buildSpawnChildProcessEnv(params);
-    } finally {
-      platform.mockRestore();
-    }
-  };
-
   it('merges process env with extra env and strips nested daemon/session bootstrap variables', () => {
     const env = buildSpawnChildProcessEnv({
       processEnv: {
@@ -112,7 +103,7 @@ describe('buildSpawnChildProcessEnv', () => {
   });
 
   it('enables self-migration for child runners spawned by a background-service daemon', () => {
-    const env = buildOnLinux({
+    const env = buildSpawnChildProcessEnv({
       processEnv: {
         PATH: '/bin',
         HAPPIER_DAEMON_STARTUP_SOURCE: 'background-service',
@@ -124,7 +115,7 @@ describe('buildSpawnChildProcessEnv', () => {
   });
 
   it('keeps self-migration enabled across an authorized daemon self-restart', () => {
-    const env = buildOnLinux({
+    const env = buildSpawnChildProcessEnv({
       processEnv: {
         PATH: '/bin',
         HAPPIER_DAEMON_STARTUP_SOURCE: 'self-restart',
@@ -136,7 +127,7 @@ describe('buildSpawnChildProcessEnv', () => {
   });
 
   it('enables Linux self-migration for child runners spawned by a manual stack daemon', () => {
-    const env = buildOnLinux({
+    const env = buildSpawnChildProcessEnv({
       processEnv: {
         PATH: '/bin',
         HAPPIER_DAEMON_STARTUP_SOURCE: 'manual',

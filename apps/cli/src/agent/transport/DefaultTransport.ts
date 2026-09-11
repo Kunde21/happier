@@ -25,12 +25,6 @@ import { classifyProviderOutputFailure } from '@/agent/runtime/classifyProviderO
 const DEFAULT_TIMEOUTS = {
   /** Default initialization timeout: 60 seconds */
   init: 60_000,
-  /** Default tool call timeout: 2 minutes */
-  toolCall: 120_000,
-  /** Investigation tool timeout: 10 minutes */
-  investigation: 600_000,
-  /** Think tool timeout: 30 seconds */
-  think: 30_000,
 } as const;
 
 /**
@@ -41,7 +35,7 @@ const DEFAULT_TIMEOUTS = {
  * - No stdout filtering (pass through all lines)
  * - Basic stderr logging (no special error detection)
  * - Empty tool patterns (no special tool name extraction)
- * - Standard tool call timeouts
+ * - No generic tool-call deadline; provider transports may declare one
  */
 export class DefaultTransport implements TransportHandler {
   readonly agentName: string;
@@ -171,13 +165,11 @@ export class DefaultTransport implements TransportHandler {
   }
 
   /**
-   * Default tool call timeout based on tool kind
+   * Generic ACP has no provider-owned evidence that a tool is stuck. Callers
+   * remain cancellable, while providers with a real deadline override this.
    */
-  getToolCallTimeout(_toolCallId: string, toolKind?: string): number | null {
-    if (toolKind === 'think') {
-      return DEFAULT_TIMEOUTS.think;
-    }
-    return DEFAULT_TIMEOUTS.toolCall;
+  getToolCallTimeout(_toolCallId: string, _toolKind?: string): number | null {
+    return null;
   }
 
   /**

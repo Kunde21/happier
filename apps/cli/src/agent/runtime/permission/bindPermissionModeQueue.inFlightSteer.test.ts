@@ -332,6 +332,73 @@ describe('registerPermissionModeMessageQueueBinding (in-flight steer)', () => {
     expect(deliverySettled).toBe(true);
   });
 
+  it('steers the tagged execution-run notification text', async () => {
+    const { session, emitUserMessage } = createSessionHarness();
+    const { queue, spyPush, spyIsolate } = createQueue();
+    const steerText = vi.fn(async () => {});
+
+    registerPermissionModeMessageQueueBinding({
+      session,
+      queue,
+      getCurrentPermissionMode: () => 'default',
+      setCurrentPermissionMode: () => {},
+      inFlightSteer: {
+        isTurnInFlight: () => true,
+        supportsInFlightSteer: () => true,
+        steerText,
+      },
+    } as any);
+
+    emitUserMessage(
+      {
+        content: {
+          text: [
+            '<happier_execution_run_notification>',
+            'This is an automated background-run notification from Happier, not a user message.',
+            'Run ID: run_1',
+            'Status: succeeded',
+            '',
+            'Final result:',
+            'Reviewed the change.',
+            '</happier_execution_run_notification>',
+          ].join('\n'),
+        },
+        localId: 'execution-run-completion',
+        meta: {
+          happierStructuredInputV1: {
+            v: 1,
+            executionRunCompletion: {
+              v: 1,
+              runId: 'run_1',
+              status: 'succeeded',
+              finishedAtMs: 42,
+              canInspect: true,
+              summary: 'Reviewed the change.',
+            },
+          },
+        },
+      },
+      { seq: 11, providerAcceptancePending: true, pendingProviderAction: 'steer' },
+    );
+    await waitForSteerWork();
+
+    expect(steerText).toHaveBeenCalledWith(
+      [
+        '<happier_execution_run_notification>',
+        'This is an automated background-run notification from Happier, not a user message.',
+        'Run ID: run_1',
+        'Status: succeeded',
+        '',
+        'Final result:',
+        'Reviewed the change.',
+        '</happier_execution_run_notification>',
+      ].join('\n'),
+      { localId: 'execution-run-completion', localIds: ['execution-run-completion'] },
+    );
+    expect(spyPush).not.toHaveBeenCalled();
+    expect(spyIsolate).not.toHaveBeenCalled();
+  });
+
   it('carries localId and committed seq identity when steering in-flight', async () => {
     const { session, emitUserMessage } = createSessionHarness();
     const { queue, spyPush } = createQueue();

@@ -34,6 +34,10 @@ export function withExecutionRunBackendModelOptions(
   backend: AgentBackend,
   options: Readonly<{
     modelId?: string;
+    modelApply?: Readonly<{
+      method: 'set_model' | 'config_option';
+      configOptionId?: string;
+    }>;
     sessionConfigOptionOverrides?: AcpConfigOptionOverridesV1;
   }>,
 ): AgentBackend {
@@ -52,7 +56,15 @@ export function withExecutionRunBackendModelOptions(
   const target = backend as ModelConfigurableBackend;
 
   const applyOptions = async (sessionId: SessionId): Promise<void> => {
-    if (modelId && typeof target.setSessionModel === 'function') {
+    const modelConfigOptionId = readNonBlankSessionControlIdentifier(options.modelApply?.configOptionId);
+    if (
+      modelId
+      && options.modelApply?.method === 'config_option'
+      && modelConfigOptionId
+      && typeof target.setSessionConfigOption === 'function'
+    ) {
+      await target.setSessionConfigOption(sessionId, modelConfigOptionId, modelId);
+    } else if (modelId && typeof target.setSessionModel === 'function') {
       await target.setSessionModel(sessionId, modelId);
     }
     if (overrideEntries.length > 0 && typeof target.setSessionConfigOption === 'function') {

@@ -156,6 +156,54 @@ describe('createZellijTerminalHostAdapter', () => {
     });
     });
 
+  it('gives startup a load-tolerant deadline without lengthening routine liveness probes', async () => {
+    let listCount = 0;
+    const attachTimeouts: number[] = [];
+    const runTimeouts: number[] = [];
+    const listTimeouts: number[] = [];
+    const actions: ZellijActions = {
+      attachCreateBackground: async (input) => {
+        attachTimeouts.push(input.timeoutMs ?? -1);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+      runCommand: async (input) => {
+        runTimeouts.push(input.timeoutMs ?? -1);
+        return { exitCode: 0, stdout: 'terminal_42\n', stderr: '' };
+      },
+      listPanes: async (input) => {
+        listTimeouts.push(input.timeoutMs ?? -1);
+        listCount += 1;
+        return listCount === 1 ? [] : [{ id: 42, is_plugin: false, is_focused: true, terminal_command: '/managed/node' }];
+      },
+      dumpScreen: async () => '',
+      writeBytesChunked: async () => undefined,
+      sendEnter: async () => undefined,
+      sendEscape: async () => undefined,
+      closePane: async () => undefined,
+      killSession: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      deleteSession: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    };
+    const adapter = createZellijTerminalHostAdapter({
+      zellijBinary: '/tools/zellij',
+      happyHomeDir: '/home/happier',
+      actions,
+    });
+
+    const handle = await adapter.createOrAttachHost({
+      sessionName: 'session-a',
+      workingDirectory: '/workspace/project',
+      spawnArgv: ['/managed/node', 'claude_local_launcher.cjs'],
+      spawnEnv: {},
+      isolatedEnv: true,
+    });
+
+    expect(attachTimeouts).toEqual([60_000]);
+    expect(runTimeouts).toEqual([60_000]);
+
+    await adapter.evaluateLiveness(handle);
+    expect(listTimeouts.at(-1)).toBe(15_000);
+  });
+
   it('adopts an existing live zellij host without running a new command', async () => {
     const calls: string[] = [];
     const actions = {
@@ -3507,6 +3555,7 @@ describe('createZellijTerminalHostAdapter', () => {
         zellijBinary: '/tools/zellij',
         happyHomeDir: '/home/happier',
         actions,
+        actionTimeoutMs: 5,
       });
 
     await expect(adapter.createOrAttachHost({
@@ -3816,8 +3865,7 @@ describe('createZellijTerminalHostAdapter', () => {
     )).resolves.toMatchObject({ status: 'injected' });
 
     expect(timeouts.write).toBeGreaterThan(123);
-    expect(timeouts.enter).toBeGreaterThan(0);
-    expect(timeouts.enter).toBeLessThanOrEqual(123);
+    expect(timeouts.enter).toBeGreaterThan(123);
   });
 
   it('reports unstable input state when zellij screen output changes during the quiet probe', async () => {

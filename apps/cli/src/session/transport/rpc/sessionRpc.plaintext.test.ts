@@ -31,6 +31,10 @@ class FakeSocket {
     return this.handlers.get(event)?.length ?? 0;
   }
 
+  trigger(event: string, ...args: any[]) {
+    for (const handler of this.handlers.get(event) ?? []) handler(...args);
+  }
+
   connect() {
     if (nextConnectError) {
       for (const handler of this.handlers.get('connect_error') ?? []) {
@@ -98,6 +102,25 @@ describe('callSessionRpc (plaintext sessions)', () => {
     expect(createdSockets[0]?.closeCalls).toBe(1);
     expect(createdSockets[0]?.listenerCount('connect')).toBe(0);
     expect(createdSockets[0]?.listenerCount('connect_error')).toBe(0);
+  });
+
+  it('forwards an explicit transport timeout to the server', async () => {
+    const { callSessionRpc } = await import('./sessionRpc');
+    await callSessionRpc({
+      token: 't',
+      sessionId: 'sess_1',
+      mode: 'plain',
+      method: 'sess_1:execution.run.wait',
+      request: { runId: 'run_1', timeoutMs: null },
+      timeoutMs: 86_400_000,
+      ctx: { encryptionKey: new Uint8Array(32), encryptionVariant: 'dataKey' },
+    });
+
+    expect(createdSockets[0]?.emitted[0]?.data).toMatchObject({
+      method: 'sess_1:execution.run.wait',
+      timeoutMs: 86_400_000,
+      requestId: expect.any(String),
+    });
   });
 
   it('throws RpcError with rpcErrorCode when the RPC response includes errorCode', async () => {
@@ -188,5 +211,27 @@ describe('callSessionRpc (plaintext sessions)', () => {
     expect(createdSockets[0]?.closeCalls).toBe(1);
     expect(createdSockets[0]?.listenerCount('connect')).toBe(0);
     expect(createdSockets[0]?.listenerCount('connect_error')).toBe(0);
+  });
+
+  it('settles a caller-lifecycle RPC when its socket disconnects before acknowledgement', async () => {
+    nextEmitNeverAcks = true;
+    const { callSessionRpc } = await import('./sessionRpc');
+    const result = callSessionRpc({
+      token: 't',
+      sessionId: 'sess_1',
+      mode: 'plain',
+      method: 'sess_1:execution.run.wait',
+      request: { runId: 'run_1' },
+      timeoutMs: null,
+      ctx: { encryptionKey: new Uint8Array(32), encryptionVariant: 'dataKey' },
+    });
+
+    await vi.waitFor(() => {
+      expect(createdSockets[0]?.listenerCount('disconnect')).toBe(1);
+    });
+    createdSockets[0]?.trigger('disconnect', 'transport close');
+    await expect(result).rejects.toThrow('RPC socket disconnected before acknowledgement');
+    expect(createdSockets[0]?.disconnectCalls).toBe(1);
+    expect(createdSockets[0]?.closeCalls).toBe(1);
   });
 });

@@ -525,7 +525,6 @@ const ExecutionRunActionInputSchema = ExecutionRunIdInputSchema.extend({
 
 const ExecutionRunWaitInputSchema = ExecutionRunIdInputSchema.extend({
   timeoutSeconds: z.number().int().min(1).optional(),
-  pollIntervalMs: z.number().int().min(100).max(60_000).optional(),
 }).passthrough();
 
 const SessionOpenInputSchema = z.object({
@@ -1312,7 +1311,7 @@ export const ACTION_SPECS: readonly ActionSpec[] = Object.freeze([
         {
           path: 'connectedServices',
           title: 'Connected services (account/pool)',
-          description: 'Optional. Bind these runs to a connected account or pool instead of the runner\'s inherited account. Simple form: "openai-codex:group:<poolId>" (a pool — auto-rotates when autoSwitch is enabled), "openai-codex:<profileId>" (a single account), "openai-codex:native" (opt out), or a full { v:1, bindingsByServiceId } object. Applies to every target; omit to use each account\'s configured default exactly as stored (literal: a profile default binds to that profile, a pool default to that pool — no silent upgrade; to rotate, store a pool default or pass a pool selection).',
+          description: 'Optional. Bind these runs to a connected account or pool instead of the runner\'s inherited account. Use "native" to suppress all connected-service inheritance. Per-service forms remain available: "openai-codex:group:<poolId>" (a pool — auto-rotates when autoSwitch is enabled), "openai-codex:<profileId>" (a single account), "openai-codex:native" (native for that service), or a full { v:1, bindingsByServiceId } object. Applies to every target; omit to use each account\'s configured default exactly as stored (literal: a profile default binds to that profile, a pool default to that pool — no silent upgrade; to rotate, store a pool default or pass a pool selection).',
           widget: 'text',
           optionsSourceId: 'execution.runs.connected_services.available',
         },
@@ -1390,7 +1389,7 @@ export const ACTION_SPECS: readonly ActionSpec[] = Object.freeze([
         {
           path: 'connectedServices',
           title: 'Connected services (account/pool)',
-          description: 'Optional. Bind these runs to a connected account or pool instead of the runner\'s inherited account. Simple form: "openai-codex:group:<poolId>" (a pool — auto-rotates when autoSwitch is enabled), "openai-codex:<profileId>" (a single account), "openai-codex:native" (opt out), or a full { v:1, bindingsByServiceId } object. Applies to every target; omit to use each account\'s configured default exactly as stored (literal: a profile default binds to that profile, a pool default to that pool — no silent upgrade; to rotate, store a pool default or pass a pool selection).',
+          description: 'Optional. Bind these runs to a connected account or pool instead of the runner\'s inherited account. Use "native" to suppress all connected-service inheritance. Per-service forms remain available: "openai-codex:group:<poolId>" (a pool — auto-rotates when autoSwitch is enabled), "openai-codex:<profileId>" (a single account), "openai-codex:native" (native for that service), or a full { v:1, bindingsByServiceId } object. Applies to every target; omit to use each account\'s configured default exactly as stored (literal: a profile default binds to that profile, a pool default to that pool — no silent upgrade; to rotate, store a pool default or pass a pool selection).',
           widget: 'text',
           optionsSourceId: 'execution.runs.connected_services.available',
         },
@@ -1447,7 +1446,7 @@ export const ACTION_SPECS: readonly ActionSpec[] = Object.freeze([
         {
           path: 'connectedServices',
           title: 'Connected services (account/pool)',
-          description: 'Optional. Bind the run to a connected account or pool instead of the runner\'s inherited account. Simple form: "openai-codex:group:<poolId>" (a pool — auto-rotates when autoSwitch is enabled), "openai-codex:<profileId>" (a single account), "openai-codex:native" (opt out), or a full { v:1, bindingsByServiceId } object. Omit to use the account\'s configured default exactly as stored (literal: a profile default binds to that profile, a pool default to that pool — no silent upgrade; to rotate, store a pool default or pass a pool selection).',
+          description: 'Optional. Bind the run to a connected account or pool instead of the runner\'s inherited account. Use "native" to suppress all connected-service inheritance for the run. Per-service forms remain available: "openai-codex:group:<poolId>" (a pool — auto-rotates when autoSwitch is enabled), "openai-codex:<profileId>" (a single account), "openai-codex:native" (native for that service), or a full { v:1, bindingsByServiceId } object. Omit to use the account\'s configured default exactly as stored (literal: a profile default binds to that profile, a pool default to that pool — no silent upgrade; to rotate, store a pool default or pass a pool selection).',
           widget: 'text',
           optionsSourceId: 'execution.runs.connected_services.available',
         },
@@ -1530,7 +1529,7 @@ export const ACTION_SPECS: readonly ActionSpec[] = Object.freeze([
         {
           path: 'connectedServices',
           title: 'Connected services (account/pool)',
-          description: 'Optional. Bind the run to a connected account or pool instead of the runner\'s inherited account. Simple form: "openai-codex:group:<poolId>" (a pool — auto-rotates when autoSwitch is enabled), "openai-codex:<profileId>" (a single account), "openai-codex:native" (opt out), or a full { v:1, bindingsByServiceId } object. Omit to use the account\'s configured default exactly as stored (literal: a profile default binds to that profile, a pool default to that pool — no silent upgrade; to rotate, store a pool default or pass a pool selection).',
+          description: 'Optional. Bind the run to a connected account or pool instead of the runner\'s inherited account. Use "native" to suppress all connected-service inheritance for the run. Per-service forms remain available: "openai-codex:group:<poolId>" (a pool — auto-rotates when autoSwitch is enabled), "openai-codex:<profileId>" (a single account), "openai-codex:native" (native for that service), or a full { v:1, bindingsByServiceId } object. Omit to use the account\'s configured default exactly as stored (literal: a profile default binds to that profile, a pool default to that pool — no silent upgrade; to rotate, store a pool default or pass a pool selection).',
           widget: 'text',
           optionsSourceId: 'execution.runs.connected_services.available',
         },
@@ -1721,7 +1720,6 @@ export const ACTION_SPECS: readonly ActionSpec[] = Object.freeze([
         { path: 'sessionId', title: 'Session id', widget: 'text' },
         { path: 'runId', title: 'Run id', widget: 'text', required: true },
         { path: 'timeoutSeconds', title: 'Timeout seconds (optional)', widget: 'text' },
-        { path: 'pollIntervalMs', title: 'Poll interval (ms)', widget: 'text' },
       ],
     },
     inputSchema: ExecutionRunWaitInputSchema,
