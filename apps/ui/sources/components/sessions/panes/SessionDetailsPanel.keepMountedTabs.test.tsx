@@ -192,8 +192,7 @@ describe('SessionDetailsPanel (keep mounted tabs)', () => {
             && getStyleValue(surface.props.style, 'opacity') === 0
         ));
         expect(inactiveSurface).toBeTruthy();
-        expect(getStyleValue(inactiveSurface!.props.style, 'display')).toBe('flex');
-        expect(getStyleValue(inactiveSurface!.props.style, 'visibility')).toBe('hidden');
+        expect(getStyleValue(inactiveSurface!.props.style, 'display')).toBe('none');
         expect((inactiveSurface!.props as any).accessibilityElementsHidden).toBeUndefined();
         expect((inactiveSurface!.props as any).importantForAccessibility).toBeUndefined();
     });
