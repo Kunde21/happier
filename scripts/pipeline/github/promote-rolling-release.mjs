@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { closeSync, createReadStream, openSync } from 'node:fs';
-import { copyFile, mkdtemp, readdir, rename, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -18,9 +18,6 @@ const FULL_SHA = /^[a-f0-9]{40}$/;
 const DEFAULT_UPLOAD_ATTEMPTS = 8;
 const DEFAULT_UPLOAD_RETRY_DELAY_MS = 5_000;
 const DEFAULT_UPLOAD_MAX_RETRY_DELAY_MS = 60_000;
-const DEFAULT_ASSET_READ_ATTEMPTS = 4;
-const DEFAULT_ASSET_READ_RETRY_DELAY_MS = 2_000;
-const DEFAULT_ASSET_READ_MAX_RETRY_DELAY_MS = 8_000;
 const DEFAULT_MUTATION_CONFIRM_ATTEMPTS = 8;
 const DEFAULT_MUTATION_CONFIRM_RETRY_DELAY_MS = 1_000;
 const DEFAULT_MUTATION_CONFIRM_MAX_RETRY_DELAY_MS = 5_000;
@@ -434,36 +431,12 @@ function deleteReleaseIfPresent({ repo, releaseId, env, dryRun }) {
 
 async function downloadReleaseAssetsById({ repo, assets, destination, env, dryRun }) {
   for (const { id: assetId, name } of assets) {
-    const destinationPath = join(destination, name);
-    const attemptPath = `${destinationPath}.attempt`;
-    const attempts = readPositiveIntegerEnv('HAPPIER_PIPELINE_GH_ASSET_READ_ATTEMPTS', DEFAULT_ASSET_READ_ATTEMPTS);
-    const retryDelayMs = readNonNegativeIntegerEnv(
-      'HAPPIER_PIPELINE_GH_ASSET_READ_RETRY_DELAY_MS',
-      DEFAULT_ASSET_READ_RETRY_DELAY_MS,
-    );
-    const maxRetryDelayMs = readNonNegativeIntegerEnv(
-      'HAPPIER_PIPELINE_GH_ASSET_READ_MAX_RETRY_DELAY_MS',
-      DEFAULT_ASSET_READ_MAX_RETRY_DELAY_MS,
-    );
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      await rm(attemptPath, { force: true });
-      try {
-        runToFile('gh', [
-          'api',
-          `repos/${repo}/releases/assets/${assetId}`,
-          '-H',
-          'Accept: application/octet-stream',
-        ], attemptPath, { env, dryRun });
-        if (!dryRun) await rename(attemptPath, destinationPath);
-        break;
-      } catch (error) {
-        await rm(attemptPath, { force: true });
-        if (attempt >= attempts) throw error;
-        const delayMs = Math.min(retryDelayMs * (2 ** (attempt - 1)), maxRetryDelayMs);
-        console.warn(`[pipeline] retrying GitHub release asset read for ${name} (${attempt + 1}/${attempts})`);
-        sleepSync(delayMs);
-      }
-    }
+    runToFile('gh', [
+      'api',
+      `repos/${repo}/releases/assets/${assetId}`,
+      '-H',
+      'Accept: application/octet-stream',
+    ], join(destination, name), { env, dryRun });
   }
 }
 
@@ -496,7 +469,7 @@ async function auditDownloadedAssetDirectory({
   const signedDestination = await mkdtemp(join(tmpdir(), 'happier-visible-release-signed-audit-'));
   try {
     for (const { name, sourceName } of assetPlan) {
-      await copyFile(join(directory, name), join(signedDestination, sourceName));
+      if (name === sourceName) await copyFile(join(directory, name), join(signedDestination, name));
     }
     await inspectAndVerifyCandidate({
       directory: signedDestination,
