@@ -699,6 +699,54 @@ describe("rpcHandler", () => {
         expect(redisCoordinator.cleanupMethodsForSocket).toHaveBeenCalledWith("user-1", ["agent.run"], "socket-1");
     });
 
+    it("cancels the issuing socket's in-flight target request when that caller disconnects", async () => {
+        const redisCoordinator = createRedisCoordinator();
+        createRpcRedisRegistryCoordinatorMock.mockReturnValue(redisCoordinator);
+        let resolveTarget!: (value: unknown) => void;
+        const targetEmitWithAck = vi.fn((_event: string, _request: { requestId?: string }) => new Promise<unknown>((resolve) => {
+            resolveTarget = resolve;
+        }));
+        const targetSocket = createSocket({ id: "target-socket", emitWithAck: targetEmitWithAck });
+        const callerSocket = createSocket({ id: "caller-socket" });
+        const targetCancelEmit = vi.fn();
+        const io = {
+            to: vi.fn(() => ({ emit: targetCancelEmit })),
+        };
+        const callback = vi.fn();
+        resolveRpcCallTargetMock.mockResolvedValue({
+            targetUserId: "user-1",
+            targetSocket,
+        });
+
+        rpcHandler("user-1", callerSocket as unknown as Socket, new Map(), new Map(), {
+            io: io as unknown as Server,
+            redisRegistry: { enabled: false },
+        });
+
+        const call = triggerSocketHandler(callerSocket, SOCKET_RPC_EVENTS.CALL, {
+            method: "agent.run",
+            params: {},
+            requestId: "caller-request-1",
+        }, callback);
+        await vi.waitFor(() => expect(targetEmitWithAck).toHaveBeenCalledTimes(1));
+        const targetRequestId = targetEmitWithAck.mock.calls[0]?.[1]?.requestId;
+        expect(targetRequestId).toEqual(expect.any(String));
+        expect(targetRequestId).not.toBe("caller-request-1");
+
+        await triggerSocketHandler(callerSocket, "disconnect");
+
+        expect(io.to).toHaveBeenCalledWith("target-socket");
+        expect(targetCancelEmit).toHaveBeenCalledWith(SOCKET_RPC_EVENTS.CANCEL, {
+            requestId: targetRequestId,
+        });
+        await expect(call).resolves.toBeUndefined();
+        expect(callback).toHaveBeenCalledWith({
+            ok: false,
+            error: "RPC request cancelled by caller",
+        });
+        resolveTarget({ ok: true });
+    });
+
     it.each([false, true])("surfaces public delegated target failures on the outer response (redis=%s)", async (redisEnabled) => {
         const publicFailure = {
             type: "socket-rpc-target-failure-v1",

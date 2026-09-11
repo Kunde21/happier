@@ -49,6 +49,10 @@ import {
   buildProviderAccountUsageRecordId,
   CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER,
   CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
+  CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER,
+  CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
+  CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER,
+  CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
   ConnectedServiceAuthGroupErrorResponseV1Schema,
   ConnectedServiceAuthGroupResponseV1Schema,
   ConnectedServiceCredentialHealthV1Schema,
@@ -70,6 +74,7 @@ import {
 import type {
   ConnectedServiceCredentialRecordV1,
   ConnectedServiceAuthGroupV1,
+  ConnectedServiceAuthGroupMemberStateV1,
   ConnectedServiceAuthGroupRuntimeStatePatchRequestV1,
   ConnectedServiceCredentialHealthV1,
   ConnectedServiceCredentialHealthStatusV1,
@@ -410,8 +415,8 @@ export class ApiClient {
     const { desiredSessionEncryptionMode, serverSupportsFeatureSnapshot } = await resolveSessionCreateEncryptionMode({
       token: this.credential.token,
       serverBaseUrl,
-      featuresTimeoutMs: 800,
-      accountTimeoutMs: 10_000,
+      featuresTimeoutMs: configuration.sessionControlHttpTimeoutMs,
+      accountTimeoutMs: configuration.sessionControlHttpTimeoutMs,
     });
 
     const resolvePositiveIntEnv = (raw: string | undefined, fallback: number, bounds: { min: number; max: number }): number => {
@@ -1015,6 +1020,8 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
+            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
+            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),
         },
@@ -1080,6 +1087,8 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
+            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
+            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),
         },
@@ -1145,6 +1154,8 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
+            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
+            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),
         },
@@ -1179,7 +1190,9 @@ export class ApiClient {
     profileId: string;
     priority?: number;
     enabled?: boolean;
+    state?: ConnectedServiceAuthGroupMemberStateV1;
     expectedGeneration: number;
+    expectedRuntimeStateRevision?: number;
   }): Promise<ConnectedServiceAuthGroupV1> {
     const expectedGeneration = assertConnectedServiceExpectedGeneration(
       params.expectedGeneration,
@@ -1196,13 +1209,19 @@ export class ApiClient {
         {
           ...(params.priority === undefined ? {} : { priority: params.priority }),
           ...(params.enabled === undefined ? {} : { enabled: params.enabled }),
+          ...(params.state === undefined ? {} : { state: params.state }),
           expectedGeneration,
+          ...(params.expectedRuntimeStateRevision === undefined
+            ? {}
+            : { expectedRuntimeStateRevision: params.expectedRuntimeStateRevision }),
         },
         {
           headers: {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
+            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
+            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),
         },
@@ -1220,6 +1239,13 @@ export class ApiClient {
         const parsed = ConnectedServiceAuthGroupErrorResponseV1Schema.safeParse(error.response.data);
         if (parsed.success && parsed.data.error === 'connect_group_generation_conflict' && parsed.data.generation !== undefined) {
           throw new ConnectedServiceAuthGroupGenerationConflictError(parsed.data.generation);
+        }
+        if (
+          parsed.success
+          && parsed.data.error === 'connect_group_runtime_state_revision_conflict'
+          && parsed.data.runtimeStateRevision !== undefined
+        ) {
+          throw new ConnectedServiceAuthGroupRuntimeStateRevisionConflictError(parsed.data.runtimeStateRevision);
         }
       }
       logServerEndpointFailure({
@@ -1254,6 +1280,8 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
+            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
+            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           params: { expectedGeneration },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),

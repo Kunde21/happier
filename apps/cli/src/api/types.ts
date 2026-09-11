@@ -161,6 +161,7 @@ export interface ServerToClientEvents {
   session: (data: SessionBroadcast) => void
   'server:restarting': (data: { retryAfterMs?: number }) => void
   [SOCKET_RPC_EVENTS.REQUEST]: (data: SocketRpcRequestPayload, callback: (response: unknown) => void) => void
+  [SOCKET_RPC_EVENTS.CANCEL]: (data: { requestId: string }) => void
   [SOCKET_RPC_EVENTS.REGISTERED]: (data: { method: string }) => void
   [SOCKET_RPC_EVENTS.UNREGISTERED]: (data: { method: string }) => void
   [SOCKET_RPC_EVENTS.ERROR]: (data: { type: string, error: string }) => void
@@ -279,6 +280,7 @@ export interface ClientToServerEvents {
   [SOCKET_RPC_EVENTS.REGISTER]: (data: { method: string }) => void
   [SOCKET_RPC_EVENTS.UNREGISTER]: (data: { method: string }) => void
   [SOCKET_RPC_EVENTS.CALL]: (data: SocketRpcCallPayload, callback: (response: SocketRpcCallResponse) => void) => void
+  [SOCKET_RPC_EVENTS.CANCEL]: (data: { requestId: string }) => void
   'usage-report': (data: {
     key: string
     sessionId: string
@@ -585,6 +587,7 @@ export type Metadata = {
   kimiSessionId?: string, // Kimi ACP session ID (opaque)
   kiloSessionId?: string, // Kilo ACP session ID (opaque)
   kiroSessionId?: string, // Kiro ACP session ID (opaque)
+  devinSessionId?: string, // Devin ACP session ID (opaque)
   piSessionId?: string, // Pi RPC session ID (opaque)
   piSessionFile?: string, // Absolute Pi session file path (preferred resume primitive)
   sessionUsageLimitRecoveryV1?: SessionUsageLimitRecoveryV1,

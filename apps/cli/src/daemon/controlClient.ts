@@ -704,11 +704,14 @@ export async function refreshDaemonClaudeSubscriptionAnthropicAuthTokensForBridg
 /**
  * A1: materialization is real work (staged home copy + a possible OAuth refresh + group selection),
  * so the materialize call gets its OWN bounded timeout instead of riding the generic 10s daemonPost
- * default — a 10s client abandonment while the daemon succeeds seconds later was the leak window.
- * Session precedent: the spawn webhook wait allows 5min; this defaults tighter at 2min.
+ * default. The daemon's serialized materialization owner may legitimately spend up to six minutes
+ * waiting behind an older root operation before beginning its own bounded refresh/copy/promotion
+ * work. A shorter client deadline abandons valid work, triggers compensating release, and makes the
+ * run start fail under load even though the daemon can still complete. Keep the client deadline at
+ * the existing ten-minute cap so it covers both phases while still bounding a genuinely stuck call.
  */
 const EXECUTION_RUN_CS_MATERIALIZE_TIMEOUT_ENV_KEY = 'HAPPIER_EXECUTION_RUN_CS_MATERIALIZE_TIMEOUT_MS';
-const DEFAULT_EXECUTION_RUN_CS_MATERIALIZE_TIMEOUT_MS = 120_000;
+const DEFAULT_EXECUTION_RUN_CS_MATERIALIZE_TIMEOUT_MS = 600_000;
 
 export function resolveExecutionRunConnectedServiceMaterializeTimeoutMs(
   env: NodeJS.ProcessEnv = process.env,

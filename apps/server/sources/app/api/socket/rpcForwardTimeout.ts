@@ -1,3 +1,5 @@
+import { SESSION_RPC_METHODS } from '@happier-dev/protocol/rpc';
+
 function parsePositiveIntOrDefault(value: string | undefined, fallback: number): number {
     if (typeof value !== 'string') return fallback;
     const parsed = Number.parseInt(value, 10);
@@ -22,8 +24,15 @@ const RPC_FORWARD_MAX_TIMEOUT_MS = parsePositiveIntOrDefault(
     process.env.HAPPIER_RPC_FORWARD_MAX_TIMEOUT_MS,
     300_000,
 );
+const RPC_FORWARD_CALLER_LIFECYCLE_TIMEOUT_MS = 2_147_483_647;
 
 function resolveRpcDefaultForwardTimeoutMs(method: string): number {
+    if (
+        method.endsWith(`:${SESSION_RPC_METHODS.EXECUTION_RUN_START}`)
+        || method.endsWith(`:${SESSION_RPC_METHODS.EXECUTION_RUN_WAIT}`)
+    ) {
+        return RPC_FORWARD_CALLER_LIFECYCLE_TIMEOUT_MS;
+    }
     return method.endsWith(':capabilities.invoke') || method.endsWith(':capabilities.detect') || method.endsWith(':capabilities.describe')
         ? RPC_FORWARD_CAPABILITIES_TIMEOUT_MS
         : RPC_FORWARD_TIMEOUT_MS;
@@ -34,6 +43,12 @@ export function resolveRpcForwardTimeoutMs(method: string, requestedTimeoutMs?: 
     const parsedRequestedTimeoutMs = parsePositiveInt(requestedTimeoutMs);
     if (parsedRequestedTimeoutMs === null) {
         return baseTimeoutMs;
+    }
+    if (
+        method.endsWith(`:${SESSION_RPC_METHODS.EXECUTION_RUN_START}`)
+        || method.endsWith(`:${SESSION_RPC_METHODS.EXECUTION_RUN_WAIT}`)
+    ) {
+        return RPC_FORWARD_CALLER_LIFECYCLE_TIMEOUT_MS;
     }
     return Math.min(RPC_FORWARD_MAX_TIMEOUT_MS, Math.max(baseTimeoutMs, parsedRequestedTimeoutMs));
 }

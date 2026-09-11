@@ -3,6 +3,7 @@ import type { ReadinessProbeResult } from '@happier-dev/connection-supervisor';
 
 import { isAuthenticationStatus } from '@/api/client/httpStatusError';
 import { resolveLoopbackHttpUrl } from '@/api/client/loopbackUrl';
+import { observeServerFeaturesSnapshot } from '@/features/serverFeaturesClient';
 
 export function createLoopbackReadinessProbe(params: Readonly<{
   serverUrl: string;
@@ -31,26 +32,41 @@ export function createLoopbackReadinessProbe(params: Readonly<{
     }
 
     try {
-      const authResponse = await axios.get(`${serverUrl}/v1/features`, {
-        timeout: 5_000,
-        validateStatus: () => true,
-        headers: {
-          Authorization: `Bearer ${params.token}`,
-        },
+      const snapshot = await observeServerFeaturesSnapshot({
+        serverUrl,
+        token: params.token,
+        timeoutMs: 5_000,
       });
 
-      if (isAuthenticationStatus(authResponse.status)) {
+      if (
+        snapshot.status === 'error'
+        && snapshot.httpStatus !== undefined
+        && isAuthenticationStatus(snapshot.httpStatus)
+      ) {
         return {
           status: 'auth_failed',
-          statusCode: authResponse.status,
-          errorMessage: `Authenticated probe returned ${authResponse.status}`,
+          statusCode: snapshot.httpStatus,
+          errorMessage: `Authenticated probe returned ${snapshot.httpStatus}`,
         };
       }
 
-      if (authResponse.status >= 500) {
+      if (
+        snapshot.status === 'error'
+        && snapshot.reason === 'response_status'
+        && (snapshot.httpStatus ?? 0) >= 500
+      ) {
         return {
           status: 'retry_later',
-          errorMessage: `Authenticated probe returned ${authResponse.status}`,
+          errorMessage: `Authenticated probe returned ${snapshot.httpStatus}`,
+        };
+      }
+
+      if (snapshot.status !== 'ready') {
+        return {
+          status: 'server_unreachable',
+          errorMessage: snapshot.status === 'error' && snapshot.httpStatus
+            ? `Authenticated probe returned ${snapshot.httpStatus}`
+            : `Authenticated probe failed: ${snapshot.reason}`,
         };
       }
 
