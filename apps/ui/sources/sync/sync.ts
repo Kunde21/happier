@@ -311,7 +311,8 @@ import {
     type SafeCursorLagTripwireState,
 } from '@/sync/runtime/orchestration/safeCursorLagTripwire';
 import { runWithInFlightDedupe } from '@/sync/runtime/orchestration/runWithInFlightDedupe';
-import { runTasksWithLimit } from '@/sync/runtime/orchestration/runTasksWithLimit';
+import { createTaskLimiter, runTasksWithLimit } from '@/sync/runtime/orchestration/runTasksWithLimit';
+import { readServerFetchWriteTimeoutMs } from '@/sync/runtime/connectivity/serverReachabilityTuning';
 import {
     emitSyncPerformanceSummaryToConsole,
     installSyncPerformanceTelemetryGlobal,
@@ -473,6 +474,7 @@ import {
     type PendingQueueEncryption,
     type PendingQueueReadEncryption,
 } from './engine/pending/pendingQueueV2';
+import { createPendingQueueRequest } from './engine/pending/createPendingQueueRequest';
 import {
     resolvePendingInputServerWireMode,
     type PendingInputServerWireMode,
@@ -951,6 +953,7 @@ class Sync {
         private credentials!: AuthCredentials;
         private pauseController = new PauseController();
         private syncTuning: SyncTuning = loadSyncTuning();
+        private readonly snapshotSyncAttemptLimiter = createTaskLimiter(this.syncTuning.bootstrapConcurrencyLimit);
         private sessionTranscriptRetention!: SessionTranscriptRetentionController;
       private resumeInFlight: Promise<void> | null = null;
       private changesCatchUpQueuedAfterResume = false;
@@ -1254,8 +1257,17 @@ class Sync {
                 maxFailureCount: 'infinite' as const,
             };
 
-            this.sessionsSync = new InvalidateSync(this.fetchSessions, { onError, onSuccess, onRetry, pause, backoff });
-            this.settingsSync = new InvalidateSync(this.syncSettings, {
+            // Wait budgets belong to bootstrap/resume callers; capacity belongs
+            // to the actual network attempt. Holding the permit here prevents a
+            // timed-out waiter from starting an unbounded second wave while the
+            // first request is still running. Backoff sleeps occur outside the
+            // permit because InvalidateSync invokes this wrapper per attempt.
+            const limitSnapshotSyncAttempt = (command: () => Promise<void>) => (
+                () => this.snapshotSyncAttemptLimiter.run(command)
+            );
+
+            this.sessionsSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchSessions), { onError, onSuccess, onRetry, pause, backoff });
+            this.settingsSync = new InvalidateSync(limitSnapshotSyncAttempt(this.syncSettings), {
                 onError: onSettingsError,
                 onSuccess: onSettingsSuccess,
                 onRetry,
@@ -1263,16 +1275,16 @@ class Sync {
                 pause,
                 backoff,
             });
-            this.profileSync = new InvalidateSync(this.fetchProfile, { onError, onSuccess, onRetry, pause, backoff });
-            this.purchasesSync = new InvalidateSync(this.syncPurchases, { onError, onSuccess, onRetry, pause, backoff });
-            this.machinesSync = new InvalidateSync(this.fetchMachines, { onError, onSuccess, onRetry, pause, backoff });
-            this.nativeUpdateSync = new InvalidateSync(this.fetchNativeUpdate, { pause, backoff });
-            this.artifactsSync = new InvalidateSync(this.fetchArtifactsList, { pause, backoff });
-            this.friendsSync = new InvalidateSync(this.fetchFriends, { pause, backoff });
-            this.friendRequestsSync = new InvalidateSync(this.fetchFriendRequests, { pause, backoff });
-            this.feedSync = new InvalidateSync(this.fetchFeed, { pause, backoff });
-            this.todosSync = new InvalidateSync(this.fetchTodos, { pause, backoff });
-            this.automationsSync = new InvalidateSync(this.fetchAutomations, { pause, backoff });
+            this.profileSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchProfile), { onError, onSuccess, onRetry, pause, backoff });
+            this.purchasesSync = new InvalidateSync(limitSnapshotSyncAttempt(this.syncPurchases), { onError, onSuccess, onRetry, pause, backoff });
+            this.machinesSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchMachines), { onError, onSuccess, onRetry, pause, backoff });
+            this.nativeUpdateSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchNativeUpdate), { pause, backoff });
+            this.artifactsSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchArtifactsList), { pause, backoff });
+            this.friendsSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchFriends), { pause, backoff });
+            this.friendRequestsSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchFriendRequests), { pause, backoff });
+            this.feedSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchFeed), { pause, backoff });
+            this.todosSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchTodos), { pause, backoff });
+            this.automationsSync = new InvalidateSync(limitSnapshotSyncAttempt(this.fetchAutomations), { pause, backoff });
 
           const registerPushToken = async () => {
               if (__DEV__ && config.enableDevPushTokenRegistration !== true) {
@@ -1280,7 +1292,7 @@ class Sync {
               }
               await this.registerPushToken();
           }
-            this.pushTokenSync = new InvalidateSync(registerPushToken, { pause, backoff });
+            this.pushTokenSync = new InvalidateSync(limitSnapshotSyncAttempt(registerPushToken), { pause, backoff });
             this.activityAccumulator = new ActivityUpdateAccumulator(
                 this.flushActivityUpdates.bind(this),
                 this.syncTuning.activityUpdateDebounceMs,
@@ -2094,8 +2106,12 @@ class Sync {
                 return next;
             })(),
             sessionMessages: {},
+            sessionMessagesHistoryStartLoaded: {},
             sessionPending: {},
             artifacts: {},
+            artifactsLoaded: false,
+            automations: {},
+            automationRunsByAutomationId: {},
             friends: {},
             users: {},
             friendsLoaded: false,
@@ -3146,6 +3162,11 @@ class Sync {
             outboxScope: ownerContext.outboxScope,
             wireMode,
         });
+        if (options?.resumeWhenAvailable !== undefined) {
+            await this.refreshSessionForSubmit(sessionId, {
+                serverId: ownerContext.outboxScope.serverId,
+            });
+        }
     }
 
     private createSessionSubmitPort(): SessionSubmitPort {
@@ -4309,6 +4330,12 @@ class Sync {
         sessionId: string,
         expectedActiveScope?: ServerAccountScope,
     ): Promise<ResolvedPendingQueueOwnerContext> {
+        const ownPendingRequest = (
+            request: (path: string, init?: RequestInit) => Promise<Response>,
+        ) => createPendingQueueRequest({
+            request,
+            writeTimeoutMs: readServerFetchWriteTimeoutMs(),
+        });
         if (expectedActiveScope) {
             const assertCapturedActiveScope = (): void => {
                 if (!areServerAccountScopesEqual(getActiveServerAccountScope(), expectedActiveScope)) {
@@ -4317,12 +4344,12 @@ class Sync {
             };
             return {
                 outboxScope: expectedActiveScope,
-                request: async (path, init) => {
+                request: ownPendingRequest(async (path, init) => {
                     assertCapturedActiveScope();
                     const response = await apiSocket.request(path, init);
                     assertCapturedActiveScope();
                     return response;
-                },
+                }),
                 enqueueEncryption: this.encryption,
                 readEncryption: this.encryption,
             };
@@ -4336,14 +4363,14 @@ class Sync {
             };
             return {
                 outboxScope: route.outboxScope,
-                request: async (path, init) => {
+                request: ownPendingRequest(async (path, init) => {
                     // apiSocket is dynamically bound to the active account. Fence immediately
                     // before entering it, then fence again before any caller applies completion.
                     assertCapturedActiveScope();
                     const response = await apiSocket.request(path, init);
                     assertCapturedActiveScope();
                     return response;
-                },
+                }),
                 enqueueEncryption: this.encryption,
                 readEncryption: this.encryption,
             };
@@ -4359,12 +4386,12 @@ class Sync {
         } satisfies PendingQueueEncryption & PendingQueueReadEncryption;
         return {
             outboxScope: route.outboxScope,
-            request: createSessionRequestForResolvedServerScope({
+            request: ownPendingRequest(createSessionRequestForResolvedServerScope({
                 context: route.context,
                 activeRequest: async () => {
                     throw new Error('Pending queue owner unexpectedly resolved through the active request');
                 },
-            }),
+            })),
             enqueueEncryption: ownerEncryption,
             readEncryption: ownerEncryption,
         };
@@ -5425,9 +5452,15 @@ class Sync {
                   sessionReceivedMessages: this.sessionReceivedMessages,
                   applyMessages: (sid, messages) => this.applyMessages(sid, messages),
                   onTaskLifecycleEvent: (event) => this.applySessionThinkingFromTaskLifecycle(sessionId, event),
-                  markMessagesLoaded: (sid) => storage.getState().applyMessagesLoaded(sid),
+                  markMessagesLoaded: (sid) => {
+                      this.publishSessionMessagesHistoryStartCoverage(sid);
+                      storage.getState().applyMessagesLoaded(sid);
+                  },
                   onMessagesPage: (page) => {
-                      this.updateSessionMessagesPaginationFromPage(sessionId, { scope: 'main' }, page, { allowHasMoreInference: true });
+                      this.updateSessionMessagesPaginationFromPage(sessionId, { scope: 'main' }, page, {
+                          allowHasMoreInference: true,
+                          deferHistoryStartCoverage: true,
+                      });
                   },
                   ...this.getMessageDecryptBatchOptions(),
                   log,
@@ -5519,9 +5552,15 @@ class Sync {
                       sessionReceivedMessages: this.sessionReceivedMessages,
                       applyMessages: (sid, messages) => this.applyMessages(sid, messages),
                       onTaskLifecycleEvent: (event) => this.applySessionThinkingFromTaskLifecycle(sessionId, event),
-                      markMessagesLoaded: (sid) => storage.getState().applyMessagesLoaded(sid),
+                      markMessagesLoaded: (sid) => {
+                          this.publishSessionMessagesHistoryStartCoverage(sid);
+                          storage.getState().applyMessagesLoaded(sid);
+                      },
                       onMessagesPage: (page) => {
-                          this.updateSessionMessagesPaginationFromPage(sessionId, { scope: 'main' }, page, { allowHasMoreInference: true });
+                          this.updateSessionMessagesPaginationFromPage(sessionId, { scope: 'main' }, page, {
+                              allowHasMoreInference: true,
+                              deferHistoryStartCoverage: true,
+                          });
                           this.openSessionTailDiscontinuityFromSnapshotPage(sessionId, prefixMaxSeqBeforeSnapshot, page);
                       },
                       ...this.getMessageDecryptBatchOptions(),
@@ -6859,6 +6898,9 @@ class Sync {
           const sessionEncryptionMode = session?.encryptionMode === 'plain' ? 'plain' : 'e2ee';
           const unresolvedMessageIds = new Set(staleSnapshot.messageIds);
           const resolvedMessageIds = new Set<string>();
+          // Hidden edits and changes-feed revisions are deliberate catch-up. Their repair
+          // can outlive the independent tail probe, so keep its signal until these pages settle.
+          storage.getState().beginSessionCatchUpNewer(sessionId);
           try {
               while (unresolvedMessageIds.size > 0) {
                   const result = await fetchAndApplyNewerMessages({
@@ -6891,6 +6933,8 @@ class Sync {
               }
           } catch (error) {
               console.error('Failed to refetch stale transcript region:', error);
+          } finally {
+              storage.getState().endSessionCatchUpNewer(sessionId);
           }
           return resolvedMessageIds;
       }
@@ -7674,6 +7718,15 @@ class Sync {
         return result;
     }
 
+    private publishSessionMessagesHistoryStartCoverage(sessionId: string): void {
+        const pagingKey = this.buildSessionMessagesPaginationKey({ sessionId, scope: 'main' });
+        // Later tail snapshots merge into the cache and can reopen pagination without
+        // removing its materialized start. Only the cache's clear paths revoke this fact.
+        if (this.sessionMessagesHasMoreOlderByKey.get(pagingKey) === false) {
+            storage.getState().markSessionMessagesHistoryStartLoaded(sessionId);
+        }
+    }
+
     private updateSessionMessagesPaginationFromPage(
         sessionId: string,
         chain: { scope: SessionMessagesScope; sidechainId?: string | null },
@@ -7683,7 +7736,7 @@ class Sync {
             nextBeforeSeq?: number | null;
             nextAfterSeq?: number | null;
         },
-        options?: { allowHasMoreInference?: boolean; direction?: 'older' | 'newer' },
+        options?: { allowHasMoreInference?: boolean; direction?: 'older' | 'newer'; deferHistoryStartCoverage?: boolean },
     ): void {
         const pagingKey = this.buildSessionMessagesPaginationKey({
             sessionId,
@@ -7721,6 +7774,13 @@ class Sync {
             this.sessionMessagesHasMoreOlderByKey.delete(pagingKey);
         } else {
             this.sessionMessagesHasMoreOlderByKey.set(pagingKey, update.next.hasMoreOlder);
+        }
+
+        if (chain.scope === 'main' && options?.direction !== 'newer' && options?.deferHistoryStartCoverage !== true) {
+            // Snapshot callbacks run before decryption/application; their loaded callback
+            // publishes coverage after materialization. Older pages reach here after apply,
+            // including empty final pages that cannot trigger a message-store update.
+            this.publishSessionMessagesHistoryStartCoverage(sessionId);
         }
 
         if (update.next.paginationSupported == null) {

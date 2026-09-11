@@ -2063,6 +2063,10 @@ export function useArtifacts(): DecryptedArtifact[] {
   );
 }
 
+export function useArtifactsLoaded(): boolean {
+  return getStorage()((state) => state.isDataReady && state.artifactsLoaded);
+}
+
 function collectOpenApprovalSessionIdListFromArtifacts(
   artifacts: Readonly<Record<string, DecryptedArtifact>>,
 ): ReadonlyArray<string> {

@@ -734,6 +734,86 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         expectHeaderValue(actionCall?.[1]?.headers, 'Authorization', `Bearer ${ownerToken}`);
     });
 
+    it('refreshes the canonical session projection after changing resume-on-availability authorization', async () => {
+        const sessionId = 'active_pending_activation_projection';
+        const localId = 'pending-activation-row';
+        const server = upsertServerProfile({ serverUrl: 'https://active-activation.example', name: 'Active activation' });
+        setActiveServerId(server.id, { scope: 'device' });
+        storage.getState().activateProfileScope({ serverId: server.id, accountId: 'account-a' });
+        storage.getState().applySessions([{
+            ...createSession(sessionId),
+            active: false,
+            activeAt: 100,
+            encryptionMode: 'plain',
+        } as Session]);
+        requestMock.mockImplementation(async (path: string, init?: RequestInit) => {
+            if (path === `/v2/sessions/${sessionId}/pending/${localId}/action`) {
+                expect(init).toEqual(expect.objectContaining({
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                        requestedAction: { v: 1, kind: 'enqueue' },
+                        resumeWhenAvailable: true,
+                    }),
+                }));
+                return Response.json({ didUpdate: true });
+            }
+            if (path === `/v2/sessions/${sessionId}`) {
+                return Response.json({
+                    session: {
+                        id: sessionId,
+                        createdAt: 1,
+                        updatedAt: 2,
+                        seq: 3,
+                        active: false,
+                        activeAt: 100,
+                        encryptionMode: 'plain',
+                        dataEncryptionKey: null,
+                        metadataVersion: 1,
+                        metadata: JSON.stringify({ machineId: 'machine-1', path: '/repo', flavor: 'codex' }),
+                        agentStateVersion: 1,
+                        agentState: null,
+                        share: null,
+                        pendingCount: 1,
+                        pendingVersion: 2,
+                        pendingActivationAuthorization: {
+                            requestId: localId,
+                            requestedAt: 200,
+                            status: 'waiting',
+                        },
+                    },
+                });
+            }
+            return new Response(null, { status: 404 });
+        });
+        runtimeFetchMock.mockResolvedValue(Response.json(buildServerFeaturesResponse()));
+
+        const { sync } = await import('./sync');
+        const syncAccess = sync as unknown as SyncMetadataPatchTestAccess;
+        syncAccess.credentials = { token: 'active-token', secret: 'active-secret' };
+        syncAccess.encryption = {
+            decryptEncryptionKey: async () => null,
+            initializeSessions: async () => {},
+            getSessionEncryption: () => null,
+        };
+
+        await expect(sync.updatePendingRequestedAction(
+            sessionId,
+            localId,
+            { v: 1, kind: 'enqueue' },
+            { resumeWhenAvailable: true },
+        )).resolves.toBeUndefined();
+
+        expect(requestMock).toHaveBeenCalledWith(
+            `/v2/sessions/${sessionId}`,
+            expect.objectContaining({ method: 'GET' }),
+        );
+        expect(storage.getState().sessions[sessionId]?.pendingActivationAuthorization).toEqual({
+            requestId: localId,
+            requestedAt: 200,
+            status: 'waiting',
+        });
+    });
+
     it('rechecks a captured active-owner request before applying local completion', async () => {
         const sessionId = 'active_pending_scope_completion';
         const server = upsertServerProfile({ serverUrl: 'https://active-owner-completion.example', name: 'Active owner completion' });
@@ -1007,6 +1087,8 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
     it('drops stale direct transcript fetch results after the server scope resets mid-request', async () => {
         const sessionId = 'direct_session_scope_reset';
         storage.getState().applySessions([createDirectSession(sessionId)]);
+        storage.getState().applyAutomations([{ id: 'old-server-automation', updatedAt: 1 } as any]);
+        storage.getState().setAutomationRuns('old-server-automation', [{ id: 'old-server-run', automationId: 'old-server-automation', scheduledAt: 1, updatedAt: 1 } as any]);
 
         let resolvePage: ((value: {
             ok: true;
@@ -1073,6 +1155,8 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
 
         await expect(fetchPromise).resolves.toBeUndefined();
         expect(storage.getState().sessionMessages[sessionId]).toBeUndefined();
+        expect(storage.getState().automations).toEqual({});
+        expect(storage.getState().automationRunsByAutomationId).toEqual({});
         expect(machineDirectSessionTranscriptReadAfterMock).not.toHaveBeenCalled();
     });
 

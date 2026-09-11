@@ -62,7 +62,7 @@ function collectApprovalLinkedSessionIds(
     return ids;
 }
 
-function readApprovalServerId(
+export function readApprovalServerId(
     artifact: DecryptedArtifact,
     approval?: ApprovalRequestV1 | null,
 ): string {

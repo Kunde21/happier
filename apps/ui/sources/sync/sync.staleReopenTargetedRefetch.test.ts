@@ -150,12 +150,23 @@ async function flushAsyncWork(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-async function seedLoadedHistorySession(): Promise<{ sync: typeof import('./sync').sync }> {
+async function seedLoadedHistorySession(options: { withStreamSegment?: boolean } = {}): Promise<{ sync: typeof import('./sync').sync }> {
     const { sync } = await import('./sync');
     const syncForTest = sync as unknown as SyncStaleReopenTestAccess;
     sync.disconnectServer();
 
     const history = Array.from({ length: 20 }, (_unused, index) => buildMessage(`mm${index + 1}`, index + 1));
+    if (options.withStreamSegment) {
+        history[14] = {
+            id: 'mm15', localId: 'segment15', seq: 15, createdAt: 15, role: 'agent',
+            content: [{ type: 'text', text: 'mm15', uuid: 'mm15', parentUUID: null }],
+            isSidechain: false,
+            meta: { happierStreamSegmentV1: {
+                v: 1, segmentKind: 'assistant', segmentLocalId: 'segment15',
+                segmentState: 'streaming', updatedAtMs: 15,
+            } },
+        };
+    }
     storage.getState().applySessions([createSession(SESSION_ID, 20)]);
     storage.getState().applyMessages(SESSION_ID, history);
     storage.getState().applyMessagesLoaded(SESSION_ID);
@@ -248,6 +259,72 @@ describe('sync stale-reopen targeted refetch (C6/D2a)', () => {
             expect(Object.values(storage.getState().sessionMessages[SESSION_ID]?.messagesById ?? {}))
                 .toContainEqual(expect.objectContaining({ realID: 'mm21', seq: 21 }));
         } finally {
+            releaseVisibleSurface();
+        }
+    });
+
+    it.each(['success', 'failure'] as const)('keeps catch-up active until a hidden-edit repair settles with %s after the tail probe', async (outcome) => {
+        const { sync } = await seedLoadedHistorySession({ withStreamSegment: true });
+        const syncForTest = sync as unknown as SyncStaleReopenTestAccess;
+        const releaseVisibleSurface = registerSessionVisibleSurface(SESSION_ID);
+        const oldRow = Object.values(storage.getState().sessionMessages[SESSION_ID].messagesById)
+            .find((message) => message.realID === 'mm1');
+        expect(oldRow).toBeDefined();
+        syncForTest.markSessionTranscriptStale(SESSION_ID, {
+            updateType: 'message-updated', seq: 15, messageId: 'mm15',
+        });
+
+        let settleRepair: () => void = () => { throw new Error('Repair request was not issued'); };
+        requestMock.mockImplementation((path: string) => {
+            if (!String(path).includes('afterSeq=14')) return Promise.resolve(emptyMessagesResponse());
+            return new Promise<Response>((resolve, reject) => {
+                settleRepair = () => {
+                    if (outcome === 'failure') {
+                        reject(new Error('Hidden-edit repair unavailable'));
+                        return;
+                    }
+                    resolve(new Response(JSON.stringify({
+                        messages: [{
+                            id: 'mm15', seq: 15, localId: 'segment15', createdAt: 15, updatedAt: 30,
+                            content: { t: 'plain', v: {
+                                role: 'agent',
+                                content: { type: 'output', data: {
+                                    type: 'assistant', uuid: 'mm15',
+                                    message: { content: [{ type: 'text', text: 'edited while hidden' }] },
+                                } },
+                                meta: { happierStreamSegmentV1: {
+                                    v: 1, segmentKind: 'assistant', segmentLocalId: 'segment15',
+                                    segmentState: 'complete', updatedAtMs: 30,
+                                } },
+                            } },
+                        }],
+                        hasMore: false, nextAfterSeq: null,
+                    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+                };
+            });
+        });
+
+        try {
+            sync.onSessionVisible(SESSION_ID);
+            await sync.refreshSessionMessages(SESSION_ID);
+            expect(targetedStaleRefetchPaths()).toHaveLength(1);
+            // The tail probe has settled, but the independent hidden-edit repair is still
+            // pending. Its lifecycle must continue to own the visible catch-up signal.
+            expect(storage.getState().isSessionCatchingUpNewer(SESSION_ID)).toBe(true);
+            expect(storage.getState().sessionMessages[SESSION_ID].isLoaded).toBe(true);
+            expect(Object.values(storage.getState().sessionMessages[SESSION_ID].messagesById)).toContain(oldRow);
+
+            settleRepair();
+            await expect.poll(() => storage.getState().isSessionCatchingUpNewer(SESSION_ID)).toBe(false);
+            const rows = Object.values(storage.getState().sessionMessages[SESSION_ID].messagesById);
+            expect(rows).toHaveLength(20);
+            expect(rows.find((message) => message.realID === 'mm1')).toBe(oldRow);
+            expect(rows.find((message) => message.realID === 'mm15')).toMatchObject({
+                text: outcome === 'success' ? 'edited while hidden' : 'mm15',
+            });
+        } finally {
+            settleRepair();
+            await flushAsyncWork();
             releaseVisibleSurface();
         }
     });

@@ -163,6 +163,8 @@ export interface MachinesDomainSlice {
 
 export interface MessagesDomainSlice {
     sessionMessages: Record<string, SessionMessages>;
+    sessionMessagesHistoryStartLoaded: Record<string, true>;
+    markSessionMessagesHistoryStartLoaded: (sessionId: string) => void;
     applyMessages: (sessionId: string, messages: NormalizedMessage[]) => {
         changed: string[];
         hasReadyEvent: boolean;
@@ -242,6 +244,7 @@ export interface TodosDomainSlice {
 
 export interface ArtifactsDomainSlice {
     artifacts: Record<string, DecryptedArtifact>;
+    artifactsLoaded: boolean;
     applyArtifacts: (artifacts: DecryptedArtifact[]) => void;
     addArtifact: (artifact: DecryptedArtifact) => void;
     updateArtifact: (artifact: DecryptedArtifact) => void;

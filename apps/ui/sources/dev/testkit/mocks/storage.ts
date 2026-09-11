@@ -84,6 +84,7 @@ export function createStorageModuleStub<TOverrides extends object>(overrides: TO
     const allSessionListRenderables = [] as ReturnType<StorageModule['useAllSessionListRenderables']>;
     const allAttentionSessions = [] as ReturnType<StorageModule['useAllSessionsForAttention']>;
     const allAttentionSessionListRenderables = [] as ReturnType<StorageModule['useAllSessionListRenderablesForAttention']>;
+    const sessionListViewDataByServerId = {} as ReturnType<StorageModule['useSessionListViewDataByServerId']>;
     const sessionOrganizationProjection = {
         schemaVersion: null,
         version: null,
@@ -183,6 +184,7 @@ export function createStorageModuleStub<TOverrides extends object>(overrides: TO
         useAllSessionListRenderables: () => allSessionListRenderables,
         useAllSessionsForAttention: () => allAttentionSessions,
         useAllSessionListRenderablesForAttention: () => allAttentionSessionListRenderables,
+        useSessionListViewDataByServerId: () => sessionListViewDataByServerId,
         useSessionOrganizationProjection: () => sessionOrganizationProjection,
         useMachine: () => null,
         useIsDataReady: () => true,

@@ -258,6 +258,7 @@ type SessionsDomainDependencies = {
     machines: Record<string, Machine>;
     machineDisplayById: Record<string, import('../../domains/machines/machineDisplayRenderable').MachineDisplayRenderable>;
     sessionMessages: Record<string, SessionMessages>;
+    sessionMessagesHistoryStartLoaded: Record<string, true>;
     profile: { id: string };
     // Keep resilient: older settings payloads (or partial boot states) may not yet include this key.
     settings: {
@@ -2094,6 +2095,7 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
             // Remove session messages if they exist, along with the module-scoped
             // derived caches that root the transcript outside the store.
             const { [sessionId]: deletedMessages, ...remainingSessionMessages } = state.sessionMessages;
+            const { [sessionId]: _deletedCoverage, ...remainingHistoryStartLoaded } = state.sessionMessagesHistoryStartLoaded ?? {};
             clearSessionTranscriptDerivedCachesForSession(sessionId);
 
             // Remove session source-control status if it exists
@@ -2156,6 +2158,7 @@ export function createSessionsDomain<S extends SessionsDomain & SessionsDomainDe
                 // The only durable record that this id is gone rather than merely uncached.
                 deletedSessionIds: { ...state.deletedSessionIds, [sessionId]: true as const },
                 sessionMessages: remainingSessionMessages,
+                sessionMessagesHistoryStartLoaded: remainingHistoryStartLoaded,
                 sessionScmStatus: remainingScmStatus,
                 sessionRepositoryTreeExpandedPathsBySessionId: remainingTreeState,
                 reviewCommentsDraftsBySessionId: remainingReviewDrafts,
