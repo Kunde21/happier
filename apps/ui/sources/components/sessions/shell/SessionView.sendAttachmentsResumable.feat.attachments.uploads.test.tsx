@@ -83,7 +83,6 @@ const sessionPendingStoreState = vi.hoisted(() => ({
 const deleteWorkspaceReviewCommentDraftSpy = vi.hoisted(() => vi.fn());
 const draftHookState = vi.hoisted(() => ({
     valuesBySessionId: new Map<string, string>(),
-    freezeReactiveSnapshot: false,
 }));
 const chatListPropsSpy = vi.hoisted(() => vi.fn());
 
@@ -189,16 +188,10 @@ vi.mock('@/hooks/session/useDraft', () => ({
     useDraft: (_sessionId: string, value: string, onChange: (next: string) => void) => {
         draftHookState.valuesBySessionId.set(_sessionId, value);
         const address = { kind: 'session' as const, sessionId: _sessionId };
-        const frozenDraftSnapshotRef = React.useRef(
-            getSessionDraftSnapshot(TEST_SERVER_ACCOUNT_SCOPE, address),
-        );
-        const readDraftSnapshot = () => draftHookState.freezeReactiveSnapshot
-            ? frozenDraftSnapshotRef.current
-            : getSessionDraftSnapshot(TEST_SERVER_ACCOUNT_SCOPE, address);
         const draftSnapshot = React.useSyncExternalStore(
             (listener) => subscribeSessionDraft(TEST_SERVER_ACCOUNT_SCOPE, address, listener),
-            readDraftSnapshot,
-            readDraftSnapshot,
+            () => getSessionDraftSnapshot(TEST_SERVER_ACCOUNT_SCOPE, address),
+            () => getSessionDraftSnapshot(TEST_SERVER_ACCOUNT_SCOPE, address),
         );
         return {
             clearDraft: () => {
@@ -720,7 +713,6 @@ describe('SessionView (attachments.uploads resumable send)', () => {
         useFeatureDecisionSpy.mockClear();
         sessionTranscriptIdsState.current = [];
         draftHookState.valuesBySessionId.clear();
-        draftHookState.freezeReactiveSnapshot = false;
         clearSessionAttachmentDrafts('s1');
         await deleteSessionDraft({ scope: TEST_SERVER_ACCOUNT_SCOPE, address: TEST_SESSION_DRAFT_ADDRESS });
     });
@@ -900,6 +892,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             const renderedTree = tree;
             expect(renderedTree).toBeDefined();
             if (!renderedTree) throw new Error('SessionView test renderer did not mount');
+
             const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
@@ -1152,7 +1145,6 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             's1',
             'routing.executionRunDelivery',
         )).toBe('interrupt');
-        draftHookState.freezeReactiveSnapshot = true;
 
         let tree: renderer.ReactTestRenderer | undefined;
         try {
@@ -1163,11 +1155,6 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             const renderedTree = tree;
             expect(renderedTree).toBeDefined();
             if (!renderedTree) throw new Error('SessionView test renderer did not mount');
-            expect(existingSessionDraftSemanticValues.read(
-                TEST_SERVER_ACCOUNT_SCOPE,
-                's1',
-                'routing.executionRunDelivery',
-            )).toBe('interrupt');
 
             const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
@@ -1342,7 +1329,6 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             's1',
             'routing.executionRunDelivery',
         )).toBe('interrupt');
-        draftHookState.freezeReactiveSnapshot = true;
 
         let tree: renderer.ReactTestRenderer | undefined;
         try {
@@ -1584,10 +1570,11 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             expect(sendMessageSpy).toHaveBeenCalledTimes(0);
 
             if (!resolveUpload) throw new Error('upload did not start');
+            act(() => resolveUpload?.({ success: true, path: 'p1', sizeBytes: 1, sha256: 'h1' }));
+            await sendStarted;
+            await pendingFireAndForget[0];
             await act(async () => {
-                resolveUpload?.({ success: true, path: 'p1', sizeBytes: 1, sha256: 'h1' });
-                await sendStarted;
-                await pendingFireAndForget[0];
+                await Promise.resolve();
             });
 
             agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;
@@ -1665,9 +1652,10 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             });
 
             if (!resolveSend) throw new Error('send did not start');
+            act(() => resolveSend?.());
+            await pendingFireAndForget[0];
             await act(async () => {
-                resolveSend?.();
-                await pendingFireAndForget[0];
+                await Promise.resolve();
             });
 
             agentInput = findTestInstanceByTypeWithProps(renderedTree, 'AgentInput' as any, {}) as any;

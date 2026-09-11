@@ -769,21 +769,10 @@ export class ApiSessionClient extends EventEmitter {
         wait: async (request: unknown) => {
             const rawTimeoutSeconds = readUnknownRecordProperty(request, 'timeoutSeconds');
 
-            const rawPollIntervalMs = readUnknownRecordProperty(request, 'pollIntervalMs');
-            const requestPollIntervalMs =
-                typeof rawPollIntervalMs === 'number' && Number.isFinite(rawPollIntervalMs) && rawPollIntervalMs > 0
-                    ? Math.min(60_000, rawPollIntervalMs)
-                    : null;
-            const envPollIntervalRaw = (process.env.HAPPIER_SESSION_RUN_WAIT_POLL_INTERVAL_MS ?? '').trim();
-            const envPollIntervalParsed = envPollIntervalRaw ? Number.parseInt(envPollIntervalRaw, 10) : NaN;
-            const envPollIntervalMs =
-                Number.isFinite(envPollIntervalParsed) && envPollIntervalParsed > 0 ? Math.min(60_000, envPollIntervalParsed) : 1_000;
-
             return await waitForExecutionRun({
                 ...this.getExecutionRunServiceContext(),
                 runId: String(readUnknownRecordProperty(request, 'runId') ?? ''),
                 timeoutMs: normalizeExecutionRunWaitTimeoutMs(rawTimeoutSeconds),
-                pollIntervalMs: requestPollIntervalMs ?? envPollIntervalMs,
             });
         },
     } as const;
