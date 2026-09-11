@@ -213,6 +213,9 @@ rl.on('line', (line) => {
         type: 'response',
         command: 'prompt',
         success: false,
+        retryable: true,
+        attempt: 2,
+        maxAttempts: 3,
         error: 'Provider session failed'
       });
       break;
@@ -1711,6 +1714,17 @@ describe('PiRpcBackend prompt error handling', () => {
             classification: 'pi_provider_failure',
             providerCode: 'pi_provider_session_error',
             sanitizedPreview: 'Pi provider rejected the prompt before acceptance without details',
+            runtimeProvider: 'openai-codex',
+            runtimeModelId: 'openai-codex/gpt-5.5',
+            failureRecord: expect.objectContaining({
+              type: 'response',
+              command: 'prompt',
+              success: false,
+              retryable: true,
+              attempt: 2,
+              maxAttempts: 3,
+              keys: ['id', 'type', 'command', 'success', 'retryable', 'attempt', 'maxAttempts', 'error'],
+            }),
           }),
         ],
       ]);
@@ -2254,7 +2268,7 @@ describe('PiRpcBackend prompt error handling', () => {
     }
   });
 
-  it('exposes session model state after startSession (for model probing)', async () => {
+  it('publishes the complete session model state asynchronously after startSession', async () => {
     const workDir = makeTempDir('happier-pi-rpc-models-');
     tempDirs.push(workDir);
     const fakeScript = makeFakePiRpcProcessScript(workDir);
@@ -2266,9 +2280,23 @@ describe('PiRpcBackend prompt error handling', () => {
       env: {},
     });
 
+    const completeModelState = new Promise<Record<string, unknown>>((resolve) => {
+      backend.onMessage((message) => {
+        if (
+          message.type === 'event'
+          && message.name === 'session_models_state'
+          && Array.isArray((message.payload as { availableModels?: unknown })?.availableModels)
+          && (message.payload as { availableModels: unknown[] }).availableModels.length > 0
+        ) {
+          resolve(message.payload as Record<string, unknown>);
+        }
+      });
+    });
+
     try {
       await backend.startSession();
-      const state = (backend as any).getSessionModelState?.() ?? null;
+      await completeModelState;
+      const state = backend.getSessionModelState();
       expect(state).toEqual({
         currentModelId: 'openai/gpt-4o-mini',
         availableModels: [

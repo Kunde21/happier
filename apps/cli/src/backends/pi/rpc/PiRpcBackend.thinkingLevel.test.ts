@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -100,6 +100,16 @@ describe('PiRpcBackend (thinking level)', () => {
     messages.length = 0;
 
     await (backend as any).setSessionConfigOption(started.sessionId, 'reasoning_effort', 'high');
+
+    await vi.waitFor(() => {
+      const latestModelState = [...messages]
+        .reverse()
+        .find((m) => m.type === 'event' && (m as any).name === 'session_models_state') as any;
+      expect(latestModelState?.payload?.availableModels?.[0]?.modelOptions?.[0]).toMatchObject({
+        id: 'reasoning_effort',
+        currentValue: 'high',
+      });
+    }, { timeout: 10_000 });
 
     const modelState = [...messages]
       .reverse()

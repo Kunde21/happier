@@ -219,8 +219,11 @@ function isPromptResponseTimeoutError(error: Error): boolean {
 }
 
 const DEFAULT_PI_RPC_TURN_STALL_TIMEOUT_MS = 180_000;
-/** Existing Pi new-session command budget; also owns broker readiness for that session open. */
-const PI_RPC_SESSION_OPEN_TIMEOUT_MS = 60_000;
+/**
+ * Pi's aggregate process-start, broker-readiness, and new-session budget. Keep this aligned with
+ * the execution-run provisioning contract so the provider cannot fail a valid cold start first.
+ */
+const PI_RPC_SESSION_OPEN_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_PI_RPC_COMPACTION_RESUME_GRACE_MS = 30_000;
 const DEFAULT_PI_RPC_AGENT_END_SETTLE_MS = 250;
 const DEFAULT_PI_RPC_AGENT_END_BUSY_GRACE_MS = 30_000;
@@ -241,6 +244,13 @@ type PiRpcSessionOpenLifecycle = Readonly<{
   deadlineMs: number;
   signal?: AbortSignal;
 }>;
+
+class PiRpcSessionOpenTimeoutError extends Error {
+  constructor(phase: string) {
+    super(`Pi session open timed out during ${phase}`);
+    this.name = 'PiRpcSessionOpenTimeoutError';
+  }
+}
 const DEFAULT_PI_RPC_COMPACTION_AUTO_CONTINUE_MAX = 3;
 const DEFAULT_PI_RPC_COMPACTION_AUTO_CONTINUE_PROMPT =
   'Continue the interrupted work from the recovered provider context. Do not restart or repeat completed work.';
@@ -290,6 +300,32 @@ const PI_RPC_FAILURE_TRACE_SAFE_SCALAR_FIELDS = [
   'error_message',
   'provider',
   'model',
+  'retryable',
+  'willRetry',
+  'attempt',
+  'maxAttempts',
+] as const;
+
+// Always-on provider-failure logs must never copy arbitrary provider text: SDK error bodies can
+// contain request payloads and therefore prompt content. The separately normalized
+// `sanitizedPreview` carries the useful error diagnosis; this projection is structural context.
+const PI_PROVIDER_FAILURE_LOG_SAFE_SCALAR_FIELDS = [
+  'type',
+  'command',
+  'success',
+  'status',
+  'terminalStatus',
+  'terminal_status',
+  'stopReason',
+  'stop_reason',
+  'errorCode',
+  'error_code',
+  'provider',
+  'model',
+  'retryable',
+  'willRetry',
+  'attempt',
+  'maxAttempts',
 ] as const;
 
 function sanitizePiRpcFailureTraceScalar(value: unknown): string | number | boolean | null {
@@ -302,9 +338,12 @@ function sanitizePiRpcFailureTraceScalar(value: unknown): string | number | bool
   return null;
 }
 
-function collectPiRpcFailureTraceScalars(record: Record<string, unknown>): Record<string, string | number | boolean> {
+function collectPiRpcFailureTraceScalars(
+  record: Record<string, unknown>,
+  fields: readonly string[] = PI_RPC_FAILURE_TRACE_SAFE_SCALAR_FIELDS,
+): Record<string, string | number | boolean> {
   const output: Record<string, string | number | boolean> = {};
-  for (const key of PI_RPC_FAILURE_TRACE_SAFE_SCALAR_FIELDS) {
+  for (const key of fields) {
     const sanitized = sanitizePiRpcFailureTraceScalar(record[key]);
     if (sanitized !== null) output[key] = sanitized;
   }
@@ -322,6 +361,26 @@ function buildPiRpcFailureTraceMessageShape(value: unknown): Record<string, unkn
     contentItemTypes: content
       ?.slice(0, PI_RPC_FAILURE_TRACE_MAX_ARRAY_LENGTH)
       .map((item) => asNonEmptyString(asRecord(item)?.type) ?? typeof item) ?? [],
+  };
+}
+
+function buildPiProviderFailureLogRecord(record: Record<string, unknown>): Record<string, unknown> {
+  const message = asRecord(record.message);
+  const content = Array.isArray(message?.content) ? message.content : null;
+  const messageShape = message
+    ? {
+      ...collectPiRpcFailureTraceScalars(message, PI_PROVIDER_FAILURE_LOG_SAFE_SCALAR_FIELDS),
+      hasContent: content !== null,
+      contentLength: content?.length ?? null,
+      contentItemTypes: content
+        ?.slice(0, PI_RPC_FAILURE_TRACE_MAX_ARRAY_LENGTH)
+        .map((item) => asNonEmptyString(asRecord(item)?.type) ?? typeof item) ?? [],
+    }
+    : null;
+  return {
+    ...collectPiRpcFailureTraceScalars(record, PI_PROVIDER_FAILURE_LOG_SAFE_SCALAR_FIELDS),
+    keys: Object.keys(record).slice(0, PI_RPC_FAILURE_TRACE_MAX_ARRAY_LENGTH),
+    ...(messageShape ? { messageShape } : {}),
   };
 }
 
@@ -640,6 +699,7 @@ export class PiRpcBackend implements AgentBackend {
   private readonly modelProviderById = new Map<string, string>();
   private sessionModelState: { currentModelId: string; availableModels: Array<{ id: string; name: string; description?: string; modelOptions?: unknown[] }> } | null =
     null;
+  private runtimeStatePublicationGeneration = 0;
   private lastPublishedUsageKey: string | null = null;
   /** Latest live context telemetry parsed from the bridge extension's stderr markers, if any. */
   private latestContextTelemetry: PiContextTelemetry | null = null;
@@ -690,50 +750,57 @@ export class PiRpcBackend implements AgentBackend {
     options?: AgentSessionOpenOptions,
   ): Promise<StartSessionResult> {
     const lifecycle = this.createSessionOpenLifecycle(options?.signal);
-    await this.ensureProcess();
-    await this.ensureConnectedBrokerReady(lifecycle);
-    this.emitMessage({ type: 'status', status: 'starting' });
+    try {
+      await this.ensureProcess(lifecycle);
+      await this.ensureConnectedBrokerReady(lifecycle);
+      this.emitMessage({ type: 'status', status: 'starting' });
 
-    const stateBefore = await this.getState(
-      this.resolveSessionOpenRemainingMs(lifecycle),
-      this.createSessionOpenCommandOptions(lifecycle),
-    );
-    const existingSessionId = asNonEmptyString(stateBefore.sessionId);
-    const existingSessionFile = asNonEmptyString(stateBefore.sessionFile);
-    if (existingSessionId) {
-      this.sessionId = existingSessionId;
-      this.sessionFile = existingSessionFile;
+      const stateBefore = await this.getState(
+        this.resolveSessionOpenRemainingMs(lifecycle, 'initial state'),
+        this.createSessionOpenCommandOptions(lifecycle),
+      );
+      const existingSessionId = asNonEmptyString(stateBefore.sessionId);
+      const existingSessionFile = asNonEmptyString(stateBefore.sessionFile);
+      if (existingSessionId) {
+        this.sessionId = existingSessionId;
+        this.sessionFile = existingSessionFile;
+        await this.captureAuthJsonSnapshot();
+        this.publishRuntimeState(stateBefore);
+        this.emitMessage({ type: 'status', status: 'idle' });
+        return { sessionId: existingSessionId };
+      }
+
+      const created = await this.sendProviderAffectingCommand(
+        { type: 'new_session' },
+        this.resolveSessionOpenRemainingMs(lifecycle, 'new session'),
+        lifecycle,
+      );
+      if ((asRecord(created.data)?.cancelled ?? false) === true) {
+        throw new Error('Pi cancelled new_session');
+      }
+
+      const stateAfter = await this.getState(
+        this.resolveSessionOpenRemainingMs(lifecycle, 'new session state'),
+        this.createSessionOpenCommandOptions(lifecycle),
+      );
+      const nextSessionId = asNonEmptyString(stateAfter.sessionId);
+      const nextSessionFile = asNonEmptyString(stateAfter.sessionFile);
+      if (!nextSessionId) {
+        throw new Error('Pi did not return a session id');
+      }
+
+      this.sessionId = nextSessionId;
+      this.sessionFile = nextSessionFile;
       await this.captureAuthJsonSnapshot();
-      await this.publishRuntimeState(stateBefore);
+      this.publishRuntimeState(stateAfter);
       this.emitMessage({ type: 'status', status: 'idle' });
-      return { sessionId: existingSessionId };
+      return { sessionId: nextSessionId };
+    } catch (error) {
+      if (Date.now() >= lifecycle.deadlineMs) {
+        await this.stopRpcProcessForRestart();
+      }
+      throw error;
     }
-
-    const created = await this.sendProviderAffectingCommand(
-      { type: 'new_session' },
-      this.resolveSessionOpenRemainingMs(lifecycle),
-      lifecycle,
-    );
-    if ((asRecord(created.data)?.cancelled ?? false) === true) {
-      throw new Error('Pi cancelled new_session');
-    }
-
-    const stateAfter = await this.getState(
-      this.resolveSessionOpenRemainingMs(lifecycle),
-      this.createSessionOpenCommandOptions(lifecycle),
-    );
-    const nextSessionId = asNonEmptyString(stateAfter.sessionId);
-    const nextSessionFile = asNonEmptyString(stateAfter.sessionFile);
-    if (!nextSessionId) {
-      throw new Error('Pi did not return a session id');
-    }
-
-    this.sessionId = nextSessionId;
-    this.sessionFile = nextSessionFile;
-    await this.captureAuthJsonSnapshot();
-    await this.publishRuntimeState(stateAfter);
-    this.emitMessage({ type: 'status', status: 'idle' });
-    return { sessionId: nextSessionId };
   }
 
   private async resolveSessionFileForSessionId(
@@ -846,26 +913,37 @@ export class PiRpcBackend implements AgentBackend {
     this.emitMessage({ type: 'status', status: 'starting' });
     const lifecycle = this.createSessionOpenLifecycle(options?.signal);
     try {
-      const preferredSessionFile = requestedAbsoluteSessionFile && await pathIsFile(requestedAbsoluteSessionFile)
-        ? requestedAbsoluteSessionFile
-        : null;
-      const sessionFile = preferredSessionFile
-        ?? await this.resolveSessionFileForSessionId(expectedSessionId, requestedAbsoluteSessionFile);
+      const sessionFileDiscovery = (async () => {
+        const preferredSessionFile = requestedAbsoluteSessionFile && await pathIsFile(requestedAbsoluteSessionFile)
+          ? requestedAbsoluteSessionFile
+          : null;
+        return preferredSessionFile
+          ?? await this.resolveSessionFileForSessionId(expectedSessionId, requestedAbsoluteSessionFile);
+      })();
+      const sessionFile = await this.waitForSessionOpenPhase(
+        sessionFileDiscovery,
+        lifecycle,
+        'session file discovery',
+      );
       const sessionArg = sessionFile ?? expectedSessionId;
-      const state = await this.runProcessTransition(async () => await this.replaceRpcProcessForSession({
+      const transition = this.runProcessTransition(async () => await this.replaceRpcProcessForSession({
         expectedSessionId,
         sessionArg,
         lifecycle,
       }));
+      const state = await this.waitForSessionOpenPhase(transition, lifecycle, 'process startup');
 
       this.sessionId = expectedSessionId;
       this.sessionFile = asNonEmptyString(state.sessionFile) ?? sessionFile;
       await this.captureAuthJsonSnapshot();
-      await this.publishRuntimeState(state);
+      this.publishRuntimeState(state);
       this.emitMessage({ type: 'status', status: 'idle' });
       return { sessionId: expectedSessionId };
     } catch (error) {
       this.sessionId = null;
+      if (Date.now() >= lifecycle.deadlineMs) {
+        await this.stopRpcProcessForRestart();
+      }
       throw error;
     }
   }
@@ -892,8 +970,72 @@ export class PiRpcBackend implements AgentBackend {
     };
   }
 
-  private resolveSessionOpenRemainingMs(lifecycle: PiRpcSessionOpenLifecycle): number {
-    return Math.max(1, lifecycle.deadlineMs - Date.now());
+  private isSessionOpenLifecycleCancelled(lifecycle: PiRpcSessionOpenLifecycle): boolean {
+    return lifecycle.signal?.aborted === true || Date.now() >= lifecycle.deadlineMs;
+  }
+
+  private createSessionOpenLifecycleError(
+    lifecycle: PiRpcSessionOpenLifecycle,
+    phase: string,
+  ): Error {
+    if (Date.now() >= lifecycle.deadlineMs) {
+      return new PiRpcSessionOpenTimeoutError(phase);
+    }
+    return new PiBrokerReadinessError('broker_readiness_cancelled');
+  }
+
+  private assertSessionOpenLifecycleActive(
+    lifecycle: PiRpcSessionOpenLifecycle,
+    phase: string,
+  ): void {
+    if (this.isSessionOpenLifecycleCancelled(lifecycle)) {
+      throw this.createSessionOpenLifecycleError(lifecycle, phase);
+    }
+  }
+
+  private resolveSessionOpenRemainingMs(
+    lifecycle: PiRpcSessionOpenLifecycle,
+    phase = 'provider initialization',
+  ): number {
+    if (lifecycle.signal?.aborted === true) {
+      throw this.createSessionOpenLifecycleError(lifecycle, phase);
+    }
+    const remainingMs = lifecycle.deadlineMs - Date.now();
+    if (remainingMs <= 0) {
+      throw new PiRpcSessionOpenTimeoutError(phase);
+    }
+    return remainingMs;
+  }
+
+  private async waitForSessionOpenPhase<T>(
+    operation: Promise<T>,
+    lifecycle: PiRpcSessionOpenLifecycle,
+    phase: string,
+  ): Promise<T> {
+    this.assertSessionOpenLifecycleActive(lifecycle, phase);
+    return await new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const settle = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        lifecycle.signal?.removeEventListener('abort', onAbort);
+        callback();
+      };
+      const onAbort = () => settle(() => reject(this.createSessionOpenLifecycleError(lifecycle, phase)));
+      const timeout = setTimeout(() => {
+        settle(() => reject(new PiRpcSessionOpenTimeoutError(phase)));
+      }, this.resolveSessionOpenRemainingMs(lifecycle, phase));
+      timeout.unref?.();
+      lifecycle.signal?.addEventListener('abort', onAbort, { once: true });
+      if (lifecycle.signal?.aborted === true) {
+        onAbort();
+      }
+      void operation.then(
+        (value) => settle(() => resolve(value)),
+        (error: unknown) => settle(() => reject(error)),
+      );
+    });
   }
 
   private createSessionOpenCommandOptions(
@@ -902,7 +1044,7 @@ export class PiRpcBackend implements AgentBackend {
     return {
       processAlreadyEnsured: true,
       signal: lifecycle.signal,
-      createCancellationError: () => new PiBrokerReadinessError('broker_readiness_cancelled'),
+      createCancellationError: () => this.createSessionOpenLifecycleError(lifecycle, 'provider command'),
     };
   }
 
@@ -1172,7 +1314,7 @@ export class PiRpcBackend implements AgentBackend {
     const selection = await this.resolveModelSelection(normalized);
     await this.sendProviderAffectingCommand({ type: 'set_model', provider: selection.provider, modelId: selection.modelId }, 60_000);
     this.currentModelProvider = selection.provider;
-    await this.publishRuntimeState(await this.getState());
+    this.publishRuntimeState(await this.getState());
   }
 
   async setSessionConfigOption(sessionId: SessionId, configId: string, value: string | number | boolean | null): Promise<void> {
@@ -1190,7 +1332,7 @@ export class PiRpcBackend implements AgentBackend {
     if (!level) return;
 
     await this.sendProviderAffectingCommand({ type: 'set_thinking_level', level }, 30_000);
-    await this.publishRuntimeState(await this.getState());
+    this.publishRuntimeState(await this.getState());
   }
 
   async cancel(sessionId: SessionId): Promise<void> {
@@ -1271,25 +1413,37 @@ export class PiRpcBackend implements AgentBackend {
     }
   }
 
-  private async ensureProcess(): Promise<void> {
+  private async ensureProcess(lifecycle?: PiRpcSessionOpenLifecycle): Promise<void> {
     if (this.disposed) {
       throw new Error('Pi backend is disposed');
     }
+    if (lifecycle) this.assertSessionOpenLifecycleActive(lifecycle, 'process startup');
     if (this.process) return;
     if (this.sessionId) {
       // Best-effort recovery: if we have an established session id but the process is gone, attempt to
       // restart and reattach to the same session via `--session`.
-      await this.restartAndContinue();
+      const restart = this.restartAndContinue({ lifecycle });
+      if (lifecycle) {
+        await this.waitForSessionOpenPhase(restart, lifecycle, 'process startup');
+      } else {
+        await restart;
+      }
       return;
     }
 
-    await this.runProcessTransition(async () => {
+    const transition = this.runProcessTransition(async () => {
       if (this.disposed) throw new Error('Pi backend is disposed');
+      if (lifecycle) this.assertSessionOpenLifecycleActive(lifecycle, 'process startup');
       if (this.process) return;
       await this.spawnRpcProcessWithProtectedArtifacts({
         argsBeforeProtected: this.options.args,
-      });
+      }, lifecycle);
     });
+    if (lifecycle) {
+      await this.waitForSessionOpenPhase(transition, lifecycle, 'process startup');
+    } else {
+      await transition;
+    }
   }
 
   private async cleanupProtectedSpawnArtifacts(): Promise<void> {
@@ -1343,10 +1497,12 @@ export class PiRpcBackend implements AgentBackend {
   private async spawnRpcProcessWithProtectedArtifacts(params: Readonly<{
     argsBeforeProtected: ReadonlyArray<string>;
     argsAfterProtected?: ReadonlyArray<string>;
-  }>): Promise<void> {
+  }>, lifecycle?: PiRpcSessionOpenLifecycle): Promise<void> {
     try {
+      if (lifecycle) this.assertSessionOpenLifecycleActive(lifecycle, 'process startup');
       const protectedArgs = await this.resolveProtectedSpawnArtifactArgs();
       if (this.disposed) throw new Error('Pi backend is disposed');
+      if (lifecycle) this.assertSessionOpenLifecycleActive(lifecycle, 'process startup');
       this.spawnRpcProcess({
         args: [
           ...params.argsBeforeProtected,
@@ -1573,7 +1729,10 @@ export class PiRpcBackend implements AgentBackend {
   }
 
   private async restartAndContinue(
-    options: Readonly<{ requireDurableSessionFile?: boolean }> = {},
+    options: Readonly<{
+      requireDurableSessionFile?: boolean;
+      lifecycle?: PiRpcSessionOpenLifecycle;
+    }> = {},
   ): Promise<boolean> {
     const expectedSessionId = this.sessionId;
     if (!expectedSessionId) return false;
@@ -1593,9 +1752,10 @@ export class PiRpcBackend implements AgentBackend {
     const state = await this.runProcessTransition(async () => await this.replaceRpcProcessForSession({
       expectedSessionId,
       sessionArg,
+      lifecycle: options.lifecycle,
     }));
     this.sessionFile = asNonEmptyString(state.sessionFile) ?? sessionFile;
-    await this.publishRuntimeState(state);
+    this.publishRuntimeState(state);
     this.emitMessage({ type: 'status', status: 'idle' });
     return true;
   }
@@ -1625,7 +1785,7 @@ export class PiRpcBackend implements AgentBackend {
     await this.spawnRpcProcessWithProtectedArtifacts({
       argsBeforeProtected: this.options.args,
       argsAfterProtected: ['--session', params.sessionArg],
-    });
+    }, params.lifecycle);
 
     try {
       const lifecycle = params.lifecycle ?? this.createSessionOpenLifecycle();
@@ -1736,7 +1896,11 @@ export class PiRpcBackend implements AgentBackend {
       if (response.command === 'prompt' && !response.success && this.openPromptRequestIds.has(id)) {
         this.tracePiRpcFailureBoundary('late_open_prompt_response', response);
         this.openPromptRequestIds.delete(id);
-        this.surfacePiProviderFailure(normalizePiProviderFailure('post_acceptance_prompt', { error: response.error }));
+        this.surfacePiProviderFailure(
+          normalizePiProviderFailure('post_acceptance_prompt', { error: response.error }),
+          null,
+          response,
+        );
       } else {
         this.tracePiRpcFailureBoundary('ignored_response_no_pending_request', response);
       }
@@ -1756,7 +1920,7 @@ export class PiRpcBackend implements AgentBackend {
       if (pending.commandType === 'prompt') {
         this.tracePiRpcFailureBoundary('pending_prompt_failure_response', response, { detail: rawDetail });
         const failure = normalizePiProviderFailure('prompt_rejected', { error: rawDetail });
-        this.logPiProviderFailure(failure);
+        this.logPiProviderFailure(failure, response);
         this.emitPiProviderFailureDiagnostic(failure.sanitizedPreview);
         pending.reject(Object.assign(
           new PiRpcPromptRejectedBeforeEffectError(failure.sanitizedPreview),
@@ -1897,7 +2061,7 @@ export class PiRpcBackend implements AgentBackend {
     if (classification) {
       void this.reportPiRuntimeAuthFailureToDaemon(classification);
     }
-    this.surfacePiProviderFailure(failure, classification);
+    this.surfacePiProviderFailure(failure, classification, event);
   }
 
   private handlePiTurnFailedEvent(event: Record<string, unknown>): void {
@@ -1909,7 +2073,7 @@ export class PiRpcBackend implements AgentBackend {
       return;
     }
     this.tracePiRpcFailureBoundary('turn_failed_event_matched', event);
-    this.surfacePiProviderFailure(failure);
+    this.surfacePiProviderFailure(failure, null, event);
   }
 
   private readCompactionLifecycleId(event: Record<string, unknown>): string | null {
@@ -2358,8 +2522,9 @@ export class PiRpcBackend implements AgentBackend {
   private surfacePiProviderFailure(
     failure: PiProviderFailureDiagnostic,
     runtimeAuthClassification: ConnectedServiceRuntimeFailureClassification | null = null,
+    failureRecord: Record<string, unknown> | null = null,
   ): void {
-    this.logPiProviderFailure(failure);
+    this.logPiProviderFailure(failure, failureRecord);
     this.emitPiProviderFailureDiagnostic(failure.sanitizedPreview);
     this.emitMessage({ type: 'status', status: 'error', detail: failure.sanitizedPreview });
     this.rejectPendingTurn(Object.assign(
@@ -2378,11 +2543,17 @@ export class PiRpcBackend implements AgentBackend {
     });
   }
 
-  private logPiProviderFailure(failure: PiProviderFailureDiagnostic): void {
+  private logPiProviderFailure(
+    failure: PiProviderFailureDiagnostic,
+    failureRecord: Record<string, unknown> | null = null,
+  ): void {
     logger.warn('[pi] Provider turn failed', {
       classification: failure.classification,
       providerCode: failure.code,
       sanitizedPreview: failure.sanitizedPreview,
+      runtimeProvider: this.currentModelProvider,
+      runtimeModelId: this.sessionModelState?.currentModelId ?? null,
+      ...(failureRecord ? { failureRecord: buildPiProviderFailureLogRecord(failureRecord) } : {}),
     });
   }
 
@@ -2975,8 +3146,8 @@ export class PiRpcBackend implements AgentBackend {
     return (asRecord(response.data) ?? {}) as PiRpcStateData;
   }
 
-  private async getAvailableModels(): Promise<PiRpcModelsData> {
-    const response = await this.sendCommand({ type: 'get_available_models' }, 60_000);
+  private async getAvailableModels(options: PiRpcCommandOptions = {}): Promise<PiRpcModelsData> {
+    const response = await this.sendCommand({ type: 'get_available_models' }, 60_000, options);
     return (asRecord(response.data) ?? {}) as PiRpcModelsData;
   }
 
@@ -2985,12 +3156,12 @@ export class PiRpcBackend implements AgentBackend {
     return (asRecord(response.data) ?? {}) as PiRpcSessionStatsData;
   }
 
-  private async getCommands(): Promise<PiRpcCommandsData> {
-    const response = await this.sendCommand({ type: 'get_commands' }, 30_000);
+  private async getCommands(options: PiRpcCommandOptions = {}): Promise<PiRpcCommandsData> {
+    const response = await this.sendCommand({ type: 'get_commands' }, 30_000, options);
     return (asRecord(response.data) ?? {}) as PiRpcCommandsData;
   }
 
-  private async publishRuntimeState(state: PiRpcStateData): Promise<void> {
+  private publishRuntimeState(state: PiRpcStateData): void {
     const modelRecord = asRecord(state.model);
     const currentModelIdRaw = asNonEmptyString(modelRecord?.id) ?? '';
     const currentModelProvider = asNonEmptyString(modelRecord?.provider);
@@ -3002,39 +3173,13 @@ export class PiRpcBackend implements AgentBackend {
     }
     const thinkingLevelFromState = normalizePiThinkingEffort(state.thinkingLevel) ?? 'medium';
 
-    let normalized: Array<{ id: string; name: string; description: string; modelOptions?: unknown[] }> =
+    const normalized: Array<{ id: string; name: string; description: string; modelOptions?: unknown[] }> =
       (this.sessionModelState?.availableModels ?? []).map((m) => ({
         id: m.id,
         name: m.name,
         description: m.description ?? '',
+        ...(m.modelOptions ? { modelOptions: m.modelOptions } : {}),
       }));
-
-    try {
-      const available = await this.getAvailableModels();
-      const models = Array.isArray(available.models) ? available.models : [];
-      this.modelProviderById.clear();
-      normalized = models
-        .map((entry) => {
-          const model = asRecord(entry);
-          const id = asNonEmptyString(model?.id);
-          const provider = asNonEmptyString(model?.provider);
-          if (!id || !provider) return null;
-          const qualifiedId = qualifyPiModelId(provider, id);
-          const name = asNonEmptyString(model?.name);
-          this.modelProviderById.set(id, provider);
-          if (qualifiedId) this.modelProviderById.set(qualifiedId, provider);
-          return createPiModelCatalogEntry({
-            provider,
-            modelId: id,
-            ...(name ? { name } : {}),
-            supportsThinking: model?.reasoning === true,
-            thinkingEffort: thinkingLevelFromState,
-          });
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-    } catch {
-      // Best-effort: model introspection should not block session start/resume.
-    }
 
     this.sessionModelState = {
       currentModelId,
@@ -3050,8 +3195,54 @@ export class PiRpcBackend implements AgentBackend {
       },
     });
 
-    try {
-      const commands = await this.getCommands();
+    const generation = ++this.runtimeStatePublicationGeneration;
+    const process = this.process;
+    const sessionId = this.sessionId;
+    const isCurrentPublication = (): boolean => (
+      !this.disposed
+      && this.runtimeStatePublicationGeneration === generation
+      && this.process === process
+      && this.sessionId === sessionId
+    );
+
+    void this.getAvailableModels({ processAlreadyEnsured: true }).then((available) => {
+      if (!isCurrentPublication()) return;
+      const models = Array.isArray(available.models) ? available.models : [];
+      const nextModelProviderById = new Map<string, string>();
+      const nextModels = models
+        .map((entry) => {
+          const model = asRecord(entry);
+          const id = asNonEmptyString(model?.id);
+          const provider = asNonEmptyString(model?.provider);
+          if (!id || !provider) return null;
+          const qualifiedId = qualifyPiModelId(provider, id);
+          const name = asNonEmptyString(model?.name);
+          nextModelProviderById.set(id, provider);
+          if (qualifiedId) nextModelProviderById.set(qualifiedId, provider);
+          return createPiModelCatalogEntry({
+            provider,
+            modelId: id,
+            ...(name ? { name } : {}),
+            supportsThinking: model?.reasoning === true,
+            thinkingEffort: thinkingLevelFromState,
+          });
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+      if (!isCurrentPublication()) return;
+      this.modelProviderById.clear();
+      for (const [id, provider] of nextModelProviderById) this.modelProviderById.set(id, provider);
+      this.sessionModelState = { currentModelId, availableModels: nextModels };
+      this.emitMessage({
+        type: 'event',
+        name: 'session_models_state',
+        payload: { currentModelId, availableModels: nextModels },
+      });
+    }).catch(() => {
+      // Best-effort: model introspection must not block or fail session lifecycle.
+    });
+
+    void this.getCommands({ processAlreadyEnsured: true }).then((commands) => {
+      if (!isCurrentPublication()) return;
       const commandList = Array.isArray(commands.commands) ? commands.commands : [];
       const nextCommandNames = new Set<string>();
       const nextExtensionCommandNames = new Set<string>();
@@ -3090,9 +3281,9 @@ export class PiRpcBackend implements AgentBackend {
           availableCommands: availableCommands.map(({ name, description }) => ({ name, ...(description ? { description } : {}) })),
         },
       });
-    } catch {
-      // Best-effort: commands introspection should not block session start/resume.
-    }
+    }).catch(() => {
+      // Best-effort: commands introspection must not block or fail session lifecycle.
+    });
   }
 
   private async resolveModelSelection(modelIdRaw: string): Promise<{ provider: string; modelId: string }> {
