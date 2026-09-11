@@ -12,6 +12,7 @@ import {
   resolveMutagenSessionName,
 } from './mutagen_project.mjs';
 import {
+  DEFAULT_REMOTE_STACK_STARTUP_TIMEOUT_MS,
   buildRemoteBootstrapCommand,
   buildRemoteStackCommand,
   buildRemoteStackStopCommand,
@@ -21,6 +22,13 @@ import {
   buildSshForwardArgs,
   buildSshWorkerArgs,
 } from './remote_commands.mjs';
+
+export function resolveRemoteServerReadyTimeoutMs(env = process.env) {
+  const configured = Number.parseInt(String(env.HAPPIER_STACK_SERVER_READY_TIMEOUT_MS ?? ''), 10);
+  return Number.isFinite(configured) && configured >= 1_000
+    ? configured
+    : DEFAULT_REMOTE_STACK_STARTUP_TIMEOUT_MS;
+}
 
 export function resolveDefaultRemoteServerPort({
   localServerPort,
@@ -65,8 +73,7 @@ async function defaultWaitForProcess(child) {
 }
 
 async function defaultWaitForServerReady({ url, env = process.env, signal } = {}) {
-  const configured = Number.parseInt(String(env.HAPPIER_STACK_SERVER_READY_TIMEOUT_MS ?? ''), 10);
-  const timeoutMs = Number.isFinite(configured) && configured >= 1_000 ? configured : 120_000;
+  const timeoutMs = resolveRemoteServerReadyTimeoutMs(env);
   const deadline = Date.now() + timeoutMs;
   while (!signal?.aborted && Date.now() < deadline) {
     if ((await fetchHappierHealth(url)).ok) return;

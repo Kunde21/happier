@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   resolveDefaultRemoteServerPort,
+  resolveRemoteServerReadyTimeoutMs,
   startStackDevTargets,
   startStackDevTargetsInBackground,
 } from './supervisor.mjs';
@@ -75,6 +76,14 @@ test('default remote tunnel port varies by Stack process instance', () => {
   assert.notEqual(first, replacement);
   assert.ok(first >= 40_000 && first <= 59_999);
   assert.ok(replacement >= 40_000 && replacement <= 59_999);
+});
+
+test('remote server readiness covers the remote package-roll startup budget', () => {
+  assert.equal(resolveRemoteServerReadyTimeoutMs({}), 1_800_000);
+  assert.equal(
+    resolveRemoteServerReadyTimeoutMs({ HAPPIER_STACK_SERVER_READY_TIMEOUT_MS: '90000' }),
+    90_000,
+  );
 });
 
 test('authoritative remote server retires the prior target owner and becomes running only after stable-tunnel readiness', async () => {
