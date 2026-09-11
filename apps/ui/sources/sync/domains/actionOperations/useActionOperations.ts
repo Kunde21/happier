@@ -3,11 +3,14 @@ import * as React from 'react';
 import type { ActionOperationSnapshotV1, ActionOperationStateV1 } from '@happier-dev/protocol';
 
 import {
+    createInboxActionOperationEntriesSelector,
     createActionOperationSelector,
+    type InboxActionOperationEntry,
     selectActionOperationObservation,
     selectActionOperationObservationForOperation,
     selectActionOperationsNeedAttention,
 } from './actionOperationSelectors';
+import { actionOperationReentry } from './actionOperationReentry';
 import {
     actionOperationStore,
     type ActionOperationObservation,
@@ -117,6 +120,26 @@ export function useActionOperation(operationId: string | null): ActionOperationS
 
 export function useAllActionOperations(accountId: string): readonly ActionOperationSnapshotV1[] {
     const selector = React.useMemo(() => createAllActionOperationsSelector(accountId), [accountId]);
+    return React.useSyncExternalStore(
+        actionOperationStore.subscribe,
+        () => selector(actionOperationStore.getState()),
+        () => selector(actionOperationStore.getState()),
+    );
+}
+
+export function useInboxActionOperationEntries(accountId: string): readonly InboxActionOperationEntry[] {
+    const selector = React.useMemo(
+        () => createInboxActionOperationEntriesSelector(
+            accountId,
+            actionOperationReentry.resolvePresentation,
+        ),
+        [accountId],
+    );
+    React.useSyncExternalStore(
+        actionOperationReentry.subscribe,
+        actionOperationReentry.getRevision,
+        actionOperationReentry.getRevision,
+    );
     return React.useSyncExternalStore(
         actionOperationStore.subscribe,
         () => selector(actionOperationStore.getState()),

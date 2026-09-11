@@ -12,6 +12,13 @@ type ActionOperationSelectorScope = ActionOperationScope & Readonly<{
     states?: readonly ActionOperationStateV1[];
 }>;
 
+export type InboxActionOperationReason = 'failed' | 'status_unavailable' | 'setup_needs_attention';
+
+export type InboxActionOperationEntry = Readonly<{
+    operation: ActionOperationSnapshotV1;
+    reason: InboxActionOperationReason;
+}>;
+
 function sameReferences(
     previous: readonly ActionOperationSnapshotV1[],
     next: readonly ActionOperationSnapshotV1[],
@@ -51,6 +58,66 @@ export function selectActionOperationObservationForOperation(
     const scopeObservation = selectActionOperationObservation(state, operation.scope);
     if (scopeObservation !== 'available') return scopeObservation;
     return state.unavailableOperationIds.has(operation.operationId) ? 'status_unavailable' : 'available';
+}
+
+function sameInboxEntries(
+    previous: readonly InboxActionOperationEntry[],
+    next: readonly InboxActionOperationEntry[],
+): boolean {
+    return previous.length === next.length && previous.every((entry, index) => (
+        entry.operation === next[index]?.operation && entry.reason === next[index]?.reason
+    ));
+}
+
+/**
+ * Projects only operation states that require an Inbox response. Routine lifecycle
+ * activity remains available through the unfiltered Activity selectors.
+ */
+export function createInboxActionOperationEntriesSelector(
+    accountId: string,
+    resolveLocalPresentation: (
+        operation: ActionOperationSnapshotV1,
+    ) => Readonly<{ kind: 'setup_needs_attention' }> | null = () => null,
+) {
+    let previous: readonly InboxActionOperationEntry[] = [];
+    return (state: ActionOperationStoreState): readonly InboxActionOperationEntry[] => {
+        const next: InboxActionOperationEntry[] = [];
+        for (const operation of state.operationsById.values()) {
+            if (
+                operation.scope.accountId !== accountId
+                || state.dismissedOperationIds.has(operation.operationId)
+            ) {
+                continue;
+            }
+
+            if (
+                operation.state === 'failed'
+                && !state.terminalSeenAtById.has(operation.operationId)
+            ) {
+                next.push({ operation, reason: 'failed' });
+                continue;
+            }
+
+            if (
+                operation.state === 'succeeded'
+                && resolveLocalPresentation(operation)?.kind === 'setup_needs_attention'
+            ) {
+                next.push({ operation, reason: 'setup_needs_attention' });
+                continue;
+            }
+
+            if (
+                (operation.state === 'accepted' || operation.state === 'running')
+                && state.unavailableOperationIds.has(operation.operationId)
+            ) {
+                next.push({ operation, reason: 'status_unavailable' });
+            }
+        }
+
+        if (sameInboxEntries(previous, next)) return previous;
+        previous = next;
+        return previous;
+    };
 }
 
 export function selectActionOperationsNeedAttention(
