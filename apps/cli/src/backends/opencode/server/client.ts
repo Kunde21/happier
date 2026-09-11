@@ -89,11 +89,10 @@ function resolveOpenCodeServerHttpTimeoutMs(env: NodeJS.ProcessEnv): number | nu
 
 export function resolveOpenCodeSseReadIdleTimeoutMs(env: NodeJS.ProcessEnv): number | null {
   const raw = env.HAPPIER_OPENCODE_SSE_READ_IDLE_TIMEOUT_MS;
-  const defaultTimeoutMs = 30_000;
-  if (typeof raw !== 'string') return defaultTimeoutMs;
+  if (typeof raw !== 'string') return null;
 
   const parsed = Number.parseInt(raw.trim(), 10);
-  if (!Number.isFinite(parsed) || parsed < 0) return defaultTimeoutMs;
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
   if (parsed === 0) return null;
   return Math.max(5_000, Math.min(120_000, Math.trunc(parsed)));
 }

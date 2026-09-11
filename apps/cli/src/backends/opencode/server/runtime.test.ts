@@ -7990,16 +7990,12 @@ describe('createOpenCodeServerRuntime', () => {
     expect(matching[matching.length - 1]?.body?.message).toContain(expectedMessage);
   });
 
-  it('marks turns failed when control-plane status polling repeatedly fails (prevents wedged thinking)', async () => {
+  it('keeps the SSE-owned turn alive when best-effort status polling repeatedly fails', async () => {
     const prevPollInterval = process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_INTERVAL_MS;
     const prevStatusPoll = process.env.HAPPIER_OPENCODE_SERVER_STATUS_POLL_ENABLED;
-    const prevMaxFailures = process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_MAX_CONSECUTIVE_FAILURES;
-    const prevGraceMs = process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_FAILURE_GRACE_MS;
 
     process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_INTERVAL_MS = '25';
     process.env.HAPPIER_OPENCODE_SERVER_STATUS_POLL_ENABLED = '1';
-    process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_MAX_CONSECUTIVE_FAILURES = '2';
-    process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_FAILURE_GRACE_MS = '1000';
     try {
       const client = createFakeClient() as any;
       client.sessionStatusList = vi.fn(async () => {
@@ -8026,18 +8022,19 @@ describe('createOpenCodeServerRuntime', () => {
       void promptPromise.catch(() => {});
       await expect.poll(() => client.sessionPromptAsync.mock.calls.length).toBe(1);
 
-      try {
-        await expect.poll(() => session.sessionTurnLifecycle.failTurn.mock.calls.length).toBeGreaterThan(0);
-        expect(session.sendAgentMessage.mock.calls.some(
-          (call: any[]) => call?.[0] === 'opencode' && call?.[1]?.type === 'turn_aborted',
-        )).toBe(false);
-        expect(JSON.stringify(session.sessionTurnLifecycle.failTurn.mock.calls)).not.toContain('ECONNREFUSED');
-      } finally {
-        await runtime.cancel().catch(() => {});
-        await runtime.reset().catch(() => {});
-      }
+      await expect.poll(() => client.sessionStatusList.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(session.sessionTurnLifecycle.failTurn).not.toHaveBeenCalled();
 
-      await expect(promptPromise).rejects.toBeTruthy();
+      await client.__emit({
+        directory: '/tmp',
+        payload: { type: 'message.part.delta', properties: { sessionID: 'ses_1', messageID: 'msg_after_status_failures', partID: 'part_after_status_failures', delta: 'done' } },
+      });
+      await emitTerminalAssistantAndIdle(client, { messageId: 'msg_after_status_failures' });
+
+      await expect(promptPromise).resolves.toBeUndefined();
+      expect(session.sessionTurnLifecycle.failTurn).not.toHaveBeenCalled();
+
+      await runtime.reset().catch(() => {});
     } finally {
       if (prevPollInterval === undefined) {
         delete process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_INTERVAL_MS;
@@ -8048,16 +8045,6 @@ describe('createOpenCodeServerRuntime', () => {
         delete process.env.HAPPIER_OPENCODE_SERVER_STATUS_POLL_ENABLED;
       } else {
         process.env.HAPPIER_OPENCODE_SERVER_STATUS_POLL_ENABLED = prevStatusPoll;
-      }
-      if (prevMaxFailures === undefined) {
-        delete process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_MAX_CONSECUTIVE_FAILURES;
-      } else {
-        process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_MAX_CONSECUTIVE_FAILURES = prevMaxFailures;
-      }
-      if (prevGraceMs === undefined) {
-        delete process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_FAILURE_GRACE_MS;
-      } else {
-        process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_FAILURE_GRACE_MS = prevGraceMs;
       }
     }
   });

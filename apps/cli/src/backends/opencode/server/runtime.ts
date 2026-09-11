@@ -1531,7 +1531,6 @@ export function createOpenCodeServerRuntime(params: {
       try {
         const c = await ensureClient();
         const statuses = await c.sessionStatusList();
-        resetControlPlaneFailures('status');
         const map = statuses && typeof statuses === 'object' && !Array.isArray(statuses)
           ? (statuses as Record<string, unknown>)
           : null;
@@ -1570,7 +1569,6 @@ export function createOpenCodeServerRuntime(params: {
           };
         }
       } catch (error) {
-        maybeAbortTurnOnControlPlaneFailure('status', error);
         status = 'error';
         statusError = extractOpenCodeErrorText(error) ?? String(error);
       }
@@ -1799,18 +1797,6 @@ export function createOpenCodeServerRuntime(params: {
     return Math.max(60_000, Math.min(3_600_000, configured));
   })();
 
-  const controlPlaneMaxConsecutiveFailures = (() => {
-    const raw = Number.parseInt(String(env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_MAX_CONSECUTIVE_FAILURES ?? ''), 10);
-    const configured = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 3;
-    return Math.max(1, Math.min(100, configured));
-  })();
-
-  const controlPlaneFailureGraceMs = (() => {
-    const raw = Number.parseInt(String(env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_FAILURE_GRACE_MS ?? ''), 10);
-    const configured = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 10_000;
-    return Math.max(250, Math.min(300_000, configured));
-  })();
-
   const statusPollEnabled = (() => {
     const raw = normalizeEnvVar(env.HAPPIER_OPENCODE_SERVER_STATUS_POLL_ENABLED);
     if (!raw) return true;
@@ -1829,45 +1815,6 @@ export function createOpenCodeServerRuntime(params: {
     const configured = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 15_000;
     return Math.max(25, Math.min(300_000, configured));
   })();
-
-  type ControlPlaneFailureKind = 'status';
-  type ControlPlaneFailureState = { count: number; firstFailureAtMs: number | null };
-
-  const controlPlaneFailures: Record<ControlPlaneFailureKind, ControlPlaneFailureState> = {
-    status: { count: 0, firstFailureAtMs: null },
-  };
-
-  const resetControlPlaneFailures = (kind: ControlPlaneFailureKind) => {
-    controlPlaneFailures[kind].count = 0;
-    controlPlaneFailures[kind].firstFailureAtMs = null;
-  };
-
-  const maybeAbortTurnOnControlPlaneFailure = (kind: ControlPlaneFailureKind, error: unknown) => {
-    if (!turnDeferred) return;
-    if (!turnPromptActive) return;
-
-    const state = controlPlaneFailures[kind];
-    const nowMs = Date.now();
-    if (state.firstFailureAtMs == null) {
-      state.firstFailureAtMs = nowMs;
-      state.count = 0;
-    }
-    state.count += 1;
-
-    const exceededConsecutive = state.count >= controlPlaneMaxConsecutiveFailures;
-    const exceededGrace = Number.isFinite(nowMs) && state.firstFailureAtMs != null
-      ? nowMs - state.firstFailureAtMs >= controlPlaneFailureGraceMs
-      : false;
-
-    if (!exceededConsecutive && !exceededGrace) return;
-
-    setThinking(false);
-    const terminalMarkerId = ensureActiveLifecycleMarkerId();
-    void flushAndClearStreamWriters({ reason: 'abort', interruptedReason: 'control_plane_failure' }).finally(() => {
-      surfaceOpenCodeRuntimeFailure('stream_error', error, terminalMarkerId);
-    });
-    rejectTurn(error ?? new Error('OpenCode control-plane polling failed'));
-  };
 
   const shouldTreatMessageIdAsTurnActivity = (messageID: string): boolean => {
     if (!turnPromptActive) return false;
@@ -1929,9 +1876,11 @@ export function createOpenCodeServerRuntime(params: {
     let statuses: unknown;
     try {
       statuses = await c.sessionStatusList();
-      resetControlPlaneFailures('status');
     } catch (error) {
-      maybeAbortTurnOnControlPlaneFailure('status', error);
+      logger.debug('[OpenCodeServer] best-effort status fallback failed; waiting for SSE or the inactivity guard', {
+        sessionId,
+        error,
+      });
       return;
     }
     const map = statuses && typeof statuses === 'object' && !Array.isArray(statuses) ? (statuses as any as Record<string, unknown>) : null;

@@ -23,11 +23,11 @@ import { ensureOpenCodeBrokerPluginAssets } from '@/backends/opencode/brokerPlug
 import { resolveOpenCodeManagedServerTrackedPid } from './resolveOpenCodeManagedServerTrackedPid';
 import { terminateManagedOpenCodeServerPidBestEffort } from './terminateManagedOpenCodeServerPidBestEffort';
 import { waitForOpenCodeServerHealth } from './waitForOpenCodeServerHealth';
-import { readPositiveIntEnv } from '@/utils/readPositiveIntEnv';
 import {
   createOpenCodeManagedServerLogCapture,
   pruneOpenCodeManagedServerLogs,
 } from './managedServerLogs';
+import { resolveOpenCodeManagedServerStartTimeoutMsFromEnv } from './openCodeManagedServerTimeouts';
 
 async function resolveEphemeralPort(hostname: string): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
@@ -98,7 +98,7 @@ export async function startManagedOpenCodeServer(params: Readonly<{
     : await resolveEphemeralPort(hostname);
   const timeoutMs = typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) && params.timeoutMs > 0
     ? Math.floor(params.timeoutMs)
-    : (readPositiveIntEnv('HAPPIER_OPENCODE_SERVER_START_TIMEOUT_MS') ?? 30_000);
+    : resolveOpenCodeManagedServerStartTimeoutMsFromEnv(process.env);
 
   const launch = resolveOpenCodeCommand();
   const cmd = launch.command;
