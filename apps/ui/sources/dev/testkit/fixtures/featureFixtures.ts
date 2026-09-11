@@ -89,6 +89,8 @@ const BASE_ROOT_LAYOUT_FEATURES: RootLayoutFeatures = {
             accountGroups: { enabled: false },
             accountFallback: { enabled: false },
             autoQuotaReset: { enabled: false },
+            autoDisablePlanInvalid: { enabled: false },
+            poolQuotaLimitSelection: { enabled: false },
         },
         updates: {
             ota: { enabled: true },
