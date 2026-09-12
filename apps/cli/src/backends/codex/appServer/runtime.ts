@@ -3751,6 +3751,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                             const notificationRecord = readRecord(notificationParams);
                             const tokenUsage = readRecord(notificationRecord?.tokenUsage ?? notificationRecord?.token_usage);
                             const totalBreakdown = readCodexTokenUsageBreakdown(tokenUsage?.total);
+                            const lastBreakdown = readCodexTokenUsageBreakdown(tokenUsage?.last);
                             const contextWindowTokens = readCodexRuntimeContextWindowTokens(tokenUsage);
 
                             await publishRuntimeContextWindow(contextWindowTokens);
@@ -3761,6 +3762,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                                 type: 'token_count',
                                 tokens: totalBreakdown,
                                 ...(contextWindowTokens !== null ? { size: contextWindowTokens } : {}),
+                                ...(lastBreakdown ? { used: lastBreakdown.total } : {}),
                                 ...(currentModelId ? { model: currentModelId } : {}),
                                 ...(threadId ? { key: `codex-app-server:${threadId}` } : {}),
                                 id: randomUUID(),
