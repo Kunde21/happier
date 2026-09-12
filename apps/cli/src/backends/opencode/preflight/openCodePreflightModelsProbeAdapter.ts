@@ -5,7 +5,7 @@ import { resolveWindowsCommandInvocation } from '@happier-dev/cli-common/process
 import { spawn } from 'node:child_process';
 
 import { asRecord, normalizeString } from '../server/openCodeParsing';
-import { modelSupportsToolCalls } from '../server/openCodeModelParsing';
+import { modelSupportsToolCalls, parseOpenCodeModelId } from '../server/openCodeModelParsing';
 import { buildOpenCodeThinkingModelOptionsFromVariants } from '../modelOptions/openCodeThinkingModelOption';
 import { readContextWindowTokensFromModelRecord } from '@/backends/modelCapabilities/contextWindowTokens';
 
@@ -23,13 +23,6 @@ type OpenCodeVerboseModelBlock = Readonly<{
   fullId: string;
   record: OpenCodeVerboseModelRecord;
 }>;
-
-function isOpenCodeVerboseModelIdLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (!trimmed) return false;
-  // Example: openai/codex-mini-latest, openrouter/gemini-2.5-flash-preview:thinking
-  return /^[a-z0-9._:-]+\/[a-z0-9._:-]+$/i.test(trimmed);
-}
 
 function tryParseJsonObject(text: string): Record<string, unknown> | null {
   try {
@@ -74,7 +67,7 @@ function parseOpenCodeModelsVerboseOutput(outputRaw: string): OpenCodeVerboseMod
 
   for (let i = 0; i < lines.length; i++) {
     const line = String(lines[i] ?? '').trim();
-    if (!isOpenCodeVerboseModelIdLine(line)) continue;
+    if (!line) continue;
 
     const fullId = line;
     let cursor = i + 1;
@@ -84,19 +77,22 @@ function parseOpenCodeModelsVerboseOutput(outputRaw: string): OpenCodeVerboseMod
         cursor += 1;
         continue;
       }
-      if (next.startsWith('{')) break;
-      cursor += 1;
+      break;
     }
-    if (cursor >= lines.length) continue;
+    if (cursor >= lines.length || !String(lines[cursor] ?? '').trim().startsWith('{')) continue;
 
     const block = extractJsonBlockFromLines(lines, cursor);
-    if (!block) continue;
+    if (!block) return null;
 
     const record = tryParseJsonObject(block.jsonText);
-    if (!record) {
-      i = block.endIndexInclusive;
-      continue;
-    }
+    if (!record) return null;
+
+    const parsedId = parseOpenCodeModelId(fullId);
+    if (
+      !parsedId
+      || parsedId.providerID !== normalizeString(record.providerID)
+      || parsedId.modelID !== normalizeString(record.id)
+    ) return null;
 
     parsed.push({ fullId, record });
     i = block.endIndexInclusive;

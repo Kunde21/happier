@@ -63,8 +63,8 @@ describe('probeAgentModelsBestEffort (cache)', () => {
     await writeExecutableScript(
       opencodePath,
       process.platform === 'win32'
-        ? `@echo off\r\nif not "%HAPPIER_TEST_PROBE_COUNT_FILE%"=="" echo|set /p=1>> "%HAPPIER_TEST_PROBE_COUNT_FILE%"\r\nif "%1"=="models" (\r\necho openai/gpt-4.1\r\necho openai/gpt-4.1-mini\r\nexit /b 0\r\n)\r\nexit /b 1\r\n`
-        : `#!/bin/sh\nif [ -n \"$HAPPIER_TEST_PROBE_COUNT_FILE\" ]; then printf 1 >> \"$HAPPIER_TEST_PROBE_COUNT_FILE\"; fi\nif [ \"$1\" = \"models\" ]; then\n  printf '%s\\n' 'openai/gpt-4.1' 'openai/gpt-4.1-mini'\n  exit 0\nfi\nexit 1\n`,
+        ? `@echo off\r\nif not "%HAPPIER_TEST_PROBE_COUNT_FILE%"=="" echo|set /p=1>> "%HAPPIER_TEST_PROBE_COUNT_FILE%"\r\nif "%1"=="models" (\r\necho openai/gpt-4.1\r\necho openai/gpt-4.1-mini\r\necho openrouter/~anthropic/claude-opus-latest\r\nexit /b 0\r\n)\r\nexit /b 1\r\n`
+        : `#!/bin/sh\nif [ -n \"$HAPPIER_TEST_PROBE_COUNT_FILE\" ]; then printf 1 >> \"$HAPPIER_TEST_PROBE_COUNT_FILE\"; fi\nif [ \"$1\" = \"models\" ]; then\n  printf '%s\\n' 'openai/gpt-4.1' 'openai/gpt-4.1-mini' 'openrouter/~anthropic/claude-opus-latest'\n  exit 0\nfi\nexit 1\n`,
     );
 
     const prevPath = process.env.PATH;
@@ -78,6 +78,7 @@ describe('probeAgentModelsBestEffort (cache)', () => {
 
       const first = await probeAgentModelsBestEffort({ agentId: 'opencode', cwd: fixture.dir, timeoutMs: 2_000 });
       expect(first.source).toBe('dynamic');
+      expect(first.availableModels.map((model) => model.id)).toContain('openrouter/~anthropic/claude-opus-latest');
 
       const second = await probeAgentModelsBestEffort({ agentId: 'opencode', cwd: fixture.dir, timeoutMs: 2_000 });
       expect(second.source).toBe('dynamic');

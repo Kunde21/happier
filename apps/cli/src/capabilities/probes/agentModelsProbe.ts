@@ -304,7 +304,7 @@ async function probeModelsFromCliModelsCommand(params: {
           continue;
         }
 
-        const hyphen = line.match(/^([a-z0-9._/:+][a-z0-9._/:+-]*)\s+-\s+(.+?)\s*$/i);
+        const hyphen = line.match(/^([a-z0-9._/:+~][a-z0-9._/:+~-]*)\s+-\s+(.+?)\s*$/i);
         if (hyphen) {
           const id = String(hyphen[1] ?? '').trim();
           const name = String(hyphen[2] ?? '')
@@ -316,7 +316,7 @@ async function probeModelsFromCliModelsCommand(params: {
           continue;
         }
 
-        if (!line.startsWith('-') && !line.endsWith(':') && /^[a-z0-9._/:+-]+$/i.test(line)) {
+        if (!line.startsWith('-') && !line.endsWith(':') && /^[a-z0-9._/:+~-]+$/i.test(line)) {
           parsed.push({ id: line, name: line });
         }
       }

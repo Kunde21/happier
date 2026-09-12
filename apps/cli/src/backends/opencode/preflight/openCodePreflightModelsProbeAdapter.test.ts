@@ -139,6 +139,62 @@ describe('openCodePreflightModelsProbeAdapter', () => {
     ]);
   });
 
+  it('includes nested OpenRouter model ids from verbose output', async () => {
+    tempDir = makeTempDir('happier-opencode-preflight-models-nested-');
+    const fakeOpenCode = writeFakeOpenCodeModelsBinary(tempDir, [
+      'opencode/gpt-5',
+      '{"id":"gpt-5","providerID":"opencode","name":"GPT-5","status":"active","capabilities":{"toolcall":true}}',
+      'openrouter/deepseek/deepseek-v4-flash-0731',
+      '{"id":"deepseek/deepseek-v4-flash-0731","providerID":"openrouter","name":"DeepSeek V4 Flash","status":"active","capabilities":{"toolcall":true}}',
+      'openrouter/~anthropic/claude-opus-latest',
+      '{"id":"~anthropic/claude-opus-latest","providerID":"openrouter","name":"Claude Opus Latest","status":"active","capabilities":{"toolcall":true}}',
+    ]);
+
+    process.env.PATH = '/usr/bin:/bin';
+    process.env.HAPPIER_OPENCODE_PATH = fakeOpenCode;
+
+    const raw = await openCodePreflightModelsProbeAdapter.probeModelsRaw?.({
+      cwd: tempDir,
+      timeoutMs: 2_000,
+      backendTarget: undefined,
+      accountSettings: null,
+    });
+
+    expect(raw).toEqual([
+      { id: 'opencode/gpt-5', name: 'GPT-5', description: 'opencode' },
+      {
+        id: 'openrouter/deepseek/deepseek-v4-flash-0731',
+        name: 'DeepSeek V4 Flash',
+        description: 'openrouter',
+      },
+      {
+        id: 'openrouter/~anthropic/claude-opus-latest',
+        name: 'Claude Opus Latest',
+        description: 'openrouter',
+      },
+    ]);
+  });
+
+  it('rejects a partial verbose inventory when a header disagrees with its record identity', async () => {
+    tempDir = makeTempDir('happier-opencode-preflight-models-identity-');
+    const fakeOpenCode = writeFakeOpenCodeModelsBinary(tempDir, [
+      'opencode/gpt-5',
+      '{"id":"gpt-5","providerID":"opencode","name":"GPT-5","status":"active","capabilities":{"toolcall":true}}',
+      'openrouter/incorrect/model-id',
+      '{"id":"deepseek/deepseek-v4-flash-0731","providerID":"openrouter","name":"DeepSeek V4 Flash","status":"active","capabilities":{"toolcall":true}}',
+    ]);
+
+    process.env.PATH = '/usr/bin:/bin';
+    process.env.HAPPIER_OPENCODE_PATH = fakeOpenCode;
+
+    await expect(openCodePreflightModelsProbeAdapter.probeModelsRaw?.({
+      cwd: tempDir,
+      timeoutMs: 2_000,
+      backendTarget: undefined,
+      accountSettings: null,
+    })).resolves.toBeNull();
+  });
+
   it('reads contextWindowTokens from OpenCode limit.context provider metadata', async () => {
     tempDir = makeTempDir('happier-opencode-preflight-models-limit-context-');
     const fakeOpenCode = writeFakeOpenCodeModelsBinary(tempDir, [
