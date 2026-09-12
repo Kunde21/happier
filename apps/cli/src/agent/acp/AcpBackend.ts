@@ -737,6 +737,9 @@ export interface AcpBackendOptions {
 
   /** Provider-owned projection for non-standard prompt usage fields and accounting semantics. */
   promptUsageAdapter?: AcpPromptUsageAdapter;
+
+  /** Configured-catalog policy for session/load. Undefined retains built-in provider behavior. */
+  declaredSessionLoadSupport?: boolean;
 }
 
 export type AcpSteerDeliveryIdentity = Readonly<{
@@ -783,6 +786,7 @@ export class AcpBackend implements AgentBackend {
   private readonly sessionUpdateShapeLogger = createEventShapeLoggerForLog({ logger, scope: 'acp-backend' });
   private connection: AcpClientConnection | null = null;
   private acpSessionId: string | null = null;
+  private negotiatedSessionLoadSupport: boolean | null = null;
   private disposed = false;
   private replayCapture: AcpReplayCapture | null = null;
   /** Sole tool lifecycle/merge/timeout/finalization owner. */
@@ -816,6 +820,10 @@ export class AcpBackend implements AgentBackend {
 
   getSessionConfigOptionsState(): ReadonlyArray<SessionConfigOption> | null {
     return this.sessionConfigOptionsState;
+  }
+
+  getNegotiatedSessionLoadSupport(): boolean | null {
+    return this.negotiatedSessionLoadSupport;
   }
 
   getLastTurnOutcome(): AcpTurnOutcome | null {
@@ -1063,12 +1071,17 @@ export class AcpBackend implements AgentBackend {
     };
   }
 
-  private async createConnectionAndInitialize(params: { operationId: string }): Promise<{ initTimeout: number }> {
+  private async createConnectionAndInitialize(params: { operationId: string }): Promise<{
+    initTimeout: number;
+    negotiatedSessionLoadSupport: boolean;
+  }> {
     logger.debug(`[AcpBackend] Starting process + initializing connection (op=${params.operationId})`);
 
     if (this.process || this.connection) {
       throw new Error('ACP backend is already initialized');
     }
+
+    this.negotiatedSessionLoadSupport = null;
 
     this.resetExtensionAbortControllerForTurn();
     this.recentStderrSummaries.length = 0;
@@ -1609,6 +1622,11 @@ export class AcpBackend implements AgentBackend {
 
     logger.debug(`[AcpBackend] Initialize completed`);
 
+    const initResponseRecord = asRecord(initResponse);
+    const agentCapabilities = asRecord(initResponseRecord?.agentCapabilities);
+    const negotiatedSessionLoadSupport = agentCapabilities?.loadSession === true;
+    this.negotiatedSessionLoadSupport = negotiatedSessionLoadSupport;
+
     if (this.options.authentication) {
       const advertisedMethodIds = new Set<string>();
       const methods = (initResponse as InitializeResponse | null)?.authMethods ?? [];
@@ -1666,7 +1684,7 @@ export class AcpBackend implements AgentBackend {
       logger.debug(`[AcpBackend] Authenticate completed`);
     }
 
-    return { initTimeout };
+    return { initTimeout, negotiatedSessionLoadSupport };
   } catch (error) {
     logger.debug('[AcpBackend] Initialization failed; cleaning up process/connection', error);
     await this.cleanupInitializedProcessConnection({ graceMs: 250 });
@@ -1774,6 +1792,9 @@ export class AcpBackend implements AgentBackend {
     if (!normalized) {
       throw new Error('Session ID is required');
     }
+    if (this.options.declaredSessionLoadSupport === false) {
+      throw new Error(`Configured ACP backend '${this.options.agentName}' does not support session/load.`);
+    }
 
     this.emit({ type: 'status', status: 'starting' });
     // Reset per-session caches
@@ -1782,7 +1803,12 @@ export class AcpBackend implements AgentBackend {
     this.toolCalls.reset();
 
     try {
-      const { initTimeout } = await this.createConnectionAndInitialize({ operationId: randomUUID() });
+      const { initTimeout, negotiatedSessionLoadSupport } = await this.createConnectionAndInitialize({ operationId: randomUUID() });
+      if (this.options.declaredSessionLoadSupport === true && !negotiatedSessionLoadSupport) {
+        throw new Error(
+          `Configured ACP backend '${this.options.agentName}' advertises session/load in its catalog but did not negotiate loadSession during ACP initialize.`,
+        );
+      }
 
       const loadSessionRequest: LoadSessionRequest = {
         sessionId: normalized,
