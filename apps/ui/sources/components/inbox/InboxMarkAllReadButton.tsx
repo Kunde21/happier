@@ -49,6 +49,6 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 12,
         lineHeight: 14,
         color: theme.colors.text.secondary,
-        ...Typography.default('medium'),
+        ...Typography.default('semiBold'),
     },
 }));

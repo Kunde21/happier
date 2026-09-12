@@ -3,6 +3,7 @@ import { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderScreen } from '@/dev/testkit';
+import type { InboxContentModel } from './useInboxContentModel';
 
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
@@ -92,7 +93,7 @@ describe('InboxPopoverButton', () => {
     });
 
     it('lets Inbox item navigation dismiss the popover without changing the model owner', async () => {
-        const model = { hasContent: false, openInbox: vi.fn() } as never;
+        const model = { hasContent: false, openInbox: vi.fn() } as unknown as InboxContentModel;
         const { InboxPopoverButton } = await import('./InboxPopoverButton');
         const screen = await renderScreen(
             <InboxPopoverButton

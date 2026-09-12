@@ -141,6 +141,10 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         code: number;
         message: string;
     }>;
+    revertError?: Readonly<{
+        code: number;
+        message: string;
+    }>;
     rejectFirstInterruptAsNoActiveTurn?: boolean;
     interruptTerminalWithoutResponse?: boolean;
     interruptTerminalDelayMs?: number;
@@ -1558,6 +1562,19 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '        }',
         '        continue;',
         '    }',
+        '    if (msg.method === "thread/revert") {',
+        `        const revertError = ${JSON.stringify(params.revertError ?? null)};`,
+        '        if (revertError) {',
+        '            process.stdout.write(JSON.stringify({ id: msg.id, error: revertError }) + "\\n");',
+        '            continue;',
+        '        }',
+        '        if (typeof msg.params?.beforeTurnId !== "string" || msg.params.beforeTurnId.length === 0 || typeof msg.params?.threadId !== "string" || msg.params.threadId.length === 0) {',
+        '            process.stdout.write(JSON.stringify({ id: msg.id, error: { code: -32602, message: "thread/revert requires { threadId, beforeTurnId }" } }) + "\\n");',
+        '            continue;',
+        '        }',
+        '        process.stdout.write(JSON.stringify({ id: msg.id, result: { thread: { id: msg.params.threadId, turns: [] }, previousCursor: null, nextCursor: null } }) + "\\n");',
+        '        continue;',
+        '    }',
         '    if (msg.method === "thread/rollback") {',
         `        const rollbackError = ${JSON.stringify(params.rollbackError ?? null)};`,
         '        if (rollbackError) {',
@@ -1602,6 +1619,10 @@ describe('createCodexAppServerRuntime', () => {
         prefix: string,
         options: Readonly<{
             rollbackError?: Readonly<{
+                code: number;
+                message: string;
+            }>;
+            revertError?: Readonly<{
                 code: number;
                 message: string;
             }>;
@@ -1668,6 +1689,7 @@ describe('createCodexAppServerRuntime', () => {
             dir: root,
             requestLogPath,
             rollbackError: options.rollbackError,
+            revertError: options.revertError,
             rejectFirstInterruptAsNoActiveTurn: options.rejectFirstInterruptAsNoActiveTurn,
             interruptTerminalWithoutResponse: options.interruptTerminalWithoutResponse,
             interruptTerminalDelayMs: options.interruptTerminalDelayMs,
@@ -4468,9 +4490,9 @@ describe('createCodexAppServerRuntime', () => {
         })).resolves.toMatchObject({ ok: true });
 
         const requestLog = (await readFile(requestLogPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
-        expect(requestLog.filter((entry: { method: string }) => entry.method === 'thread/rollback')).toEqual([
+        expect(requestLog.filter((entry: { method: string }) => entry.method === 'thread/revert')).toEqual([
             expect.objectContaining({
-                params: { threadId: 'thread-started', numTurns: 1 },
+                params: { threadId: 'thread-started', beforeTurnId: 'turn-cancel-me' },
             }),
         ]);
     });
@@ -11839,8 +11861,8 @@ describe('createCodexAppServerRuntime', () => {
         expect(requestLog).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    method: 'thread/rollback',
-                    params: { threadId: 'thread-started', numTurns: 1 },
+                    method: 'thread/revert',
+                    params: { threadId: 'thread-started', beforeTurnId: 'turn-bridge-streams' },
                 }),
             ]),
         );
@@ -11900,8 +11922,8 @@ describe('createCodexAppServerRuntime', () => {
         expect(requestLog).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    method: 'thread/rollback',
-                    params: { threadId: 'thread-started', numTurns: 1 },
+                    method: 'thread/revert',
+                    params: { threadId: 'thread-started', beforeTurnId: 'turn-bridge-streams' },
                 }),
             ]),
         );
@@ -11948,14 +11970,14 @@ describe('createCodexAppServerRuntime', () => {
         expect(requestLog).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    method: 'thread/rollback',
-                    params: { threadId: 'thread-started', numTurns: 1 },
+                    method: 'thread/revert',
+                    params: { threadId: 'thread-started', beforeTurnId: 'turn-bridge-streams' },
                 }),
             ]),
         );
     });
 
-    it('does not use legacy session turn metadata as rollback evidence after resume', async () => {
+    it('uses canonical persisted session turns as exact rollback evidence after resume', async () => {
         const { root, requestLogPath } = await createRuntimeFixture('happier-codex-app-server-runtime-rollback-resume-session-turn-');
 
         let metadataSnapshot: Record<string, unknown> = {
@@ -11999,6 +12021,28 @@ describe('createCodexAppServerRuntime', () => {
                 updateMetadata,
                 getMetadataSnapshot: vi.fn(() => metadataSnapshot),
                 getLastObservedMessageSeq: vi.fn(() => 25),
+                readSessionTurnsProjection: vi.fn(async () => ({
+                    v: 1,
+                    sessionId: 'session-1',
+                    latestTurnId: 'session-turn-1',
+                    updatedAt: 10,
+                    turns: [{
+                        turnId: 'session-turn-1',
+                        provider: 'codex',
+                        providerTurnId: 'provider-turn-1',
+                        status: 'completed',
+                        startedAt: 1,
+                        updatedAt: 10,
+                        terminalAt: 10,
+                        transcriptAnchors: {
+                            startUserMessageSeq: 21,
+                            userMessageSeqs: [21],
+                            startSeqInclusive: 21,
+                            endSeqInclusive: 25,
+                        },
+                        rollback: { state: 'eligible', updatedAt: 10 },
+                    }],
+                })),
                 sendCodexMessage: vi.fn(),
             } as any,
         });
@@ -12011,13 +12055,15 @@ describe('createCodexAppServerRuntime', () => {
                 type: 'before_user_message',
                 userMessageSeq: 21,
             },
-        })).resolves.toEqual({
-            ok: false,
-            errorCode: 'invalid_parameters',
-            errorMessage: 'Rollback target is not available in the active conversation',
-        });
+        })).resolves.toMatchObject({ ok: true });
 
         const requestLog = (await readFile(requestLogPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+        expect(requestLog).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                method: 'thread/revert',
+                params: { threadId: 'thread-resumed', beforeTurnId: 'provider-turn-1' },
+            }),
+        ]));
         expect(requestLog.filter((entry: { method: string }) => entry.method === 'thread/rollback')).toEqual([]);
     });
 
@@ -12070,8 +12116,8 @@ describe('createCodexAppServerRuntime', () => {
         expect(requestLog).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    method: 'thread/rollback',
-                    params: { threadId: 'thread-started', numTurns: 2 },
+                    method: 'thread/revert',
+                    params: { threadId: 'thread-started', beforeTurnId: 'turn-bridge-streams' },
                 }),
             ]),
         );
@@ -12097,7 +12143,7 @@ describe('createCodexAppServerRuntime', () => {
     it('returns unsupported_action when rollback is rejected by app-server schema support', async () => {
         const { root, requestLogPath } = await createRuntimeFixture(
             'happier-codex-app-server-runtime-rollback-unsupported-',
-            { rollbackError: { code: -32602, message: 'invalid params: expected { threadId, numTurns }' } },
+            { revertError: { code: -32602, message: 'invalid params: expected { threadId, beforeTurnId }' } },
         );
 
         const runtime = createCodexAppServerRuntime({
@@ -12120,5 +12166,38 @@ describe('createCodexAppServerRuntime', () => {
             errorCode: 'unsupported_action',
             errorMessage: expect.stringContaining('invalid params'),
         });
+
+        const requestLog = (await readFile(requestLogPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+        expect(requestLog.filter((entry: { method: string }) => entry.method === 'thread/rollback')).toEqual([]);
+    });
+
+    it('uses the count rollback compatibility path only when thread/revert is definitively absent', async () => {
+        const { root, requestLogPath } = await createRuntimeFixture(
+            'happier-codex-app-server-runtime-rollback-legacy-fallback-',
+            { revertError: { code: -32601, message: 'method not found' } },
+        );
+
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: {
+                updateMetadata: vi.fn((updater: (metadata: Record<string, unknown>) => Record<string, unknown>) => updater({ machineId: 'machine_1' })),
+                getLastObservedMessageSeq: vi.fn(() => 11),
+                waitForCommittedUserMessageSeq: vi.fn(async () => 11),
+                sendAgentMessageCommitted: vi.fn(async () => undefined),
+                sendCodexMessage: vi.fn(),
+            } as any,
+        });
+
+        await runtime.startOrLoad({});
+        await (runtime as any).sendPrompt('bridge-streams', { localId: 'rollback-legacy-local' });
+
+        await expect((runtime as any).rollbackConversation({ v: 1, target: { type: 'latest_turn' } })).resolves.toMatchObject({ ok: true });
+
+        const requestLog = (await readFile(requestLogPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+        expect(requestLog.filter((entry: { method: string }) => entry.method === 'thread/revert')).toHaveLength(1);
+        expect(requestLog.filter((entry: { method: string }) => entry.method === 'thread/rollback')).toEqual([
+            expect.objectContaining({ params: { threadId: 'thread-started', numTurns: 1 } }),
+        ]);
     });
 });
