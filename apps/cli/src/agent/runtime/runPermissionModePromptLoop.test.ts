@@ -1932,4 +1932,49 @@ describe('runPermissionModePromptLoop', () => {
     expect(runtime.reset).toHaveBeenCalledTimes(1);
     expect(runtime.sendPrompt).not.toHaveBeenCalled();
   });
+
+  it('performs exactly one load and never a fresh start when a fail-closed resume succeeds', async () => {
+    const session = createPromptLoopSession();
+    const queue = createModeQueue();
+    const runtime = createRuntime();
+    runtime.startOrLoad = vi.fn(async () => undefined);
+    const messageBuffer = new MessageBuffer();
+    const permissionHandler = {
+      setPermissionMode: vi.fn(),
+      reset: vi.fn(),
+    } as any;
+
+    queue.push({ text: 'hello', localId: 'local-8' }, { permissionMode: 'default' });
+
+    let shouldExit = false;
+    await (runPermissionModePromptLoop as unknown as (params: any) => Promise<void>)({
+      providerName: 'Test Provider',
+      agentMessageType: 'cursor',
+      explicitPermissionMode: undefined,
+      session,
+      messageQueue: queue,
+      permissionHandler,
+      runtime,
+      createOverrideSynchronizer: () => ({ syncFromMetadata: () => {}, flushPendingAfterStart: async () => {} }),
+      messageBuffer,
+      shouldExit: () => shouldExit,
+      getAbortSignal: () => new AbortController().signal,
+      keepAlive: () => {},
+      setThinking: () => {},
+      sendReady: () => {
+        shouldExit = true;
+      },
+      currentPermissionModeUpdatedAt: 0,
+      setCurrentPermissionMode: () => {},
+      setCurrentPermissionModeUpdatedAt: () => {},
+      initialResumeId: 'resume-id',
+      failClosedOnResumeFailure: true,
+      formatPromptErrorMessage: (caught: unknown) => `Error: ${String(caught)}`,
+    });
+
+    expect(runtime.startOrLoad).toHaveBeenCalledTimes(1);
+    expect(runtime.startOrLoad).toHaveBeenCalledWith({ resumeId: 'resume-id', importHistory: false });
+    expect(runtime.reset).not.toHaveBeenCalled();
+    expect(runtime.sendPrompt).toHaveBeenCalledTimes(1);
+  });
 });
