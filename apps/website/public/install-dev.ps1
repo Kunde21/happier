@@ -409,8 +409,8 @@ function Test-InstallerRichHeaderAvailable {
   try {
     return (
       -not [Console]::IsOutputRedirected -and
-      [Console]::WindowWidth -ge 58 -and
-      [Console]::WindowHeight -ge 12
+      [Console]::WindowWidth -ge 76 -and
+      [Console]::WindowHeight -ge 16
     )
   }
   catch {
@@ -421,26 +421,47 @@ function Test-InstallerRichHeaderAvailable {
 function Write-InstallerHeader {
   if (-not (Test-InstallerRichHeaderAvailable)) {
     Write-Host "Happier"
-    Write-Host "Secure installer"
+    Write-Host "Start coding anywhere. Continue anywhere."
     Write-Host "Download -> Verify -> Install"
     Write-Host ""
     $script:InstallerHeaderShown = $true
     return
   }
 
+  # BEGIN GENERATED NUMERIC PLANET
   $rows = @(
-    "          3443",
-    "       343333334",
-    "     433221112334",
-    "    43211000112334",
-    "    32100000011233",
-    "    32100000112334",
-    "     321111223344",
-    "       33223344",
-    "          3344"
+    '         8557531822         ',
+    '     751448095236608919     ',
+    '   9008479751008911184043   ',
+    '  134069691908745137496009  ',
+    ' 15908889374662814990040775 ',
+    '8460391940911977361087356084',
+    '3686579386469759261860770407',
+    '8426999911207303208277772263',
+    ' 91900644319441053135416199 ',
+    '  572641993727001697448951  ',
+    '   5488295512800135204007   ',
+    '     793254239790824733     ',
+    '         4203319290         '
   )
-  $labels = @("Happier", "Secure installer", "Download -> Verify -> Install", "", "", "", "", "", "")
-  $colors = @("Yellow", "Yellow", "Red", "Red", "Magenta", "Magenta", "Cyan", "Cyan", "Blue")
+  $rgbRows = @(
+    "         $([char]27)[38;2;245;184;102m8$([char]27)[38;2;250;187;104m5$([char]27)[38;2;251;188;105m5$([char]27)[38;2;251;188;105m7$([char]27)[38;2;251;188;105m5$([char]27)[38;2;251;188;105m3$([char]27)[38;2;249;187;104m1$([char]27)[38;2;246;184;103m8$([char]27)[38;2;242;181;101m2$([char]27)[38;2;236;177;98m2         $([char]27)[0m",
+    "     $([char]27)[38;2;225;162;116m7$([char]27)[38;2;235;169;121m5$([char]27)[38;2;241;173;124m1$([char]27)[38;2;242;174;124m4$([char]27)[38;2;242;174;124m4$([char]27)[38;2;242;174;124m8$([char]27)[38;2;242;174;124m0$([char]27)[38;2;242;174;124m9$([char]27)[38;2;242;174;124m5$([char]27)[38;2;242;174;124m2$([char]27)[38;2;242;174;124m3$([char]27)[38;2;242;174;124m6$([char]27)[38;2;242;174;124m6$([char]27)[38;2;239;172;123m0$([char]27)[38;2;235;169;121m8$([char]27)[38;2;231;166;118m9$([char]27)[38;2;225;162;115m1$([char]27)[38;2;215;155;111m9     $([char]27)[0m",
+    "   $([char]27)[38;2;211;145;130m9$([char]27)[38;2;220;151;136m0$([char]27)[38;2;226;155;139m0$([char]27)[38;2;231;159;142m8$([char]27)[38;2;232;160;143m4$([char]27)[38;2;232;160;143m7$([char]27)[38;2;232;160;143m9$([char]27)[38;2;232;160;143m7$([char]27)[38;2;232;160;143m5$([char]27)[38;2;232;160;143m1$([char]27)[38;2;232;160;143m0$([char]27)[38;2;232;160;143m0$([char]27)[38;2;232;160;143m8$([char]27)[38;2;232;160;143m9$([char]27)[38;2;232;160;143m1$([char]27)[38;2;232;160;143m1$([char]27)[38;2;229;158;142m1$([char]27)[38;2;226;155;139m8$([char]27)[38;2;221;152;137m4$([char]27)[38;2;216;149;134m0$([char]27)[38;2;210;145;130m4$([char]27)[38;2;201;138;124m3   $([char]27)[0m",
+    "  $([char]27)[38;2;199;130;146m1$([char]27)[38;2;207;135;151m3$([char]27)[38;2;212;139;155m4$([char]27)[38;2;217;142;158m0$([char]27)[38;2;221;144;161m6$([char]27)[38;2;223;146;163m9$([char]27)[38;2;223;146;163m6$([char]27)[38;2;223;146;163m9$([char]27)[38;2;223;146;163m1$([char]27)[38;2;223;146;163m9$([char]27)[38;2;223;146;163m0$([char]27)[38;2;223;146;163m8$([char]27)[38;2;223;146;163m7$([char]27)[38;2;223;146;163m4$([char]27)[38;2;223;146;163m5$([char]27)[38;2;223;146;163m1$([char]27)[38;2;222;145;162m3$([char]27)[38;2;219;143;160m7$([char]27)[38;2;216;141;158m4$([char]27)[38;2;213;139;155m9$([char]27)[38;2;208;136;152m6$([char]27)[38;2;204;133;149m0$([char]27)[38;2;198;130;145m0$([char]27)[38;2;191;125;139m9  $([char]27)[0m",
+    " $([char]27)[38;2;184;113;157m1$([char]27)[38;2;191;118;163m5$([char]27)[38;2;197;121;168m9$([char]27)[38;2;201;124;171m0$([char]27)[38;2;205;126;175m8$([char]27)[38;2;208;128;177m8$([char]27)[38;2;210;130;180m8$([char]27)[38;2;213;131;181m9$([char]27)[38;2;214;132;182m3$([char]27)[38;2;214;132;182m7$([char]27)[38;2;214;132;182m4$([char]27)[38;2;214;132;182m6$([char]27)[38;2;214;132;182m6$([char]27)[38;2;214;132;182m2$([char]27)[38;2;214;132;182m8$([char]27)[38;2;213;132;182m1$([char]27)[38;2;211;131;180m4$([char]27)[38;2;209;129;179m9$([char]27)[38;2;207;128;177m9$([char]27)[38;2;204;126;174m0$([char]27)[38;2;201;124;172m0$([char]27)[38;2;198;122;169m4$([char]27)[38;2;194;120;165m0$([char]27)[38;2;189;117;161m7$([char]27)[38;2;183;113;156m7$([char]27)[38;2;176;108;150m5 $([char]27)[0m",
+    "$([char]27)[38;2;164;95;162m8$([char]27)[38;2;173;100;171m4$([char]27)[38;2;179;104;177m6$([char]27)[38;2;184;106;182m0$([char]27)[38;2;188;108;185m3$([char]27)[38;2;191;110;189m9$([char]27)[38;2;194;112;191m1$([char]27)[38;2;196;113;193m9$([char]27)[38;2;198;114;195m4$([char]27)[38;2;199;115;197m0$([char]27)[38;2;200;116;198m9$([char]27)[38;2;201;116;198m1$([char]27)[38;2;201;116;199m1$([char]27)[38;2;201;116;198m9$([char]27)[38;2;201;116;198m7$([char]27)[38;2;200;115;197m7$([char]27)[38;2;199;115;196m3$([char]27)[38;2;197;114;195m6$([char]27)[38;2;195;113;193m1$([char]27)[38;2;193;112;191m0$([char]27)[38;2;191;110;188m8$([char]27)[38;2;188;109;186m7$([char]27)[38;2;185;107;183m3$([char]27)[38;2;182;105;179m5$([char]27)[38;2;178;102;175m6$([char]27)[38;2;173;100;170m0$([char]27)[38;2;166;96;164m8$([char]27)[38;2;157;90;154m4$([char]27)[0m",
+    "$([char]27)[38;2;151;86;177m3$([char]27)[38;2;159;91;187m6$([char]27)[38;2;165;94;193m8$([char]27)[38;2;169;96;198m6$([char]27)[38;2;172;98;202m5$([char]27)[38;2;175;100;205m7$([char]27)[38;2;177;101;208m9$([char]27)[38;2;179;102;210m3$([char]27)[38;2;181;103;212m8$([char]27)[38;2;182;104;214m6$([char]27)[38;2;183;104;215m4$([char]27)[38;2;184;105;216m6$([char]27)[38;2;184;105;216m9$([char]27)[38;2;184;105;216m7$([char]27)[38;2;184;105;215m5$([char]27)[38;2;183;104;215m9$([char]27)[38;2;182;104;213m2$([char]27)[38;2;181;103;212m6$([char]27)[38;2;179;102;210m1$([char]27)[38;2;177;101;208m8$([char]27)[38;2;175;100;206m6$([char]27)[38;2;173;98;203m0$([char]27)[38;2;170;97;199m7$([char]27)[38;2;167;95;196m7$([char]27)[38;2;163;93;191m0$([char]27)[38;2;159;90;186m4$([char]27)[38;2;153;87;180m0$([char]27)[38;2;146;83;172m7$([char]27)[0m",
+    "$([char]27)[38;2;132;87;170m8$([char]27)[38;2;141;93;181m4$([char]27)[38;2;146;96;187m2$([char]27)[38;2;149;99;192m6$([char]27)[38;2;153;101;196m9$([char]27)[38;2;155;102;199m9$([char]27)[38;2;157;104;202m9$([char]27)[38;2;159;105;205m9$([char]27)[38;2;161;106;206m1$([char]27)[38;2;162;107;208m1$([char]27)[38;2;163;107;209m2$([char]27)[38;2;163;108;210m0$([char]27)[38;2;163;108;210m7$([char]27)[38;2;163;108;210m3$([char]27)[38;2;163;108;210m0$([char]27)[38;2;162;107;209m3$([char]27)[38;2;162;107;208m2$([char]27)[38;2;161;106;206m0$([char]27)[38;2;159;105;205m8$([char]27)[38;2;158;104;203m2$([char]27)[38;2;156;103;200m7$([char]27)[38;2;154;101;197m7$([char]27)[38;2;151;100;194m7$([char]27)[38;2;148;98;190m7$([char]27)[38;2;145;96;186m2$([char]27)[38;2;142;94;182m2$([char]27)[38;2;137;91;177m6$([char]27)[38;2;130;86;167m3$([char]27)[0m",
+    " $([char]27)[38;2;121;93;171m9$([char]27)[38;2;126;97;179m1$([char]27)[38;2;130;100;184m9$([char]27)[38;2;133;102;189m0$([char]27)[38;2;135;104;192m0$([char]27)[38;2;137;105;195m6$([char]27)[38;2;139;107;197m4$([char]27)[38;2;140;108;199m4$([char]27)[38;2;141;108;201m3$([char]27)[38;2;142;109;202m1$([char]27)[38;2;143;109;202m9$([char]27)[38;2;143;110;203m4$([char]27)[38;2;143;110;203m4$([char]27)[38;2;143;110;203m1$([char]27)[38;2;142;109;202m0$([char]27)[38;2;142;109;201m5$([char]27)[38;2;141;108;200m3$([char]27)[38;2;140;107;198m1$([char]27)[38;2;138;106;196m3$([char]27)[38;2;136;105;193m5$([char]27)[38;2;134;103;191m4$([char]27)[38;2;133;102;188m1$([char]27)[38;2;131;100;185m6$([char]27)[38;2;128;98;182m1$([char]27)[38;2;125;96;177m9$([char]27)[38;2;120;92;170m9 $([char]27)[0m",
+    "  $([char]27)[38;2;107;95;168m5$([char]27)[38;2;111;99;174m7$([char]27)[38;2;113;101;179m2$([char]27)[38;2;116;104;183m6$([char]27)[38;2;118;105;186m4$([char]27)[38;2;119;107;188m1$([char]27)[38;2;121;108;190m9$([char]27)[38;2;122;109;192m9$([char]27)[38;2;122;110;193m3$([char]27)[38;2;123;110;194m7$([char]27)[38;2;123;110;194m2$([char]27)[38;2;123;110;194m7$([char]27)[38;2;123;110;194m0$([char]27)[38;2;123;110;193m0$([char]27)[38;2;122;109;192m1$([char]27)[38;2;121;108;191m6$([char]27)[38;2;120;108;190m9$([char]27)[38;2;120;107;188m7$([char]27)[38;2;118;106;187m4$([char]27)[38;2;117;105;185m4$([char]27)[38;2;115;103;182m8$([char]27)[38;2;113;101;179m9$([char]27)[38;2;111;99;174m5$([char]27)[38;2;107;95;168m1  $([char]27)[0m",
+    "   $([char]27)[38;2;91;96;161m5$([char]27)[38;2;95;100;169m4$([char]27)[38;2;98;103;173m8$([char]27)[38;2;100;105;177m8$([char]27)[38;2;101;106;179m2$([char]27)[38;2;102;108;181m9$([char]27)[38;2;103;109;183m5$([char]27)[38;2;104;109;184m5$([char]27)[38;2;105;110;185m1$([char]27)[38;2;105;110;186m2$([char]27)[38;2;105;110;186m8$([char]27)[38;2;105;110;186m0$([char]27)[38;2;105;110;186m0$([char]27)[38;2;105;110;185m1$([char]27)[38;2;104;109;184m3$([char]27)[38;2;103;109;183m5$([char]27)[38;2;102;108;181m2$([char]27)[38;2;101;106;179m0$([char]27)[38;2;100;105;177m4$([char]27)[38;2;98;103;173m0$([char]27)[38;2;95;100;169m0$([char]27)[38;2;91;96;161m7   $([char]27)[0m",
+    "     $([char]27)[38;2;78;97;156m7$([char]27)[38;2;81;101;164m9$([char]27)[38;2;84;104;168m3$([char]27)[38;2;85;106;171m2$([char]27)[38;2;86;107;173m5$([char]27)[38;2;87;108;175m4$([char]27)[38;2;87;109;176m2$([char]27)[38;2;88;109;177m3$([char]27)[38;2;88;110;177m9$([char]27)[38;2;88;110;177m7$([char]27)[38;2;88;109;177m9$([char]27)[38;2;87;109;176m0$([char]27)[38;2;87;108;175m8$([char]27)[38;2;86;107;173m2$([char]27)[38;2;85;106;171m4$([char]27)[38;2;84;104;168m7$([char]27)[38;2;81;101;164m3$([char]27)[38;2;78;97;156m3     $([char]27)[0m",
+    "         $([char]27)[38;2;66;99;154m4$([char]27)[38;2;68;102;158m2$([char]27)[38;2;69;104;161m0$([char]27)[38;2;70;104;162m3$([char]27)[38;2;70;105;163m3$([char]27)[38;2;70;105;163m1$([char]27)[38;2;70;104;162m9$([char]27)[38;2;69;104;161m2$([char]27)[38;2;68;102;158m9$([char]27)[38;2;66;99;154m0         $([char]27)[0m"
+  )
+  # END GENERATED NUMERIC PLANET
+  $center = [int][Math]::Floor(($rows.Count - 1) / 2)
+  $colors = @("Yellow", "Red", "Magenta", "Cyan", "Blue")
   $useColor = -not $env:NO_COLOR
   $supportsVirtualTerminal = $false
   try {
@@ -449,27 +470,34 @@ function Write-InstallerHeader {
   catch {}
 
   for ($index = 0; $index -lt $rows.Count; $index++) {
-    $paddedRow = $rows[$index].PadRight(24)
-    if ($useColor) {
-      Write-Host $paddedRow -NoNewline -ForegroundColor $colors[$index]
+    $label = ""
+    if ($index -eq ($center - 1)) { $label = "Happier" }
+    elseif ($index -eq $center) { $label = "Start coding anywhere. Continue anywhere." }
+    elseif ($index -eq ($center + 2)) { $label = "Download -> Verify -> Install" }
+    if ($useColor -and $supportsVirtualTerminal -and ($env:COLORTERM -in @("truecolor", "24bit") -or $env:WT_SESSION)) {
+      Write-Host $rgbRows[$index] -NoNewline
+    }
+    elseif ($useColor) {
+      $colorIndex = [int][Math]::Floor($index * $colors.Count / $rows.Count)
+      Write-Host $rows[$index] -NoNewline -ForegroundColor $colors[$colorIndex]
     }
     else {
-      Write-Host $paddedRow -NoNewline
+      Write-Host $rows[$index] -NoNewline
     }
 
-    if ($labels[$index]) {
-      Write-Host "    " -NoNewline
-      if ($index -eq 0 -and $useColor) {
+    if ($label) {
+      Write-Host "   " -NoNewline
+      if ($index -eq ($center - 1) -and $useColor) {
         if ($supportsVirtualTerminal) {
           $escape = [char]27
-          Write-Host "$($escape)[1m$($labels[$index])$($escape)[0m"
+          Write-Host "$($escape)[1m$label$($escape)[0m"
         }
         else {
-          Write-Host $labels[$index] -ForegroundColor White
+          Write-Host $label -ForegroundColor White
         }
       }
       else {
-        Write-Host $labels[$index]
+        Write-Host $label
       }
     }
     else {
@@ -1065,21 +1093,21 @@ function Invoke-BackgroundServiceInstallCompatibly {
   }
 
   if (Test-InstallerCommandLooksUnsupported -Output $installResult.Output) {
-    $legacyInstallResult = Invoke-NativeCommandCapturingOutput {
+    $installResult = Invoke-NativeCommandCapturingOutput {
       Invoke-InstallerCommandWithDaemonServiceContext -CliPath $CliPath -CommandArgs @("service", "install") -HomeDir $DaemonServiceStateHomeDir
     }
-    if ($legacyInstallResult.ExitCode -eq 0) {
+    if ($installResult.ExitCode -eq 0) {
       return @{
         Ok = $true
-        Output = $legacyInstallResult.Output
+        Output = $installResult.Output
       }
-    }
-    return @{
-      Ok = $false
-      Output = $legacyInstallResult.Output
     }
   }
 
+  # Keep diagnostics out of the success pipeline that carries the result object.
+  if (-not [string]::IsNullOrWhiteSpace([string]$installResult.Output)) {
+    [Console]::Error.WriteLine([string]$installResult.Output)
+  }
   return @{
     Ok = $false
     Output = $installResult.Output
@@ -1105,6 +1133,9 @@ function Invoke-DoctorRepairIfSupported {
       Status = 'unsupported'
       Output = $repairResult.Output
     }
+  }
+  if (-not [string]::IsNullOrWhiteSpace([string]$repairResult.Output)) {
+    [Console]::Error.WriteLine([string]$repairResult.Output)
   }
   return @{
     Status = 'failed'
@@ -1304,7 +1335,9 @@ function Write-PostInstallGetStarted {
   if (-not $script:PostInstallSetupIsDone) {
     Write-Host ("  {0,-20} {1}" -f "$CliName setup", "Connect this computer and sign in")
   }
-  Write-Host ("  {0,-20} {1}" -f $CliName, "Start a session")
+  Write-Host "  In the app, browser or phone: New session"
+  Write-Host "  Choose this computer and a project. Keep this computer running."
+  Write-Host ("  {0,-20} {1}" -f $CliName, "Start from this terminal")
   Write-Host ("  {0,-20} {1}" -f "$CliName status", "Check this computer's connection")
 }
 

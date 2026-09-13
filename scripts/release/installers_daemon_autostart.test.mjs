@@ -152,6 +152,10 @@ if [[ "$1" = "self" && "$2" = "__install-payload" ]]; then
   exit 0
 fi
 if [[ "$1" = "service" && "$2" = "install" ]]; then
+  if [[ "\${HAPPIER_TEST_SERVICE_INSTALL_FAIL:-0}" = "1" ]]; then
+    echo "service readiness failed: expected daemon still waiting for sign-in" >&2
+    exit 1
+  fi
   if [[ "\${HAPPIER_TEST_UNSUPPORTED_SERVICE_SURFACE:-0}" = "1" ]]; then
     echo "Usage: happier <command> [options]"
     exit 0
@@ -518,6 +522,19 @@ printf '%s' '${releaseJson}'
   };
 }
 
+test('install.sh preserves a successful binary install and surfaces service failure diagnostics', async () => {
+  const scenario = await runInstallerScenario({
+    HAPPIER_WITH_DAEMON: '1',
+    HAPPIER_TEST_SERVICE_INSTALL_FAIL: '1',
+  });
+  try {
+    assert.match(scenario.stderr, /service readiness failed: expected daemon still waiting for sign-in/);
+    assert.match(scenario.stderr, /service install/);
+  } finally {
+    await scenario.cleanup();
+  }
+});
+
 test('install.sh skips daemon service installation by default in noninteractive mode', async () => {
   const scenario = await runInstallerScenario();
   try {
@@ -565,7 +582,7 @@ test('install.sh skips daemon service preflight when daemon setup is explicitly 
 test('install.sh renders truthful linear download, verify, and install phases when redirected', async () => {
   const scenario = await runInstallerScenario();
   try {
-    assert.match(scenario.stdout, /^Happier\nSecure installer\nDownload -> Verify -> Install\n/m);
+    assert.match(scenario.stdout, /^Happier\n[^\n]+\nDownload -> Verify -> Install\n/m);
     assert.doesNotMatch(scenario.stdout, /3443|\x1b|\r/);
     assert.ok(scenario.stdout.indexOf('\n[Download]\n') < scenario.stdout.indexOf('\n[Verify]\n'));
     assert.ok(scenario.stdout.indexOf('\n[Verify]\n') < scenario.stdout.indexOf('\n[Install]\n'));
@@ -1312,6 +1329,6 @@ test('install.sh suppresses the installer welcome for help and invalid arguments
   const invalid = spawnSync('bash', [installerPath, '--definitely-invalid'], { encoding: 'utf8' });
   assert.equal(help.status, 0);
   assert.notEqual(invalid.status, 0);
-  assert.doesNotMatch(String(help.stdout ?? ''), /^Happier\nSecure installer/m);
-  assert.doesNotMatch(`${invalid.stdout ?? ''}${invalid.stderr ?? ''}`, /^Happier\nSecure installer/m);
+  assert.doesNotMatch(String(help.stdout ?? ''), /^Happier\n[^\n]+\nDownload -> Verify -> Install/m);
+  assert.doesNotMatch(`${invalid.stdout ?? ''}${invalid.stderr ?? ''}`, /^Happier\n[^\n]+\nDownload -> Verify -> Install/m);
 });
