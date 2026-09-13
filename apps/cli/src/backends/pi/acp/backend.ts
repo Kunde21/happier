@@ -11,7 +11,7 @@ import {
 import { PiRpcBackend } from '@/backends/pi/rpc/PiRpcBackend';
 import { readConnectedServiceChildSelectionsFromEnv } from '@/daemon/connectedServices/connectedServiceChildEnvironment';
 import { requireProviderCliLaunchSpec } from '@/runtime/managedTools/requireProviderCliLaunchSpec';
-import { providers } from '@happier-dev/agents';
+import { parsePermissionIntentAlias, providers } from '@happier-dev/agents';
 
 export interface PiBackendOptions extends AgentFactoryOptions {
   mcpServers?: Record<string, McpServerConfig>;
@@ -43,21 +43,12 @@ export interface PiBackendOptions extends AgentFactoryOptions {
 // `--tools` would also filter extension and custom tools in current Pi releases.
 export function buildPiToolsForPermissionMode(permissionMode?: string): string[] | null {
   const rawMode = typeof permissionMode === 'string' ? permissionMode : 'default';
-
-  // Normalize legacy aliases into canonical permission intents.
-  const mode = rawMode === 'acceptEdits'
-    ? 'safe-yolo'
-    : rawMode === 'bypassPermissions'
-      ? 'yolo'
-      : rawMode;
+  const mode = parsePermissionIntentAlias(rawMode);
 
   if (mode === 'plan' || mode === 'read-only') {
     return ['read', 'grep', 'find', 'ls'];
   }
-  if (mode === 'safe-yolo') {
-    return ['read', 'edit', 'write', 'grep', 'find', 'ls'];
-  }
-  if (mode === 'default' || mode === 'yolo') {
+  if (mode === 'default' || mode === 'safe-yolo' || mode === 'yolo') {
     return null;
   }
   // The catalog factory is an erased runtime boundary (`opts: unknown`), so an

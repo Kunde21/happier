@@ -34,6 +34,23 @@ pi --version
 happier pi
 ```
 
+## Permissions
+
+Use the shared permission vocabulary when starting Pi:
+
+```bash
+happier pi --permission-mode read_only
+happier pi --permission-mode auto
+```
+
+Read-only limits Pi to Happier's read-tool allowlist. Auto, Default, and YOLO do
+not pass Pi's `--tools` option, so Pi keeps its full native catalog, including
+the platform shell and installed extension/custom tools such as subagents. Auto
+is not a workspace-confinement guarantee. Older spellings such as `safe-yolo`
+and `workspace_write` remain accepted for compatibility.
+
+For the cross-provider vocabulary and aliases, see [Permissions](/sessions/permissions).
+
 ## Local authentication in Happier
 
 Pi does not currently expose a native interactive login flow through Happier provider settings.
