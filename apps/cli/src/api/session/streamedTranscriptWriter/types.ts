@@ -86,6 +86,10 @@ export type StreamedTranscriptWriter = Readonly<{
     reason: 'tool-call-boundary' | 'turn-end' | 'abort';
     interruptedReason?: string;
   }) => Promise<StreamedTranscriptFlushSummary>;
+  flushAllThroughDurableAdmission: (opts: {
+    reason: 'tool-call-boundary' | 'turn-end' | 'abort';
+    interruptedReason?: string;
+  }) => Promise<void>;
 }>;
 
 export type StreamedTranscriptSegmentFlushSummary = Readonly<{

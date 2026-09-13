@@ -51,6 +51,8 @@ type SegmentKey = StreamedTranscriptSegmentKey;
 
 type SegmentRuntime = StreamedTranscriptSegmentRuntime;
 
+const DURABLE_COMMIT_FAILURE_RETRY_DELAY_MS = 2_000;
+
 function didSegmentDurablyFlush(segment: SegmentRuntime, expectedState: SegmentState): boolean {
   if (segment.accumulatedText.length === 0) return false;
   return segment.lastCommittedTextVersion === segment.textVersion && segment.lastCommittedState === expectedState;
@@ -115,6 +117,7 @@ export function createStreamedTranscriptWriter(params: {
   const liveCheckpointIntervalMs = resolveLiveCheckpointIntervalMs(params.liveCheckpointIntervalMs);
 
   const segments = new Map<SegmentKey, SegmentRuntime>();
+  let scheduleDurableCheckpoint: (segment: SegmentRuntime) => void;
 
   const clearLiveSnapshotTimer = (segment: SegmentRuntime) => {
     if (!segment.liveSnapshotTimer) return;
@@ -129,6 +132,10 @@ export function createStreamedTranscriptWriter(params: {
   };
 
   const commitDurableSnapshot = (segment: SegmentRuntime, opts: { state: SegmentState; interruptedReason?: string; force?: boolean }) => {
+    if (opts.state === 'streaming' && Date.now() < segment.durableRetryNotBeforeMs) {
+      scheduleDurableCheckpoint(segment);
+      return;
+    }
     clearDurableCheckpointTimer(segment);
     if (!durableCommitsEnabled && opts.force !== true) return;
     commitStreamedTranscriptSegmentSnapshot({
@@ -137,6 +144,8 @@ export function createStreamedTranscriptWriter(params: {
       segment,
       state: opts.state,
       interruptedReason: opts.interruptedReason,
+      failureRetryDelayMs: DURABLE_COMMIT_FAILURE_RETRY_DELAY_MS,
+      onStreamingCommitFailure: () => scheduleDurableCheckpoint(segment),
     });
   };
 
@@ -178,6 +187,8 @@ export function createStreamedTranscriptWriter(params: {
       lastCommitFailedAtMs: 0,
       lastCommitError: null,
       lastCommitResult: null,
+      durableCommitFailure: null,
+      durableRetryNotBeforeMs: 0,
       liveDelivery: createLiveDeliveryState(),
       additionalMeta: {},
       ...(commitProvenance ? { provenance: commitProvenance } : {}),
@@ -217,7 +228,7 @@ export function createStreamedTranscriptWriter(params: {
     commitDurableSnapshot(segment, { state: 'streaming' });
   };
 
-  const scheduleDurableCheckpoint = (segment: SegmentRuntime) => {
+  scheduleDurableCheckpoint = (segment: SegmentRuntime) => {
     if (!durableCommitsEnabled) {
       clearDurableCheckpointTimer(segment);
       return;
@@ -230,7 +241,9 @@ export function createStreamedTranscriptWriter(params: {
 
     const elapsedMs = segment.didWriteDurable ? Date.now() - segment.lastCheckpointAtMs : 0;
     const targetDelayMs = segment.didWriteDurable ? checkpointIntervalMs : initialCheckpointDelayMs;
-    const delayMs = targetDelayMs <= 0 ? 0 : Math.max(0, targetDelayMs - elapsedMs);
+    const cadenceDelayMs = targetDelayMs <= 0 ? 0 : Math.max(0, targetDelayMs - elapsedMs);
+    const failureDelayMs = Math.max(0, segment.durableRetryNotBeforeMs - Date.now());
+    const delayMs = Math.max(cadenceDelayMs, failureDelayMs);
 
     if (delayMs <= 0) {
       commitScheduledDurableSnapshot(segment);
@@ -586,6 +599,35 @@ export function createStreamedTranscriptWriter(params: {
     return buildFlushSummary({ flushedSegments, expectedState: state });
   };
 
+  const flushAllThroughDurableAdmission = async (opts: {
+    reason: 'tool-call-boundary' | 'turn-end' | 'abort';
+    interruptedReason?: string;
+  }): Promise<void> => {
+    const state: SegmentState = opts.reason === 'abort' ? 'interrupted' : 'complete';
+    const flushedSegments = Array.from(segments.values());
+
+    await Promise.all(flushedSegments.map(async (segment) => {
+      clearDurableCheckpointTimer(segment);
+      clearLiveSnapshotTimer(segment);
+      requestLivePublication(segment, { state, interruptedReason: opts.interruptedReason });
+      segments.delete(segment.key);
+      // Preserve the live-before-durable ordering contract, but release the provider
+      // event queue as soon as the durable write has been admitted to the session's
+      // serialized commit queue. Network/server ACK settlement remains observable in
+      // the writer's existing background completion path.
+      await waitForLiveDeliveryDrain(segment);
+      commitStreamedTranscriptSegmentSnapshot({
+        provider,
+        session,
+        segment,
+        state,
+        interruptedReason: opts.interruptedReason,
+        admissionOnly: true,
+      });
+      logUnresolvedLiveFailureSummary(segment);
+    }));
+  };
+
   const enableDurableCommits = () => {
     if (durableCommitsEnabled) return;
     durableCommitsEnabled = true;
@@ -625,5 +667,6 @@ export function createStreamedTranscriptWriter(params: {
     enableDurableCommits,
     discard,
     flushAll,
+    flushAllThroughDurableAdmission,
   };
 }

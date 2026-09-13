@@ -16,15 +16,25 @@ export function commitStreamedTranscriptSegmentSnapshot(params: {
   segment: StreamedTranscriptSegmentRuntime;
   state: StreamedTranscriptSegmentState;
   interruptedReason?: string;
+  admissionOnly?: boolean;
+  failureRetryDelayMs?: number;
+  onStreamingCommitFailure?: () => void;
 }) {
   const { provider, session, segment, state, interruptedReason } = params;
 
-  if (segment.isCommittingDurable) {
+  if (segment.isCommittingDurable && params.admissionOnly !== true) {
     segment.pendingDurableCommit = { state, interruptedReason };
     return;
   }
 
-  segment.isCommittingDurable = true;
+  if (params.admissionOnly !== true) {
+    segment.isCommittingDurable = true;
+  } else {
+    // The terminal snapshot supersedes a coalesced streaming checkpoint. Its call
+    // below synchronously enters the session-owned commit queue; only the resulting
+    // server acknowledgement is detached from the provider-event queue.
+    segment.pendingDurableCommit = null;
+  }
 
   const nowMs = Date.now();
   const commitVersion = segment.textVersion;
@@ -44,6 +54,19 @@ export function commitStreamedTranscriptSegmentSnapshot(params: {
     segment.lastCommittedState = state;
     segment.lastCommitError = null;
     segment.lastCommitResult = commitResult;
+    segment.durableRetryNotBeforeMs = 0;
+    const recovered = segment.durableCommitFailure;
+    segment.durableCommitFailure = null;
+    if (recovered) {
+      logger.debug('[StreamedTranscriptWriter] Durable snapshot commit recovered', {
+        failureCount: recovered.count,
+        suppressedFailureCount: recovered.suppressedCount,
+        firstError: recovered.firstError,
+        localId: durableLocalId,
+        kind: segment.kind,
+        sidechainId: segment.sidechainId,
+      });
+    }
   };
 
   let committedSnapshotPromise: Promise<Readonly<{
@@ -92,44 +115,76 @@ export function commitStreamedTranscriptSegmentSnapshot(params: {
     committedSnapshotPromise = Promise.reject(error);
   }
 
+  let commitFailed = false;
+  const observeCommitFailure = (error: unknown) => {
+    commitFailed = true;
+    if (params.admissionOnly !== true) {
+      segment.lastCommitFailedAtMs = Date.now();
+      segment.lastCommitError = error;
+      if (state === 'streaming' && params.failureRetryDelayMs !== undefined) {
+        segment.durableRetryNotBeforeMs = Date.now() + params.failureRetryDelayMs;
+      }
+    }
+    const serializedError = serializeAxiosErrorForLog(error);
+    const failure = segment.durableCommitFailure;
+    if (failure) {
+      failure.count += 1;
+      failure.suppressedCount += 1;
+      return;
+    }
+    segment.durableCommitFailure = {
+      firstError: serializedError,
+      count: 1,
+      suppressedCount: 0,
+    };
+    logger.debug(
+      segment.commitMode === 'exact'
+        ? '[StreamedTranscriptWriter] Exact durable snapshot commit failed'
+        : '[StreamedTranscriptWriter] Durable snapshot commit failed (non-fatal)',
+      {
+        error: serializedError,
+        localId: durableLocalId,
+        segmentLocalId: segment.segmentLocalId,
+        kind: segment.kind,
+        sidechainId: segment.sidechainId,
+        state,
+        textLength: commitTextLen,
+        textVersion: commitVersion,
+        lastCommittedTextVersion: segment.lastCommittedTextVersion,
+        lastCommittedState: segment.lastCommittedState,
+        admissionOnly: params.admissionOnly === true,
+      },
+    );
+  };
+
+  if (params.admissionOnly === true) {
+    void committedSnapshotPromise.catch(observeCommitFailure);
+    return;
+  }
+
   void committedSnapshotPromise
     .then((result) => {
       if (result.persisted) markDurablyPersisted(result.commitResult);
     })
-    .catch(async (error) => {
-      segment.lastCommitFailedAtMs = Date.now();
-      segment.lastCommitError = error;
-      logger.debug(
-        segment.commitMode === 'exact'
-          ? '[StreamedTranscriptWriter] Exact durable snapshot commit failed'
-          : '[StreamedTranscriptWriter] Durable snapshot commit failed (non-fatal)',
-        {
-          error: serializeAxiosErrorForLog(error),
-          localId: durableLocalId,
-          segmentLocalId: segment.segmentLocalId,
-          kind: segment.kind,
-          sidechainId: segment.sidechainId,
-          state,
-          textLength: commitTextLen,
-          textVersion: commitVersion,
-          lastCommittedTextVersion: segment.lastCommittedTextVersion,
-          lastCommittedState: segment.lastCommittedState,
-        },
-      );
-    })
+    .catch(observeCommitFailure)
     .finally(() => {
       segment.isCommittingDurable = false;
       const pendingCommit = segment.pendingDurableCommit;
       segment.pendingDurableCommit = null;
-      if (pendingCommit) {
+      if (pendingCommit && (!commitFailed || pendingCommit.state !== 'streaming')) {
         commitStreamedTranscriptSegmentSnapshot({
           provider,
           session,
           segment,
           state: pendingCommit.state,
           interruptedReason: pendingCommit.interruptedReason,
+          failureRetryDelayMs: params.failureRetryDelayMs,
+          onStreamingCommitFailure: params.onStreamingCommitFailure,
         });
         return;
+      }
+      if (commitFailed && state === 'streaming') {
+        params.onStreamingCommitFailure?.();
       }
       if (segment.idleWaiters.length === 0) return;
       const waiters = segment.idleWaiters.splice(0, segment.idleWaiters.length);

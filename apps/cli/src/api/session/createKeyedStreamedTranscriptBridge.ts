@@ -103,6 +103,19 @@ export function createKeyedStreamedTranscriptBridge<TArgs extends KeyedStreamArg
       return summaries;
     },
 
+    async flushStreamsMatchingThroughDurableAdmission(args: KeyedStreamFlushArgs<TArgs>): Promise<void> {
+      const entries = Array.from(writerByStreamKey.entries())
+        .filter(([, entry]) => args.matches(entry.args));
+      const flushArgs = {
+        reason: args.reason,
+        ...(args.interruptedReason ? { interruptedReason: args.interruptedReason } : {}),
+      };
+      for (const [streamKey] of entries) {
+        writerByStreamKey.delete(streamKey);
+      }
+      await Promise.all(entries.map(([, entry]) => entry.writer.flushAllThroughDurableAdmission(flushArgs)));
+    },
+
     async flushAll(args: Readonly<{ reason: FlushReason; interruptedReason?: string }>) {
       await Promise.all(Array.from(writerByStreamKey.values(), (entry) => entry.writer.flushAll(args)));
       writerByStreamKey.clear();

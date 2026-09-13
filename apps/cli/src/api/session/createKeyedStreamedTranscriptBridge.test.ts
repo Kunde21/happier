@@ -173,4 +173,94 @@ describe('createKeyedStreamedTranscriptBridge', () => {
       happierStreamSegmentV1: expect.objectContaining({ segmentState: 'complete' }),
     });
   });
+
+  it('admits a terminal durable snapshot before releasing an ordered tool boundary without waiting for its ACK', async () => {
+    const firstCommitDrain = createDeferred<void>();
+    const durableCalls: TranscriptCall[] = [];
+    const session = {
+      sendAgentMessageCommitted: async (provider: string, body: unknown, opts: { localId: string; meta?: Record<string, unknown> }) => {
+        durableCalls.push({ provider, body, localId: opts.localId, meta: opts.meta });
+        await firstCommitDrain.promise;
+      },
+    };
+    const bridge = createKeyedStreamedTranscriptBridge<{
+      streamKey: string;
+      sidechainId: string | null;
+    }>({
+      provider: 'codex',
+      createSessionForStream: () => session,
+      liveSnapshotIntervalMs: 60_000,
+      liveSnapshotMinChars: 10_000,
+      initialCheckpointDelayMs: 60_000,
+      checkpointIntervalMs: 60_000,
+      checkpointMinChars: 10_000,
+    });
+
+    bridge.appendAssistantDelta({
+      streamKey: 'main:assistant:item-1',
+      sidechainId: null,
+      deltaText: 'Before tool',
+    });
+    await bridge.flushStreamsMatchingThroughDurableAdmission({
+      reason: 'tool-call-boundary',
+      matches: (stream) => stream.sidechainId === null,
+    });
+
+    expect(durableCalls.length).toBeGreaterThan(0);
+    expect(readMessageBody(durableCalls.at(-1)!).message).toBe('Before tool');
+    expect(durableCalls.at(-1)?.meta).toMatchObject({
+      happierStreamSegmentV1: expect.objectContaining({ segmentState: 'complete' }),
+    });
+    firstCommitDrain.resolve();
+  });
+
+  it('admits the terminal boundary snapshot even while an earlier streaming snapshot awaits its ACK', async () => {
+    const firstCommitDrain = createDeferred<void>();
+    const durableCalls: TranscriptCall[] = [];
+    const session = {
+      sendAgentMessageCommitted: async (provider: string, body: unknown, opts: { localId: string; meta?: Record<string, unknown> }) => {
+        durableCalls.push({ provider, body, localId: opts.localId, meta: opts.meta });
+        if (durableCalls.length === 1) await firstCommitDrain.promise;
+      },
+    };
+    const bridge = createKeyedStreamedTranscriptBridge<{
+      streamKey: string;
+      sidechainId: string | null;
+    }>({
+      provider: 'codex',
+      createSessionForStream: () => session,
+      initialCheckpointDelayMs: 0,
+      checkpointIntervalMs: 60_000,
+      checkpointMinChars: 1,
+    });
+
+    bridge.appendAssistantDelta({
+      streamKey: 'main:assistant:item-1',
+      sidechainId: null,
+      deltaText: 'Before tool',
+    });
+    await settleSnapshots();
+    expect(durableCalls).toHaveLength(1);
+
+    bridge.appendAssistantDelta({
+      streamKey: 'main:assistant:item-1',
+      sidechainId: null,
+      deltaText: ' and after checkpoint',
+    });
+    await settleSnapshots();
+    expect(durableCalls).toHaveLength(1);
+
+    await bridge.flushStreamsMatchingThroughDurableAdmission({
+      reason: 'tool-call-boundary',
+      matches: (stream) => stream.sidechainId === null,
+    });
+
+    expect(durableCalls).toHaveLength(2);
+    expect(durableCalls[1]?.meta).toMatchObject({
+      happierStreamSegmentV1: expect.objectContaining({ segmentState: 'complete' }),
+    });
+    firstCommitDrain.resolve();
+    await settleSnapshots();
+    expect(durableCalls).toHaveLength(2);
+  });
 });
