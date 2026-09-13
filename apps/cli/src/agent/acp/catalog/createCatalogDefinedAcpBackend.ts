@@ -27,7 +27,7 @@ export function createCatalogDefinedAcpBackend(
   const launch = options.launch
     ?? requireProviderCliLaunchSpec(agentId, { processEnv: { ...process.env, ...options.env } });
 
-  const backend = createAcpBackend({
+  const backend: AgentBackend = createAcpBackend({
     agentName: agentId,
     cwd: options.cwd,
     command: launch.command,

@@ -832,6 +832,7 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
         // Inbox screen
         emptyTitle: '都處理完了',
         emptyDescription: '目前沒有待處理的請求或更新。',
+        errors: '錯誤',
         markAllRead: '全部標示為已讀',
         openInbox: '開啟收件匣',
         updates: '動態',
@@ -5309,6 +5310,7 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
             customTitle: '選擇日期和時間', customMessage: '輸入本地日期和時間',
             customPlaceholder: '2026-09-08 09:00', futureTimeRequired: '請選擇未來的時間。',
             dateLabel: '日期', timeLabel: '時間', addToPresets: '加入預設',
+            datePlaceholder: '年-月-日', hourLabel: '時', minuteLabel: '分',
             setReminder: '設定提醒',
             remove: '移除提醒',
             presetPreviewUnavailable: '請選擇有效的未來時間以預覽預設。',

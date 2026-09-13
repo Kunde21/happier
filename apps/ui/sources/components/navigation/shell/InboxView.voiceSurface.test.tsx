@@ -65,8 +65,18 @@ vi.mock('@/components/ui/text/Text', () => ({
 }));
 
 vi.mock('@/sync/domains/state/storageStore', () => {
-    const storage = (selector: (state: { profile: { id: string }; localSettings: { uiFontScale: number } }) => unknown) =>
-        selector({ profile: { id: 'me' }, localSettings: { uiFontScale: 1 } });
+    const storage = (selector: (state: {
+        profile: { id: string };
+        localSettings: { uiFontScale: number };
+        sessions: Record<string, never>;
+        sessionMessages: Record<string, never>;
+    }) => unknown) =>
+        selector({
+            profile: { id: 'me' },
+            localSettings: { uiFontScale: 1 },
+            sessions: {},
+            sessionMessages: {},
+        });
     return { storage, getStorage: () => storage };
 });
 
@@ -130,6 +140,8 @@ vi.mock('@/components/ui/layout/layout', () => ({
     layout: {
         maxWidth: 960,
     },
+    useLayoutMaxWidthStyle: () => ({ maxWidth: 960 }),
+    useLayoutMaxWidth: () => 960,
 }));
 
 describe('InboxView voice placement', () => {

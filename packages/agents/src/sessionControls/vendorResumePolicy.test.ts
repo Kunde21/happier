@@ -42,7 +42,7 @@ describe('vendorResumePolicy', () => {
     )).toBe('acp-1');
   });
 
-  it('does not resolve stale provider session ids for a different backend target', () => {
+  it('rejects stale or contradictory provider session ids for an exact backend target', () => {
     expect(resolveProviderSessionIdForBackendTarget(
       { kind: 'configuredAcpBackend', backendId: 'review-bot' },
       {
@@ -57,8 +57,27 @@ describe('vendorResumePolicy', () => {
     )).toBeNull();
 
     expect(resolveProviderSessionIdForBackendTarget(
+      { kind: 'configuredAcpBackend', backendId: 'review-bot' },
+      { flavor: 'acp:review-bot', customAcpSessionId: 'stale-flat-id' },
+    )).toBeNull();
+
+    expect(resolveProviderSessionIdForBackendTarget(
       { kind: 'builtInAgent', agentId: 'claude' },
       { flavor: 'codex', claudeSessionId: 'stale-claude-id' },
+    )).toBeNull();
+
+    expect(resolveProviderSessionIdForBackendTarget(
+      { kind: 'builtInAgent', agentId: 'claude' },
+      {
+        flavor: 'claude',
+        acpConfiguredBackendV1: {
+          v: 1,
+          updatedAt: 1,
+          backendId: 'review-bot',
+          title: 'Review Bot',
+        },
+        claudeSessionId: 'stale-claude-id',
+      },
     )).toBeNull();
   });
 
@@ -74,6 +93,10 @@ describe('vendorResumePolicy', () => {
       experimentalResumePolicy: 'runtime_checked',
     });
     expect(resolveVendorResumeIdFromSessionMetadata('grok', { grokSessionId: ' grok-session ' })).toBe('grok-session');
+  });
+
+  it('keeps configured ACP targets out of the built-in AgentId resume policy', () => {
+    expect(AGENTS_CORE.customAcp.resume).toEqual({ vendorResume: 'unsupported' });
   });
 
   it('prefers vendor session ids from agentRuntimeDescriptorV1 over legacy top-level metadata', () => {

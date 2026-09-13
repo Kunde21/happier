@@ -6,34 +6,21 @@
  * - experimental (requires explicit opt-in).
  */
 
-import { AcpCatalogSettingsV1Schema, buildBackendTargetKey, readAcpConfiguredBackendV1FromMetadata } from '@happier-dev/protocol';
-import { AGENTS_CORE, evaluateVendorResumeEligibility, resolveAgentIdFromFlavor, resolveAgentIdFromSessionMetadata, resolveProviderSessionIdForBackendTarget } from '@happier-dev/agents';
+import { readAcpConfiguredBackendV1FromMetadata } from '@happier-dev/protocol';
+import {
+    AGENTS_CORE,
+    evaluateVendorResumeEligibility,
+    resolveAgentIdFromFlavor,
+    resolveAgentIdFromSessionMetadata,
+    resolveConfiguredAcpSessionResume,
+} from '@happier-dev/agents';
 import type { Settings } from '@/sync/domains/settings/settings';
-
 export type ResumeCapabilityOptions = {
     accountSettings?: Partial<Settings> | null;
 };
 
-function isConfiguredAcpBackendEnabled(backendId: string, options?: ResumeCapabilityOptions): boolean {
-    const backendEnabledByTargetKey = options?.accountSettings?.backendEnabledByTargetKey;
-    if (!backendEnabledByTargetKey || typeof backendEnabledByTargetKey !== 'object') {
-        return true;
-    }
-
-    const targetKey = buildBackendTargetKey({ kind: 'configuredAcpBackend', backendId });
-    return (backendEnabledByTargetKey as Record<string, unknown>)[targetKey] !== false;
-}
-
-function configuredAcpBackendSupportsLoad(backendId: string, options?: ResumeCapabilityOptions): boolean {
-    if (!isConfiguredAcpBackendEnabled(backendId, options)) return false;
-    const parsed = AcpCatalogSettingsV1Schema.safeParse(options?.accountSettings?.acpCatalogSettingsV1);
-    if (!parsed.success) return false;
-    return parsed.data.backends.find((backend) => backend.id === backendId)?.capabilities.supportsLoadSession === true;
-}
-
 export function canAgentResume(agent: string | null | undefined, options?: ResumeCapabilityOptions): boolean {
     if (typeof agent !== 'string') return false;
-
     const agentId = resolveAgentIdFromFlavor(agent);
     if (!agentId) return false;
 
@@ -70,12 +57,12 @@ export function canResumeSession(metadata: SessionMetadata | null | undefined): 
 
 export function canResumeSessionWithOptions(metadata: SessionMetadata | null | undefined, options?: ResumeCapabilityOptions): boolean {
     if (!metadata) return false;
-    const configuredBackend = readAcpConfiguredBackendV1FromMetadata(metadata);
-    if (configuredBackend) {
-        const target = { kind: 'configuredAcpBackend' as const, backendId: configuredBackend.backendId };
-        return configuredAcpBackendSupportsLoad(configuredBackend.backendId, options)
-            && resolveProviderSessionIdForBackendTarget(target, metadata) !== null;
-    }
+    const configuredResume = resolveConfiguredAcpSessionResume({
+        metadata,
+        accountSettings: options?.accountSettings ?? null,
+    });
+    if (configuredResume.eligible) return true;
+    if (readAcpConfiguredBackendV1FromMetadata(metadata)) return false;
 
     const flavor = metadata.flavor;
 
@@ -134,11 +121,11 @@ export function getAgentVendorResumeId(
 
     const configuredBackend = readAcpConfiguredBackendV1FromMetadata(metadata);
     if (configuredBackend) {
-        if (!configuredAcpBackendSupportsLoad(configuredBackend.backendId, options)) return null;
-        return resolveProviderSessionIdForBackendTarget(
-            { kind: 'configuredAcpBackend', backendId: configuredBackend.backendId },
+        const configuredResume = resolveConfiguredAcpSessionResume({
             metadata,
-        );
+            accountSettings: options?.accountSettings ?? null,
+        });
+        return configuredResume.eligible ? configuredResume.vendorResumeId : null;
     }
 
     const agentId = resolveAgentIdFromFlavor(agent) ?? resolveAgentIdFromSessionMetadata(metadata);

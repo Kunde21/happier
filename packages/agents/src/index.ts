@@ -385,6 +385,8 @@ export {
 } from './sessionControls/vendorResumePolicy.js';
 export {
   evaluateExistingSessionAutomationEligibility,
+  resolveConfiguredAcpSessionResume,
+  type ConfiguredAcpSessionResumeResolution,
   type ExistingSessionAutomationEligibility,
   type ExistingSessionAutomationEligibilityReasonCode,
 } from './sessionControls/existingSessionAutomationPolicy.js';

@@ -432,6 +432,7 @@ import { normalizeAccountSettingsVersionHint } from '@/settings/accountSettings/
 import { refreshAccountSettingsForMinimumVersion } from '@/settings/accountSettings/refreshAccountSettingsForMinimumVersion';
 import { warmActiveAccountSettingsSnapshotBestEffort } from '@/settings/accountSettings/warmActiveAccountSettingsSnapshot';
 import { getActiveAccountSettingsSnapshot } from '@/settings/accountSettings/activeAccountSettingsSnapshot';
+import { isBackendEnabledByAccountSettings } from '@/settings/backendEnabled';
 import { resolveConfiguredAcpBackendFromAccountSettings } from '@/agent/acp/catalog/configured/resolveConfiguredAcpBackendFromAccountSettings';
 import { fetchSessionByIdCompat, fetchSessionsPage, type RawSessionRecord } from '@/session/transport/http/sessionsHttp';
 import { updateSessionMetadataWithRetry } from '@/session/metadata/updateSessionMetadataWithRetry';
@@ -3169,8 +3170,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                   const attachContext = await resolveExistingSessionAttachContext({
                     token: tokenForFetch,
                     sessionId: normalizedExistingSessionId,
-                    backendTarget: backendTarget
-                      ?? { kind: 'builtInAgent', agentId: resolveCatalogAgentId(null) },
+                    backendTarget: backendTarget ?? { kind: 'builtInAgent', agentId: catalogAgentId },
                     credentials: effectiveCredentials,
                   });
 
@@ -3304,15 +3304,20 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
               // Configured ACP resume is catalog-declared policy plus ACP initialize negotiation.
               // Never turn an inactive resume into a fresh provider session when either proof is absent.
               if (backendTarget?.kind === 'configuredAcpBackend' && (effectiveResume || normalizedExistingSessionId)) {
-                const configuredBackend = resolveConfiguredAcpBackendFromAccountSettings(
-                  getActiveAccountSettingsSnapshot()?.settings ?? {},
-                  backendTarget.backendId,
+                const accountSettings = getActiveAccountSettingsSnapshot()?.settings as Record<string, unknown> | undefined;
+                const configuredBackend = accountSettings
+                  ? resolveConfiguredAcpBackendFromAccountSettings(accountSettings, backendTarget.backendId)
+                  : null;
+                const supportsConfiguredResume = Boolean(
+                  configuredBackend?.capabilities.supportsLoadSession
+                  && accountSettings
+                  && isBackendEnabledByAccountSettings({ backendTarget, settings: accountSettings }),
                 );
-                if (!configuredBackend?.capabilities.supportsLoadSession) {
+                if (!supportsConfiguredResume) {
                   return {
                     type: 'error',
                     errorCode: SPAWN_SESSION_ERROR_CODES.RESUME_NOT_SUPPORTED,
-                    errorMessage: `Configured ACP backend '${backendTarget.backendId}' does not declare session/load support.`,
+                    errorMessage: `Resume is not supported for configured ACP backend '${backendTarget.backendId}'.`,
                   };
                 }
                 if (normalizedExistingSessionId && !effectiveResume) {

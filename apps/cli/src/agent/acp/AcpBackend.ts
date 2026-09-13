@@ -868,6 +868,7 @@ export class AcpBackend implements AgentBackend {
   private connection: AcpClientConnection | null = null;
   private acpSessionId: string | null = null;
   private negotiatedSessionCapabilities: NegotiatedAcpSessionCapabilities = NO_NEGOTIATED_ACP_SESSION_CAPABILITIES;
+  private negotiatedSessionLoadSupport: boolean | null = null;
   private disposed = false;
   private replayCapture: AcpReplayCapture | null = null;
   /** Sole tool lifecycle/merge/timeout/finalization owner. */
@@ -901,6 +902,10 @@ export class AcpBackend implements AgentBackend {
 
   getSessionConfigOptionsState(): ReadonlyArray<SessionConfigOption> | null {
     return this.sessionConfigOptionsState;
+  }
+
+  getNegotiatedSessionLoadSupport(): boolean | null {
+    return this.negotiatedSessionLoadSupport;
   }
 
   getLastTurnOutcome(): AcpTurnOutcome | null {
@@ -1059,6 +1064,7 @@ export class AcpBackend implements AgentBackend {
     this.connection = null;
     this.acpSessionId = null;
     this.negotiatedSessionCapabilities = NO_NEGOTIATED_ACP_SESSION_CAPABILITIES;
+    this.negotiatedSessionLoadSupport = null;
 
     connection?.close();
 
@@ -1159,6 +1165,8 @@ export class AcpBackend implements AgentBackend {
     if (this.process || this.connection) {
       throw new Error('ACP backend is already initialized');
     }
+
+    this.negotiatedSessionLoadSupport = null;
 
     this.resetExtensionAbortControllerForTurn();
     this.recentStderrSummaries.length = 0;
@@ -1703,6 +1711,7 @@ export class AcpBackend implements AgentBackend {
     const negotiatedSessionLoadSupport = agentCapabilities?.loadSession === true;
     const negotiatedSessionCapabilities = readAcpNegotiatedSessionCapabilities(agentCapabilities);
     this.negotiatedSessionCapabilities = negotiatedSessionCapabilities;
+    this.negotiatedSessionLoadSupport = negotiatedSessionLoadSupport;
 
     if (this.options.authentication) {
       const advertisedMethodIds = new Set<string>();
@@ -1875,6 +1884,9 @@ export class AcpBackend implements AgentBackend {
     if (!normalized) {
       throw new Error('Session ID is required');
     }
+    if (this.options.declaredSessionLoadSupport === false) {
+      throw new Error(`Configured ACP backend '${this.options.agentName}' does not support session/load.`);
+    }
 
     this.emit({ type: 'status', status: 'starting' });
     // Reset per-session caches
@@ -1884,10 +1896,6 @@ export class AcpBackend implements AgentBackend {
 
     try {
       const { initTimeout, negotiatedSessionLoadSupport } = await this.createConnectionAndInitialize({ operationId: randomUUID() });
-
-      if (this.options.declaredSessionLoadSupport === false) {
-        throw new Error(`Configured ACP backend '${this.options.agentName}' does not support session/load.`);
-      }
       if (this.options.declaredSessionLoadSupport === true && !negotiatedSessionLoadSupport) {
         throw new Error(
           `Configured ACP backend '${this.options.agentName}' advertises session/load in its catalog but did not negotiate loadSession during ACP initialize.`,

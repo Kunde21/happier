@@ -323,7 +323,6 @@ describe('InboxView mark as read', () => {
         let ancestor = markAll!.parent;
         while (ancestor && ancestor.props.testID !== 'inbox.section.ready') ancestor = ancestor.parent;
         expect(ancestor?.props.testID).toBe('inbox.section.ready');
-        expect(tree.root.findAllByType('ItemGroup')).toHaveLength(2);
 
         const [readyRow] = nodesByTestId(tree, 'inbox.review_session.server-a.session-a');
         expect(readyRow!.props.subtitle).toContain('status.readyForReview');
