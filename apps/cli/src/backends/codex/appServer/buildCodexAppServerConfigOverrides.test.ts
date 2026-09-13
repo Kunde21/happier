@@ -19,6 +19,10 @@ describe('buildCodexAppServerConfigOverrides', () => {
             'mcp_servers.happier.args=["--url","http://127.0.0.1:0"]',
             'mcp_servers.happier.env={HAPPIER_MCP_REMOTE_BRIDGE_CONFIG_FILE="/tmp/bridge-config.json"}',
             'mcp_servers.happier.enabled=true',
+            'mcp_servers.happier.tool_timeout_sec=3720',
+            'mcp_servers.happier.tools.execution_run_get.approval_mode="approve"',
+            'mcp_servers.happier.tools.execution_run_list.approval_mode="approve"',
+            'mcp_servers.happier.tools.execution_run_wait.approval_mode="approve"',
         ]);
     });
 
@@ -36,6 +40,18 @@ describe('buildCodexAppServerConfigOverrides', () => {
         expect(overrides).toContain('mcp_servers.happier__context7.command="echo"');
         expect(overrides).toContain('mcp_servers.happier__server_with_spaces.command="node"');
         expect(overrides).not.toContain('mcp_servers.context7.command="echo"');
+        expect(overrides.some((override) => override.includes('.tool_timeout_sec='))).toBe(false);
+        expect(overrides.some((override) => override.includes('.tools.execution_run_wait.approval_mode'))).toBe(false);
+    });
+
+    it('uses the configured bounded Happier MCP tool-call timeout', () => {
+        const overrides = buildCodexAppServerConfigOverrides({
+            happier: { command: 'happier-mcp' },
+        }, {
+            happierMcpToolCallTimeoutMs: 7_230_500,
+        });
+
+        expect(overrides).toContain('mcp_servers.happier.tool_timeout_sec=7230.5');
     });
 
     it('injects only the explicit Happier session context into Codex shell subprocesses', () => {
