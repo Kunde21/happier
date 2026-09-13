@@ -625,6 +625,31 @@ vi.mock('@/persistence', () => ({
   readCredentials: vi.fn(async () => null),
 }));
 
+vi.mock('@/settings/accountSettings/activeAccountSettingsSnapshot', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/settings/accountSettings/activeAccountSettingsSnapshot')>();
+  return {
+    ...actual,
+    getActiveAccountSettingsSnapshot: vi.fn(() => ({
+      accountId: 'test-account',
+      settingsVersion: 1,
+      settings: {
+        acpCatalogSettingsV1: {
+          v: 2,
+          backends: [{
+            id: 'custom-kiro', name: 'custom-kiro', title: 'Custom Kiro', command: 'kiro', args: [], env: {},
+            transportProfile: 'generic',
+            capabilities: {
+              supportsLoadSession: true,
+              supportsModes: 'unknown', supportsModels: 'unknown', supportsConfigOptions: 'unknown', promptImageSupport: 'unknown',
+            },
+            createdAt: 1, updatedAt: 1,
+          }],
+        },
+      },
+    })),
+  };
+});
+
 vi.mock('@/session/metadata/updateSessionMetadataWithRetry', () => ({
   updateSessionMetadataWithRetry: updateSessionMetadataWithRetryMock,
 }));
@@ -5290,6 +5315,17 @@ describe('startDaemon spawn resume wiring (integration)', () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     const refreshEnvOriginal = process.env.HAPPIER_CONNECTED_SERVICES_REFRESH_ENABLED;
     process.env.HAPPIER_CONNECTED_SERVICES_REFRESH_ENABLED = 'false';
+    vi.mocked(fetchSessionByIdCompat).mockResolvedValueOnce(createSessionRecordFixture({
+      id: 'sess_plain',
+      encryptionMode: 'plain',
+      metadata: JSON.stringify({
+        flavor: 'acp:custom-kiro',
+        acpConfiguredBackendV1: { v: 1, updatedAt: 1, backendId: 'custom-kiro', title: 'Custom Kiro' },
+        customAcpSessionId: 'provider-session-1',
+        path: '/tmp',
+      }),
+      dataEncryptionKey: null,
+    }));
 
     try {
       const { startDaemon } = await import('./startDaemon');
@@ -5315,6 +5351,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
       expect(argv[0]).toBe('acp-catalog');
       expect(argv).toEqual(expect.arrayContaining(['--backend', 'custom-kiro']));
       expect(argv).toEqual(expect.arrayContaining(['--existing-session', 'sess_plain']));
+      expect(argv).toEqual(expect.arrayContaining(['--resume', 'provider-session-1']));
 
       harness.requestShutdown('happier-cli');
       await run;

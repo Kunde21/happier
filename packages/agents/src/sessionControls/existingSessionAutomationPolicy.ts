@@ -1,7 +1,13 @@
+import {
+  AcpCatalogSettingsV1Schema,
+  buildBackendTargetKey,
+  readAcpConfiguredBackendV1FromMetadata,
+} from '@happier-dev/protocol';
 import { resolveAgentIdFromSessionMetadata } from '../resolveAgentIdFromSessionMetadata.js';
 import type { AgentId } from '../types.js';
 import {
   evaluateVendorResumeEligibility,
+  resolveProviderSessionIdForBackendTarget,
   type VendorResumeEligibilityReasonCode,
 } from './vendorResumePolicy.js';
 
@@ -27,11 +33,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function hasConfiguredAcpFlavor(metadata: Record<string, unknown>): boolean {
-  const flavor = typeof metadata.flavor === 'string' ? metadata.flavor.trim() : '';
-  return flavor.toLowerCase().startsWith('acp:') && flavor.slice(4).trim().length > 0;
-}
-
 function resolveAgentIdFromMetadata(metadata: Record<string, unknown>): AgentId | null {
   const agentId = resolveAgentIdFromSessionMetadata(metadata);
   return agentId && agentId !== 'customAcp' ? agentId : null;
@@ -46,11 +47,25 @@ export function evaluateExistingSessionAutomationEligibility(input: Readonly<{
     return { eligible: false, reasonCode: 'agent_unknown' };
   }
 
-  if (hasConfiguredAcpFlavor(metadata)) {
+  const configuredBackend = readAcpConfiguredBackendV1FromMetadata(metadata);
+  if (configuredBackend) {
+    const settings = asRecord(input.accountSettings);
+    const catalog = AcpCatalogSettingsV1Schema.safeParse(settings?.acpCatalogSettingsV1);
+    const declaredBackend = catalog.success
+      ? catalog.data.backends.find((backend) => backend.id === configuredBackend.backendId)
+      : undefined;
+    const target = { kind: 'configuredAcpBackend' as const, backendId: configuredBackend.backendId };
+    const enabledByTargetKey = asRecord(settings?.backendEnabledByTargetKey);
+    if (!declaredBackend?.capabilities.supportsLoadSession || enabledByTargetKey?.[buildBackendTargetKey(target)] === false) {
+      return { eligible: false, reasonCode: 'agent_unsupported' };
+    }
+    if (!resolveProviderSessionIdForBackendTarget(target, metadata)) {
+      return { eligible: false, reasonCode: 'vendor_resume_id_missing' };
+    }
     return {
       eligible: true,
       agentId: 'customAcp',
-      strategy: 'happy_attach',
+      strategy: 'vendor_resume',
     };
   }
 

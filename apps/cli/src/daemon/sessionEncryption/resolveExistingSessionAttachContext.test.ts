@@ -41,7 +41,7 @@ describe('resolveExistingSessionAttachContext', () => {
       encryption: { type: 'dataKey', publicKey: new Uint8Array(32).fill(1), machineKey: new Uint8Array(32).fill(2) },
     };
 
-    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: '   ', agent: 'codex', credentials });
+    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: '   ', backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, credentials });
     expect(out).toEqual({ ok: false, reason: 'missingSessionId' });
     expect(vi.mocked(fetchSessionByIdCompat)).not.toHaveBeenCalled();
   });
@@ -57,7 +57,7 @@ describe('resolveExistingSessionAttachContext', () => {
       }),
     );
 
-    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_plain', agent: 'codex', credentials: null });
+    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_plain', backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, credentials: null });
     expect(out).toMatchObject({
       ok: true,
       attachPayload: {
@@ -72,6 +72,27 @@ describe('resolveExistingSessionAttachContext', () => {
     expect(vi.mocked(fetchSessionByIdCompat)).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves configured ACP ids only for the matching backend target', async () => {
+    const metadata = JSON.stringify({
+      flavor: 'acp:legacy-label',
+      acpConfiguredBackendV1: { v: 1, updatedAt: 1, backendId: 'review-bot', title: 'Review Bot' },
+      customAcpSessionId: 'provider-1',
+    });
+    vi.mocked(fetchSessionByIdCompat)
+      .mockResolvedValueOnce(createSessionRecordFixture({ id: 'matching', encryptionMode: 'plain', metadata, dataEncryptionKey: null }))
+      .mockResolvedValueOnce(createSessionRecordFixture({ id: 'stale', encryptionMode: 'plain', metadata, dataEncryptionKey: null }));
+
+    const matching = await resolveExistingSessionAttachContext({
+      token: 't', sessionId: 'matching', backendTarget: { kind: 'configuredAcpBackend', backendId: 'review-bot' }, credentials: null,
+    });
+    const stale = await resolveExistingSessionAttachContext({
+      token: 't', sessionId: 'stale', backendTarget: { kind: 'configuredAcpBackend', backendId: 'other-bot' }, credentials: null,
+    });
+
+    expect(matching).toMatchObject({ ok: true, vendorResumeId: 'provider-1' });
+    expect(stale).toMatchObject({ ok: true, vendorResumeId: null });
+  });
+
   it('uses the server session sequence without consulting retired delivery watermark metadata', async () => {
     vi.mocked(fetchSessionByIdCompat).mockResolvedValueOnce(
       createSessionRecordFixture({
@@ -83,7 +104,7 @@ describe('resolveExistingSessionAttachContext', () => {
       }),
     );
 
-    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_owed', agent: 'claude', credentials: null });
+    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_owed', backendTarget: { kind: 'builtInAgent', agentId: 'claude' }, credentials: null });
     expect(out).toMatchObject({
       ok: true,
       attachPayload: { v: 2, encryptionMode: 'plain', lastObservedMessageSeq: 42 },
@@ -101,7 +122,7 @@ describe('resolveExistingSessionAttachContext', () => {
       }),
     );
 
-    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_legacy', agent: 'claude', credentials: null });
+    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_legacy', backendTarget: { kind: 'builtInAgent', agentId: 'claude' }, credentials: null });
     expect(out).toMatchObject({
       ok: true,
       attachPayload: { v: 2, encryptionMode: 'plain', lastObservedMessageSeq: 42 },
@@ -134,7 +155,7 @@ describe('resolveExistingSessionAttachContext', () => {
       }),
     );
 
-    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_plain', agent: 'claude', credentials: null });
+    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_plain', backendTarget: { kind: 'builtInAgent', agentId: 'claude' }, credentials: null });
     expect(out).toMatchObject({ ok: true });
     if (!out.ok) throw new Error('Expected successful attach context');
     expect(out.metadata).toMatchObject({
@@ -191,7 +212,7 @@ describe('resolveExistingSessionAttachContext', () => {
       }),
     );
 
-    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_e2ee', agent: 'codex', credentials });
+    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_e2ee', backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, credentials });
     expect(out).toMatchObject({ ok: true });
 
     if (!out || !('ok' in out) || out.ok !== true) {
@@ -227,7 +248,7 @@ describe('resolveExistingSessionAttachContext', () => {
     const out = await resolveExistingSessionAttachContext({
       token: 't',
       sessionId: 'sess_e2ee',
-      agent: 'codex',
+      backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
       credentials: null,
     });
 
@@ -242,7 +263,7 @@ describe('resolveExistingSessionAttachContext', () => {
       encryption: { type: 'dataKey', publicKey: new Uint8Array(32).fill(1), machineKey: new Uint8Array(32).fill(2) },
     };
 
-    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_throw', agent: 'codex', credentials });
+    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_throw', backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, credentials });
 
     expect(out).toEqual({ ok: false, reason: 'fetchFailed' });
   });
@@ -257,7 +278,7 @@ describe('resolveExistingSessionAttachContext', () => {
       encryption: { type: 'dataKey', publicKey: new Uint8Array(32).fill(1), machineKey: new Uint8Array(32).fill(2) },
     };
 
-    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_auth', agent: 'codex', credentials });
+    const out = await resolveExistingSessionAttachContext({ token: 't', sessionId: 'sess_auth', backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, credentials });
 
     expect(out).toEqual({ ok: false, reason: 'notAuthenticated' });
   });
@@ -288,7 +309,7 @@ describe('resolveExistingSessionAttachContext', () => {
       resolveExistingSessionAttachContext({
         token: 't',
         sessionId: `sess_${index}`,
-        agent: 'codex',
+        backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
         credentials: null,
         reason: 'startup-drain',
       }).finally(() => {

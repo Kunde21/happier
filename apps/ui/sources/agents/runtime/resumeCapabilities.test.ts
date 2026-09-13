@@ -101,116 +101,58 @@ describe('getAgentVendorResumeId', () => {
 });
 
 describe('configured ACP resume capability', () => {
-    test('treats configured ACP flavors as resumable attach targets without vendor resume ids', () => {
-        expect(canAgentResume('acp:custom-backend')).toBe(true);
+    const options = (supportsLoadSession: boolean) => ({
+        accountSettings: {
+            acpCatalogSettingsV1: {
+                v: 2 as const,
+                backends: [{
+                    id: 'custom-backend', name: 'custom-backend', title: 'Custom Kiro', command: 'kiro',
+                    args: [], env: {}, transportProfile: 'generic' as const,
+                    capabilities: {
+                        supportsLoadSession,
+                        supportsModes: 'unknown' as const,
+                        supportsModels: 'unknown' as const,
+                        supportsConfigOptions: 'unknown' as const,
+                        promptImageSupport: 'unknown' as const,
+                    },
+                    createdAt: 1, updatedAt: 1,
+                }],
+            },
+        },
+    });
+
+    const metadata = {
+        flavor: 'acp:legacy-label',
+        acpConfiguredBackendV1: {
+            v: 1 as const,
+            updatedAt: 123,
+            backendId: 'custom-backend',
+            title: 'Custom Kiro',
+        },
+        customAcpSessionId: 'provider-1',
+    };
+
+    test('requires persisted target identity, static catalog support, and a provider session id', () => {
+        expect(canAgentResume('acp:custom-backend', options(true))).toBe(false);
         expect(canAgentResume('acp:')).toBe(false);
         expect(canAgentResume('acp:   ')).toBe(false);
-        expect(canResumeSessionWithOptions({
-            flavor: 'acp:custom-backend',
-            acpConfiguredBackendV1: {
-                v: 1,
-                updatedAt: 123,
-                backendId: 'custom-backend',
-                title: 'Custom Kiro',
-            },
-        })).toBe(true);
-        expect(canResumeSessionWithOptions({ flavor: 'acp:' })).toBe(false);
-        expect(getAgentVendorResumeId({
-            acpConfiguredBackendV1: {
-                v: 1,
-                updatedAt: 123,
-                backendId: 'custom-backend',
-                title: 'Custom Kiro',
-            },
-        }, 'acp:custom-backend')).toBeNull();
-    });
-
-    test('keeps ACP attach resume enabled when runtime descriptors also resolve to a provider agent', () => {
-        const metadata = {
-            flavor: 'acp:custom-backend',
-            acpConfiguredBackendV1: {
-                v: 1,
-                updatedAt: 123,
-                backendId: 'custom-backend',
-                title: 'Custom Kiro',
-            },
-            agentRuntimeDescriptorV1: {
-                v: 1,
-                providerId: 'codex',
-                provider: {
-                    vendorSessionId: 'x1',
-                },
-            },
-            codexSessionId: 'x1',
-        } as const;
-
-        expect(canResumeSession(metadata)).toBe(true);
-        expect(canResumeSessionWithOptions(metadata, { accountSettings: { codexBackendMode: 'mcp' } })).toBe(true);
-    });
-
-    test('does not expose vendor resume ids for ACP attach sessions even when runtime descriptors include one', () => {
-        const metadata = {
-            flavor: 'acp:custom-backend',
-            acpConfiguredBackendV1: {
-                v: 1,
-                updatedAt: 123,
-                backendId: 'custom-backend',
-                title: 'Custom Kiro',
-            },
-            agentRuntimeDescriptorV1: {
-                v: 1,
-                providerId: 'codex',
-                provider: {
-                    vendorSessionId: 'x1',
-                },
-            },
-            codexSessionId: 'x1',
-        } as const;
-
-        expect(getAgentVendorResumeId(metadata, 'acp:custom-backend', { accountSettings: { codexBackendMode: 'acp' } })).toBeNull();
-        expect(getAgentVendorResumeId(metadata, 'codex', { accountSettings: { codexBackendMode: 'acp' } })).toBeNull();
+        expect(canResumeSessionWithOptions(metadata, options(true))).toBe(true);
+        expect(canResumeSessionWithOptions(metadata, options(false))).toBe(false);
+        expect(canResumeSessionWithOptions({ ...metadata, customAcpSessionId: ' ' }, options(true))).toBe(false);
+        expect(getAgentVendorResumeId(metadata, 'acp:anything', options(true))).toBe('provider-1');
     });
 
     test('fails closed when the configured ACP backend target is disabled', () => {
-        const options = {
+        const disabledOptions = {
             accountSettings: {
+                ...options(true).accountSettings,
                 backendEnabledByTargetKey: {
                     [buildBackendTargetKey({ kind: 'configuredAcpBackend', backendId: 'custom-backend' })]: false,
                 },
             },
         };
 
-        expect(canAgentResume('acp:custom-backend', options)).toBe(false);
-        expect(canResumeSessionWithOptions({
-            flavor: 'acp:custom-backend',
-            acpConfiguredBackendV1: {
-                v: 1,
-                updatedAt: 123,
-                backendId: 'custom-backend',
-                title: 'Custom Kiro',
-            },
-        }, options)).toBe(false);
-    });
-
-    test('allows configured ACP resume when the backend target remains enabled', () => {
-        const options = {
-            accountSettings: {
-                backendEnabledByTargetKey: {
-                    [buildBackendTargetKey({ kind: 'configuredAcpBackend', backendId: 'custom-backend' })]: true,
-                },
-            },
-        };
-
-        expect(canAgentResume('acp:custom-backend', options)).toBe(true);
-        expect(canResumeSessionWithOptions({
-            flavor: 'acp:custom-backend',
-            acpConfiguredBackendV1: {
-                v: 1,
-                updatedAt: 123,
-                backendId: 'custom-backend',
-                title: 'Custom Kiro',
-            },
-        }, options)).toBe(true);
+        expect(canResumeSessionWithOptions(metadata, disabledOptions)).toBe(false);
     });
 });
 

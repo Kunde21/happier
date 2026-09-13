@@ -432,6 +432,7 @@ import { normalizeAccountSettingsVersionHint } from '@/settings/accountSettings/
 import { refreshAccountSettingsForMinimumVersion } from '@/settings/accountSettings/refreshAccountSettingsForMinimumVersion';
 import { warmActiveAccountSettingsSnapshotBestEffort } from '@/settings/accountSettings/warmActiveAccountSettingsSnapshot';
 import { getActiveAccountSettingsSnapshot } from '@/settings/accountSettings/activeAccountSettingsSnapshot';
+import { resolveConfiguredAcpBackendFromAccountSettings } from '@/agent/acp/catalog/configured/resolveConfiguredAcpBackendFromAccountSettings';
 import { fetchSessionByIdCompat, fetchSessionsPage, type RawSessionRecord } from '@/session/transport/http/sessionsHttp';
 import { updateSessionMetadataWithRetry } from '@/session/metadata/updateSessionMetadataWithRetry';
 import { persistExplicitSessionStopUsageLimitRecoveryCancellation } from '@/session/usageLimitRecoveryControls/persistUsageLimitRecoveryFieldDurably';
@@ -818,7 +819,7 @@ async function resolvePersistedConnectedServiceSwitchSessionMetadata(params: Rea
   const attachContext = await resolveExistingSessionAttachContext({
     token,
     sessionId: params.sessionId,
-    agent: params.agentId,
+    backendTarget: { kind: 'builtInAgent', agentId: params.agentId },
     credentials: params.credentials,
   }).catch(() => null);
   return attachContext?.ok ? attachContext.metadata : null;
@@ -1379,9 +1380,8 @@ async function applyAlreadyRunningExistingSessionRuntimeSnapshot(params: Readonl
   const attachContext = await resolveExistingSessionAttachContext({
     token: tokenForFetch,
     sessionId: params.sessionId,
-    agent: params.incomingOptions.backendTarget?.kind === 'builtInAgent'
-      ? params.incomingOptions.backendTarget.agentId
-      : 'customAcp',
+    backendTarget: params.incomingOptions.backendTarget
+      ?? { kind: 'builtInAgent', agentId: resolveCatalogAgentId(null) },
     credentials: effectiveCredentials,
   });
 
@@ -3212,7 +3212,8 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                   const attachContext = await resolveExistingSessionAttachContext({
                     token: tokenForFetch,
                     sessionId: normalizedExistingSessionId,
-                    agent: backendTarget?.kind === 'builtInAgent' ? backendTarget.agentId : 'customAcp',
+                    backendTarget: backendTarget
+                      ?? { kind: 'builtInAgent', agentId: resolveCatalogAgentId(null) },
                     credentials: effectiveCredentials,
                   });
 
@@ -3343,15 +3344,28 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                 };
               }
 
-              // Only gate vendor resume. Happy-session reconnect (existingSessionId) is supported for all agents.
-              if (effectiveResume) {
-                if (backendTarget?.kind === 'configuredAcpBackend') {
+              // Configured ACP resume is catalog-declared policy plus ACP initialize negotiation.
+              // Never turn an inactive resume into a fresh provider session when either proof is absent.
+              if (backendTarget?.kind === 'configuredAcpBackend' && (effectiveResume || normalizedExistingSessionId)) {
+                const configuredBackend = resolveConfiguredAcpBackendFromAccountSettings(
+                  getActiveAccountSettingsSnapshot()?.settings ?? {},
+                  backendTarget.backendId,
+                );
+                if (!configuredBackend?.capabilities.supportsLoadSession) {
                   return {
                     type: 'error',
                     errorCode: SPAWN_SESSION_ERROR_CODES.RESUME_NOT_SUPPORTED,
-                    errorMessage: `Resume is not supported for configured ACP backend '${backendTarget.backendId}'.`,
+                    errorMessage: `Configured ACP backend '${backendTarget.backendId}' does not declare session/load support.`,
                   };
                 }
+                if (normalizedExistingSessionId && !effectiveResume) {
+                  return {
+                    type: 'error',
+                    errorCode: SPAWN_SESSION_ERROR_CODES.RESUME_NOT_SUPPORTED,
+                    errorMessage: `Configured ACP backend '${backendTarget.backendId}' cannot resume because its matching provider session ID is missing.`,
+                  };
+                }
+              } else if (effectiveResume) {
                 const vendorResumeSupport = await getVendorResumeSupport(
                   catalogAgentId,
                 );

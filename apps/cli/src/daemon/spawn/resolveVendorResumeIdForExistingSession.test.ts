@@ -13,7 +13,7 @@ describe('resolveVendorResumeIdForExistingSession', () => {
       dataEncryptionKey: null,
     };
 
-    expect(resolveVendorResumeIdForExistingSession({ agent: 'codex', credentials: null, rawSession })).toBe('vendor-plain-1');
+    expect(resolveVendorResumeIdForExistingSession({ backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, credentials: null, rawSession })).toBe('vendor-plain-1');
   });
 
   it('extracts vendor resume id for e2ee sessions using legacy credentials', () => {
@@ -38,7 +38,6 @@ describe('resolveVendorResumeIdForExistingSession', () => {
       dataEncryptionKey: null,
     };
 
-    expect(resolveVendorResumeIdForExistingSession({ agent: 'codex', credentials, rawSession })).toBe('vendor-e2ee-1');
+    expect(resolveVendorResumeIdForExistingSession({ backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, credentials, rawSession })).toBe('vendor-e2ee-1');
   });
 });
-

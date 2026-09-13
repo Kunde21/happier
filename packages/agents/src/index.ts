@@ -377,6 +377,7 @@ export {
   computeNextModelOverrideMetadataV1,
 } from './sessionControls/publish.js';
 export {
+  resolveProviderSessionIdForBackendTarget,
   resolveVendorResumeIdFromSessionMetadata,
   resolveAgentNativeTranscriptPathFromSessionMetadata,
   evaluateVendorResumeEligibility,

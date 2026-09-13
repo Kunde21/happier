@@ -56,6 +56,24 @@ function setCanonicalSessionTarget(machineId: string, path: string): void {
     };
 }
 
+const configuredAcpLoadSettings = {
+    acpCatalogSettingsV1: {
+        v: 2 as const,
+        backends: [{
+            id: 'custom-backend', name: 'custom-backend', title: 'Custom Kiro', command: 'kiro', args: [], env: {},
+            transportProfile: 'generic' as const,
+            capabilities: {
+                supportsLoadSession: true,
+                supportsModes: 'unknown' as const,
+                supportsModels: 'unknown' as const,
+                supportsConfigOptions: 'unknown' as const,
+                promptImageSupport: 'unknown' as const,
+            },
+            createdAt: 1, updatedAt: 1,
+        }],
+    },
+};
+
 describe('buildResumeSessionBaseOptionsFromSession', () => {
     it('returns null when session metadata is missing', () => {
         expect(buildResumeSessionBaseOptionsFromSession({
@@ -316,18 +334,20 @@ describe('buildResumeSessionBaseOptionsFromSession', () => {
                         backendId: 'custom-backend',
                         title: 'Custom Kiro',
                     },
+                    customAcpSessionId: 'provider-1',
                 },
             } as any,
-            resumeCapabilityOptions: { accountSettings: {} },
+            resumeCapabilityOptions: { accountSettings: configuredAcpLoadSettings },
         })).toEqual({
             sessionId: 's1',
             machineId: 'm1',
             directory: '/tmp',
             backendTarget: { kind: 'configuredAcpBackend', backendId: 'custom-backend' },
+            resume: 'provider-1',
         });
     });
 
-    it('infers configured ACP backend id from the flavor when metadata backend id is missing', () => {
+    it('does not infer configured ACP identity from flavor-only historical metadata', () => {
         setCanonicalSessionTarget('m1', '/tmp');
         expect(buildResumeSessionBaseOptionsFromSession({
             sessionId: 's1',
@@ -338,16 +358,11 @@ describe('buildResumeSessionBaseOptionsFromSession', () => {
                     flavor: 'acp:custom-kiro',
                 },
             } as any,
-            resumeCapabilityOptions: { accountSettings: {} },
-        })).toEqual({
-            sessionId: 's1',
-            machineId: 'm1',
-            directory: '/tmp',
-            backendTarget: { kind: 'configuredAcpBackend', backendId: 'custom-kiro' },
-        });
+            resumeCapabilityOptions: { accountSettings: configuredAcpLoadSettings },
+        })).toBeNull();
     });
 
-    it('infers configured ACP backend id from the flavor when metadata backend id is blank', () => {
+    it('fails closed when the configured ACP provider id is missing', () => {
         setCanonicalSessionTarget('m1', '/tmp');
         expect(buildResumeSessionBaseOptionsFromSession({
             sessionId: 's1',
@@ -359,21 +374,16 @@ describe('buildResumeSessionBaseOptionsFromSession', () => {
                     acpConfiguredBackendV1: {
                         v: 1,
                         updatedAt: 123,
-                        backendId: '   ',
+                        backendId: 'custom-backend',
                         title: 'Custom Kiro',
                     },
                 },
             } as any,
-            resumeCapabilityOptions: { accountSettings: {} },
-        })).toEqual({
-            sessionId: 's1',
-            machineId: 'm1',
-            directory: '/tmp',
-            backendTarget: { kind: 'configuredAcpBackend', backendId: 'custom-kiro' },
-        });
+            resumeCapabilityOptions: { accountSettings: configuredAcpLoadSettings },
+        })).toBeNull();
     });
 
-    it('resumes configured ACP sessions even when built-in agent resolution is unavailable', () => {
+    it('resumes configured ACP sessions without built-in agent resolution', () => {
         setCanonicalSessionTarget('m1', '/tmp');
         const actualResolveAgentIdFromFlavor = catalog.resolveAgentIdFromFlavor;
         vi.spyOn(catalog, 'resolveAgentIdFromFlavor').mockImplementation(flavor =>
@@ -393,14 +403,16 @@ describe('buildResumeSessionBaseOptionsFromSession', () => {
                         backendId: 'custom-backend',
                         title: 'Custom Kiro',
                     },
+                    customAcpSessionId: 'provider-1',
                 },
             } as any,
-            resumeCapabilityOptions: { accountSettings: {} },
+            resumeCapabilityOptions: { accountSettings: configuredAcpLoadSettings },
         })).toEqual({
             sessionId: 's1',
             machineId: 'm1',
             directory: '/tmp',
             backendTarget: { kind: 'configuredAcpBackend', backendId: 'custom-backend' },
+            resume: 'provider-1',
         });
     });
 

@@ -33,18 +33,89 @@ describe('evaluateExistingSessionAutomationEligibility', () => {
     });
   });
 
-  it('accepts configured ACP session flavors without requiring a vendor resume id', () => {
+  it('accepts configured ACP sessions only when exact identity and static load policy agree', () => {
     expect(
       evaluateExistingSessionAutomationEligibility({
         metadata: {
           flavor: 'acp:custom-backend',
+          acpConfiguredBackendV1: {
+            v: 1,
+            updatedAt: 1,
+            backendId: 'custom-backend',
+            title: 'Custom backend',
+          },
+          customAcpSessionId: 'provider-session-1',
+        },
+        accountSettings: {
+          acpCatalogSettingsV1: {
+            v: 2,
+            backends: [{
+              id: 'custom-backend',
+              name: 'custom-backend',
+              title: 'Custom backend',
+              command: 'custom-agent',
+              args: [],
+              env: {},
+              transportProfile: 'generic',
+              capabilities: {
+                supportsLoadSession: true,
+                supportsModes: 'unknown',
+                supportsModels: 'unknown',
+                supportsConfigOptions: 'unknown',
+                promptImageSupport: 'unknown',
+              },
+              createdAt: 1,
+              updatedAt: 1,
+            }],
+          },
         },
       }),
     ).toEqual({
       eligible: true,
       agentId: 'customAcp',
-      strategy: 'happy_attach',
+      strategy: 'vendor_resume',
     });
+  });
+
+  it('rejects configured ACP flavor-only and static-disabled sessions', () => {
+    expect(evaluateExistingSessionAutomationEligibility({
+      metadata: { flavor: 'acp:custom-backend', customAcpSessionId: 'provider-session-1' },
+    })).toEqual({ eligible: false, reasonCode: 'agent_unknown' });
+
+    expect(evaluateExistingSessionAutomationEligibility({
+      metadata: {
+        acpConfiguredBackendV1: {
+          v: 1,
+          updatedAt: 1,
+          backendId: 'custom-backend',
+          title: 'Custom backend',
+        },
+        customAcpSessionId: 'provider-session-1',
+      },
+      accountSettings: {
+        acpCatalogSettingsV1: {
+          v: 2,
+          backends: [{
+            id: 'custom-backend',
+            name: 'custom-backend',
+            title: 'Custom backend',
+            command: 'custom-agent',
+            args: [],
+            env: {},
+            transportProfile: 'generic',
+            capabilities: {
+              supportsLoadSession: false,
+              supportsModes: 'unknown',
+              supportsModels: 'unknown',
+              supportsConfigOptions: 'unknown',
+              promptImageSupport: 'unknown',
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          }],
+        },
+      },
+    })).toEqual({ eligible: false, reasonCode: 'agent_unsupported' });
   });
 
   it('accepts runtime-descriptor sessions without legacy top-level vendor ids', () => {

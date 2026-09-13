@@ -6,6 +6,7 @@ import type { AgentId } from '../types.js';
 
 import {
   evaluateVendorResumeEligibility,
+  resolveProviderSessionIdForBackendTarget,
   resolveVendorResumeIdFromSessionMetadata,
 } from './vendorResumePolicy.js';
 
@@ -19,6 +20,46 @@ describe('vendorResumePolicy', () => {
   it('resolves vendor resume ids from metadata (trimmed)', () => {
     expect(resolveVendorResumeIdFromSessionMetadata('claude', { claudeSessionId: ' c1 ' })).toBe('c1');
     expect(resolveVendorResumeIdFromSessionMetadata('claude', { claudeSessionId: '   ' })).toBeNull();
+  });
+
+  it('resolves provider session ids through an exact backend target', () => {
+    expect(resolveProviderSessionIdForBackendTarget(
+      { kind: 'builtInAgent', agentId: 'claude' },
+      { flavor: 'claude', claudeSessionId: ' claude-1 ' },
+    )).toBe('claude-1');
+
+    expect(resolveProviderSessionIdForBackendTarget(
+      { kind: 'configuredAcpBackend', backendId: 'review-bot' },
+      {
+        acpConfiguredBackendV1: {
+          v: 1,
+          updatedAt: 1,
+          backendId: 'review-bot',
+          title: 'Review Bot',
+        },
+        customAcpSessionId: ' acp-1 ',
+      },
+    )).toBe('acp-1');
+  });
+
+  it('does not resolve stale provider session ids for a different backend target', () => {
+    expect(resolveProviderSessionIdForBackendTarget(
+      { kind: 'configuredAcpBackend', backendId: 'review-bot' },
+      {
+        acpConfiguredBackendV1: {
+          v: 1,
+          updatedAt: 1,
+          backendId: 'other-bot',
+          title: 'Other Bot',
+        },
+        customAcpSessionId: 'stale-acp-id',
+      },
+    )).toBeNull();
+
+    expect(resolveProviderSessionIdForBackendTarget(
+      { kind: 'builtInAgent', agentId: 'claude' },
+      { flavor: 'codex', claudeSessionId: 'stale-claude-id' },
+    )).toBeNull();
   });
 
   it('resolves Cursor ACP session ids from cursorSessionId metadata', () => {

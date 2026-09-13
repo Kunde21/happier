@@ -273,6 +273,7 @@ describe('resolveSessionRuntimeSnapshot', () => {
     const result = resolveSessionRuntimeSnapshot({
       incomingOptions: baseIncomingOptions({
         backendTarget: { kind: 'configuredAcpBackend', backendId: 'custom-kiro' },
+        resume: 'unbound-incoming-provider-thread',
       }),
       persistedMetadata: {
         flavor: 'codex',
@@ -283,6 +284,23 @@ describe('resolveSessionRuntimeSnapshot', () => {
 
     expect(result.snapshot.vendorResumeId).toBeNull();
     expect(result.spawnOptions.resume).toBeUndefined();
+  });
+
+  it('restores only the configured ACP provider id bound to the exact backend target', () => {
+    const result = resolveSessionRuntimeSnapshot({
+      incomingOptions: baseIncomingOptions({
+        backendTarget: { kind: 'configuredAcpBackend', backendId: 'custom-kiro' },
+      }),
+      persistedMetadata: {
+        flavor: 'acp:stale-label',
+        acpConfiguredBackendV1: { v: 1, updatedAt: 1, backendId: 'custom-kiro', title: 'Custom Kiro' },
+        customAcpSessionId: ' provider-session-1 ',
+      },
+      trackedVendorResumeId: 'stale-tracked-id',
+    });
+
+    expect(result.snapshot.vendorResumeId).toEqual({ value: 'provider-session-1', updatedAt: null });
+    expect(result.spawnOptions.resume).toBe('provider-session-1');
   });
 
   it('preserves incoming controls without timestamps when no persisted or tracked snapshot exists', () => {

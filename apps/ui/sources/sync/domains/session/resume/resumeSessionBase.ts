@@ -2,10 +2,9 @@ import type { Session } from '@/sync/domains/state/storageTypes';
 import type { ResumeSessionOptions } from '@/sync/ops';
 import type { ResumeCapabilityOptions } from '@/agents/runtime/resumeCapabilities';
 import { canContinueSessionWithFreshSpawn, canResumeSessionWithOptions, getAgentVendorResumeId } from '@/agents/runtime/resumeCapabilities';
-import { deriveAcpBackendIdFromFlavor } from '@/agents/runtime/acpFlavor';
 import { getAgentCore, resolveAgentIdFromFlavor } from '@/agents/catalog/catalog';
 import { resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
-import { SessionAuthoringValueV1Schema } from '@happier-dev/protocol';
+import { readAcpConfiguredBackendV1FromMetadata, SessionAuthoringValueV1Schema } from '@happier-dev/protocol';
 import type { PermissionModeOverrideForSpawn } from '@/sync/domains/permissions/permissionModeOverride';
 import type { ModelOverrideForSpawn } from '@/sync/domains/models/modelOverride';
 import { readMachineControlTargetForSession } from '@/sync/ops/sessionMachineTarget';
@@ -50,15 +49,7 @@ export function buildResumeSessionBaseOptionsFromSession(opts: {
     const flavor = session.metadata?.flavor;
     if (!machineId || !directory) return null;
 
-    const configuredAcpBackendIdFromMetadata =
-        typeof session.metadata?.acpConfiguredBackendV1?.backendId === 'string'
-            ? session.metadata.acpConfiguredBackendV1.backendId.trim()
-            : '';
-    const configuredAcpBackendIdFromFlavor = deriveAcpBackendIdFromFlavor(flavor);
-    const configuredAcpBackendId =
-        configuredAcpBackendIdFromFlavor !== null
-            ? (configuredAcpBackendIdFromMetadata.length > 0 ? configuredAcpBackendIdFromMetadata : configuredAcpBackendIdFromFlavor)
-            : null;
+    const configuredAcpBackend = readAcpConfiguredBackendV1FromMetadata(session.metadata);
 
     // Note: vendor resume IDs can be missing even for otherwise-resumable sessions.
     // Wake/resume still needs to work (e.g. pending-queue wake) and should attach the vendor id only when present.
@@ -69,12 +60,15 @@ export function buildResumeSessionBaseOptionsFromSession(opts: {
         && !canContinueSessionWithFreshSpawn(session.metadata, resumeCapabilityOptions)
     ) return null;
 
-    if (configuredAcpBackendId !== null) {
+    if (configuredAcpBackend) {
+        const resume = getAgentVendorResumeId(session.metadata, flavor, resumeCapabilityOptions);
+        if (!resume) return null;
         return {
             sessionId,
             machineId,
             directory,
-            backendTarget: { kind: 'configuredAcpBackend', backendId: configuredAcpBackendId },
+            backendTarget: { kind: 'configuredAcpBackend', backendId: configuredAcpBackend.backendId },
+            resume,
             ...(permissionOverride ? permissionOverride : {}),
             ...(modelOverride ? modelOverride : {}),
         };
