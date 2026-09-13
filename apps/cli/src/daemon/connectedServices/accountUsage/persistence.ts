@@ -1,5 +1,7 @@
 import {
   ConnectedServiceUsageSourceV1Schema,
+  compareConnectedServiceQuotaObservationRecency,
+  isConnectedServiceQuotaObservationAtOrBeforeNow,
   ProviderAccountUsageRecordIdSchema,
   ProviderAccountUsageSnapshotV1Schema,
   sealProviderAccountUsageSnapshot,
@@ -130,9 +132,23 @@ function shouldPersistProviderAccountUsageSnapshot(input: Readonly<{
   previous: ProviderAccountUsagePersistenceMaterialState | null;
   next: ProviderAccountUsagePersistenceMaterialState;
   minFreshnessMs: number;
+  nowMs: number;
 }>): Readonly<{ persist: boolean; reason: string }> {
+  if (!isConnectedServiceQuotaObservationAtOrBeforeNow({
+    observedAtMs: input.next.fetchedAt,
+    nowMs: input.nowMs,
+  })) return { persist: false, reason: 'future' };
   if (!input.previous) return { persist: true, reason: 'first_snapshot' };
-  if (input.next.fetchedAt < input.previous.fetchedAt) return { persist: false, reason: 'stale' };
+  const recency = compareConnectedServiceQuotaObservationRecency({
+    existingObservedAtMs: input.previous.fetchedAt,
+    incomingObservedAtMs: input.next.fetchedAt,
+    nowMs: input.nowMs,
+  });
+  if (recency === 'incoming_older') return { persist: false, reason: 'stale' };
+  if (!isConnectedServiceQuotaObservationAtOrBeforeNow({
+    observedAtMs: input.previous.fetchedAt,
+    nowMs: input.nowMs,
+  })) return { persist: true, reason: 'clock_recovered' };
   if (input.next.status !== input.previous.status) return { persist: true, reason: 'status' };
   if (input.next.fingerprint !== input.previous.fingerprint) return { persist: true, reason: 'fingerprint' };
   if (input.next.fetchedAt - input.previous.fetchedAt >= input.minFreshnessMs) {
@@ -252,6 +268,7 @@ export function createProviderAccountUsagePersistenceScheduler(params: Readonly<
           previous: stateByPersistenceKey.get(persistenceKey) ?? null,
           next: materialState,
           minFreshnessMs,
+          nowMs: normalizeNonNegativeInteger(params.now()),
         });
         if (!decision.persist) {
           lastSuppressionReason = decision.reason;

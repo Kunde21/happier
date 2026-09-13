@@ -3,7 +3,10 @@ import type {
   ConnectedServiceAuthGroupV1,
   ConnectedServiceId,
 } from '@happier-dev/protocol';
-import { clearConnectedServiceAuthGroupMemberRuntimeBlockers } from '@happier-dev/protocol';
+import {
+  clearConnectedServiceAuthGroupMemberRuntimeBlockers,
+  compareConnectedServiceQuotaObservationRecency,
+} from '@happier-dev/protocol';
 
 import { logger as defaultLogger } from '@/ui/logger';
 import { ConnectedServiceAuthGroupRuntimeStateRevisionConflictError } from '@/api/connectedServices/connectedServiceCredentialApi';
@@ -238,7 +241,12 @@ export function reconcileMemberRuntimeStateWithFreshQuotaEvidence(params: Readon
   const state = params.state;
   const quotaSnapshot = params.quotaSnapshot;
   const lastObservedAtMs = numberOrNull(state?.lastObservedAtMs);
-  if (!state || !quotaSnapshot || (lastObservedAtMs !== null && quotaSnapshot.capturedAtMs <= lastObservedAtMs)) return state;
+  if (!state || !quotaSnapshot) return state;
+  if (lastObservedAtMs !== null && compareConnectedServiceQuotaObservationRecency({
+    existingObservedAtMs: lastObservedAtMs,
+    incomingObservedAtMs: quotaSnapshot.capturedAtMs,
+    nowMs: params.nowMs,
+  }) !== 'incoming_newer') return state;
   if (quotaSnapshot.planUnavailable || resolveSnapshotEligibilityBlocker(quotaSnapshot, params.nowMs)) return state;
 
   let changed = false;

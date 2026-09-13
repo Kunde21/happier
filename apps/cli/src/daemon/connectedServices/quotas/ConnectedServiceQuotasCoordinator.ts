@@ -6,6 +6,7 @@ import {
   ConnectedServiceCredentialRevisionV1Schema,
   readConnectedServiceCredentialRevisionBoundaryV1,
   ConnectedServiceUsageSourceV1Schema,
+  isConnectedServiceQuotaObservationFresh,
   isConnectedServiceCredentialHealthStatusUsable,
   type ConnectedServiceAuthGroupRuntimeStatePatchRequestV1,
   type ConnectedServiceAuthGroupV1,
@@ -653,12 +654,13 @@ export class ConnectedServiceQuotasCoordinator {
     if (input.snapshot.serviceId !== input.serviceId) {
       return { status: 'suppressed', reason: 'service_id_mismatch' };
     }
+    const now = Math.max(0, Math.trunc(this.now()));
 
     await this.recordFetchedQuotaSnapshotAsAccountUsage({
       serviceId: input.serviceId,
       profileId: input.profileId,
       snapshot: input.snapshot,
-      now: Math.max(0, Math.trunc(this.now())),
+      now,
       persistDurably: false,
     });
 
@@ -670,6 +672,7 @@ export class ConnectedServiceQuotasCoordinator {
       previous,
       incoming: { snapshot: input.snapshot, fingerprint: materialFingerprint, status },
       minFreshnessRefreshMs: this.quotaPersistenceMinFreshnessRefreshMs,
+      nowMs: now,
     });
     if (!materiality.persist) return { status: 'suppressed', reason: materiality.reason };
 
@@ -3300,7 +3303,11 @@ export class ConnectedServiceQuotasCoordinator {
     if (!Number.isFinite(fetchedAt) || !Number.isFinite(staleAfterMs) || fetchedAt <= 0 || staleAfterMs <= 0) return false;
     const policyMinPollIntervalMs = readFiniteNonNegativeMs(input.fetcher.pollPolicy?.minPollIntervalMs) ?? 0;
     const effectiveStaleAfterMs = Math.max(staleAfterMs, policyMinPollIntervalMs);
-    return !input.forcedRefresh && input.now < fetchedAt + effectiveStaleAfterMs;
+    return !input.forcedRefresh && isConnectedServiceQuotaObservationFresh({
+      observedAtMs: fetchedAt,
+      nowMs: input.now,
+      maxAgeMs: effectiveStaleAfterMs,
+    });
   }
 
   private shouldForceQuotaRefresh(existing: ExistingQuotaSnapshotResponse): boolean {

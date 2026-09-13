@@ -8,6 +8,7 @@ import {
   isConnectedServiceAuthGroupSoftSwitchCandidateMeaningfullyBetter,
   reconcileMemberRuntimeStateWithFreshQuotaEvidence,
   reconcileMemberRuntimeStateWithPositiveEvidence,
+  resolveConnectedServiceAuthGroupSoftSwitchSourceEvidence,
   selectConnectedServiceAuthGroupCandidate,
   resolveConnectedServiceAuthGroupQuotaResetCandidates,
   type ConnectedServiceAuthGroupMemberRuntimeState,
@@ -799,6 +800,28 @@ describe('selectConnectedServiceAuthGroupCandidate', () => {
     expect(result.excluded).not.toContainEqual(expect.objectContaining({
       profileId: 'blocked-but-usable',
     }));
+  });
+
+  it('does not treat a future-dated quota observation as fresh soft-switch evidence', () => {
+    expect(resolveConnectedServiceAuthGroupSoftSwitchSourceEvidence({
+      activeProfileId: 'active',
+      policy: {
+        ...basePolicy,
+        softSwitchRemainingPercent: 15,
+      },
+      memberStatesByProfileId: new Map([[
+        'active',
+        {
+          quotaSnapshot: {
+            capturedAtMs: 10_000,
+            effectiveMeterId: 'weekly',
+            effectiveRemainingPercent: 0,
+          },
+        },
+      ]]),
+      nowMs: 1_000,
+      quotaFreshnessMs: 60_000,
+    })).toEqual({ status: 'unknown', reason: 'missing_fresh_quota_snapshot' });
   });
 
   it('keeps a true fresh secondary quota blocker and uses its fresh reset instead of stale persisted reset', () => {

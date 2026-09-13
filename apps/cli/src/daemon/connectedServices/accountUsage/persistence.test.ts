@@ -232,6 +232,40 @@ describe('provider account usage persistence', () => {
     }
   });
 
+  it('does not let a future-dated observation suppress a later current persistence write', async () => {
+    const module = await loadPersistenceModule();
+    expect(module).not.toBeNull();
+    const api = {
+      getAccountEncryptionMode: vi.fn(async () => 'plain' as const),
+      registerProviderAccountUsageSnapshotPlain: vi.fn(async () => {}),
+    };
+    const scheduler = module!.createProviderAccountUsagePersistenceScheduler({
+      api,
+      now: () => 10_000,
+      fingerprintKey: new Uint8Array(32).fill(9),
+      minFreshnessMs: 60_000,
+    });
+    const future = { ...createSnapshot(), fetchedAtMs: 100_000, observedAtMs: 100_000 };
+    const current = { ...createSnapshot(), fetchedAtMs: 10_000, observedAtMs: 10_000 };
+    try {
+      await expect(scheduler.recordInBandSnapshot(future)).resolves.toEqual({
+        status: 'already_persisted',
+        reason: 'future',
+      });
+      await expect(scheduler.recordInBandSnapshot(current)).resolves.toEqual({
+        status: 'enqueued',
+        enqueue: 'accepted',
+      });
+      await scheduler.flush(1_000);
+      expect(api.registerProviderAccountUsageSnapshotPlain).toHaveBeenCalledTimes(1);
+      expect(api.registerProviderAccountUsageSnapshotPlain).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: expect.objectContaining({ fetchedAt: 10_000 }),
+      }));
+    } finally {
+      scheduler.dispose();
+    }
+  });
+
   it('rejects intake when the persistence scheduler cannot take custody', async () => {
     const module = await loadPersistenceModule();
     expect(module).not.toBeNull();

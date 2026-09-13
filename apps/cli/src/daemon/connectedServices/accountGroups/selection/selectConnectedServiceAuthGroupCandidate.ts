@@ -1,6 +1,7 @@
 import type { ProviderLimitCategory } from '../../quotas/normalization';
 import {
   ConnectedServiceAuthGroupPolicyV1Schema,
+  isConnectedServiceQuotaObservationFresh,
   isConnectedServiceCredentialHealthStatusUsable,
   type ConnectedServiceCredentialHealthStatusV1,
   type ConnectedServiceAuthGroupPolicyV1 as ProtocolConnectedServiceAuthGroupPolicyV1,
@@ -275,15 +276,11 @@ function isQuotaSnapshotWithinFreshnessWindow(
   nowMs: number,
   quotaFreshnessMs: number,
 ): boolean {
-  return nowMs - snapshot.capturedAtMs <= quotaFreshnessMs;
-}
-
-function isSnapshotNewerThanFailure(
-  snapshot: ConnectedServiceAuthGroupQuotaSnapshot,
-  state: ConnectedServiceAuthGroupMemberRuntimeState | null,
-): boolean {
-  const lastObservedAtMs = numberOrNull(state?.lastObservedAtMs);
-  return lastObservedAtMs === null || snapshot.capturedAtMs > lastObservedAtMs;
+  return isConnectedServiceQuotaObservationFresh({
+    observedAtMs: snapshot.capturedAtMs,
+    nowMs,
+    maxAgeMs: quotaFreshnessMs,
+  });
 }
 
 function meterHasRemainingQuota(meter: ConnectedServiceAuthGroupQuotaMeterSnapshot): boolean {
