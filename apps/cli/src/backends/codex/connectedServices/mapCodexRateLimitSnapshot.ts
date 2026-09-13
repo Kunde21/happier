@@ -65,6 +65,27 @@ function readUtilizationPct(value: unknown): number | null {
   return Math.max(0, Math.min(100, numeric));
 }
 
+function readWindowDurationMs(record: Record<string, unknown>): number | null {
+  const exactMs = readFiniteNumber(record.windowDurationMs ?? record.window_duration_ms);
+  if (exactMs !== null && exactMs > 0) return Math.trunc(exactMs);
+
+  const minutes = readFiniteNumber(
+    record.windowDurationMins
+      ?? record.window_duration_mins
+      ?? record.windowMinutes
+      ?? record.window_minutes,
+  );
+  if (minutes !== null && minutes > 0) return Math.trunc(minutes * 60_000);
+
+  const seconds = readFiniteNumber(
+    record.limitWindowSeconds
+      ?? record.limit_window_seconds
+      ?? record.windowSeconds
+      ?? record.window_seconds,
+  );
+  return seconds !== null && seconds > 0 ? Math.trunc(seconds * 1000) : null;
+}
+
 function readRelativeResetAtMs(record: Record<string, unknown>, nowMs: number): number | null {
   const seconds = readFiniteNumber(record.resetsInSeconds ?? record.resets_in_seconds);
   if (seconds === null || seconds < 0) return null;
@@ -89,9 +110,23 @@ function readAllowance(raw: unknown, fallbackId?: string | null): CodexRateLimit
   if (!record) return null;
   const nested = isRecord(record.rate_limit) ? record.rate_limit : isRecord(record.rateLimits) ? record.rateLimits : record;
   return {
-    providerLimitId: readString(record.limitId ?? record.limit_id ?? record.providerLimitId ?? record.provider_limit_id) ?? readString(fallbackId),
-    label: readString(record.limitName ?? record.limit_name ?? record.label ?? record.name),
-    modelId: readString(record.modelId ?? record.model_id ?? record.model),
+    providerLimitId:
+      readString(
+        record.limitId
+        ?? record.limit_id
+        ?? record.providerLimitId
+        ?? record.provider_limit_id
+        ?? record.meteredFeature
+        ?? record.metered_feature,
+      )
+      ?? readString(nested.limitId ?? nested.limit_id ?? nested.providerLimitId ?? nested.provider_limit_id)
+      ?? readString(fallbackId),
+    label:
+      readString(record.limitName ?? record.limit_name ?? record.label ?? record.name)
+      ?? readString(nested.limitName ?? nested.limit_name ?? nested.label ?? nested.name),
+    modelId:
+      readString(record.modelId ?? record.model_id ?? record.model)
+      ?? readString(nested.modelId ?? nested.model_id ?? nested.model),
     snapshot: nested,
   };
 }
@@ -157,6 +192,7 @@ function buildMeter(
     ?? legacyPresentation.meterId;
   const meterId = allowance.providerLimitId ? `${allowance.providerLimitId}:${meterKind}` : legacyPresentation.meterId;
   const allowanceLabel = allowance.label ?? formatProviderLimitLabel(allowance.providerLimitId);
+  const windowDurationMs = readWindowDurationMs(record);
   return {
     meterId,
     label: allowanceLabel
@@ -167,6 +203,7 @@ function buildMeter(
     remainingPct: derivedRemainingPct,
     resetAtMs: resetsAt,
     providerLimitId,
+    ...(windowDurationMs !== null ? { windowDurationMs } : {}),
     ...(allowance.modelId ? { modelId: allowance.modelId } : {}),
     unit: 'unknown',
     utilizationPct,

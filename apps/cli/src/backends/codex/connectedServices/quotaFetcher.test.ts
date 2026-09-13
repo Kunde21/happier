@@ -191,9 +191,14 @@ describe('createOpenAiCodexQuotaFetcher', () => {
       json: async () => ({
         plan_type: 'pro',
         rate_limit: { primary_window: { used_percent: 10 } },
-        additional_rate_limits: {
-          spark: { limit_name: 'Spark', model_id: 'gpt-5-spark', rate_limit: { primary_window: { used_percent: 80 } } },
-        },
+        additional_rate_limits: [{
+          limit_name: 'GPT-5.3-Codex-Spark',
+          metered_feature: 'codex_bengalfox',
+          rate_limit: {
+            primary_window: { used_percent: 80 },
+            secondary_window: { used_percent: 35 },
+          },
+        }],
       }),
     })) as unknown as typeof fetch);
     const record = buildConnectedServiceCredentialRecord({
@@ -204,7 +209,8 @@ describe('createOpenAiCodexQuotaFetcher', () => {
       .fetch({ record, now, signal: new AbortController().signal });
     expect(snapshot?.meters).toEqual(expect.arrayContaining([
       expect.objectContaining({ meterId: 'session', providerLimitId: 'session', utilizationPct: 10 }),
-      expect.objectContaining({ meterId: 'spark:primary', providerLimitId: 'spark', modelId: 'gpt-5-spark', utilizationPct: 80 }),
+      expect.objectContaining({ meterId: 'codex_bengalfox:primary', providerLimitId: 'codex_bengalfox', label: 'GPT-5.3-Codex-Spark · Primary', utilizationPct: 80 }),
+      expect.objectContaining({ meterId: 'codex_bengalfox:secondary', providerLimitId: 'codex_bengalfox', label: 'GPT-5.3-Codex-Spark · Secondary', utilizationPct: 35 }),
     ]));
   });
 
