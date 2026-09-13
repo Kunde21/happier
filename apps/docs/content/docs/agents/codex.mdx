@@ -206,7 +206,7 @@ Resume is strict: Happier does not silently replace a failed Codex resume with a
 
 ## Permissions and modes
 
-Happier uses a **provider-agnostic permission mode** (`default`, `read-only`, `safe-yolo`, `yolo`) and applies it to Codex in the best available way.
+Happier uses a **provider-agnostic permission intent** (`read_only`, `default`, `auto`, `yolo`) and applies it to Codex in the best available way.
 
 For the full user guide (CLI flags, UI picker, defaults, apply timing), see:
 
@@ -221,8 +221,8 @@ Codex enforcement is a combination of:
 
 Important notes:
 
-- `read-only` is enforced by Happier by **denying write-like actions** (edits/patches/exec) when Happier is the approver.
-- `safe-yolo` and `yolo` control whether Happier prompts vs auto-approves actions it can approve.
+- Read-only is enforced by Happier by **denying write-like actions** (edits/patches/exec) when Happier is the approver.
+- Auto and YOLO control whether Happier prompts vs auto-approves actions it can approve.
 - Codex backends may have sandbox policies that are **fixed at session start**. Changing permission mode mid-session can still update Happier’s approval behavior, but it may not change Codex’s internal sandbox until you start a new Codex session.
 
 ### Plan mode
