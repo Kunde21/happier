@@ -5,10 +5,7 @@ import {
   AccountEncryptionModeResponseSchema,
   CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER,
   CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-  CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER,
-  CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-  CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER,
-  CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
+  appendConnectedServiceAuthGroupReaderCapabilities,
   ConnectedServiceAuthGroupErrorResponseV1Schema,
   ConnectedServiceAuthGroupListResponseV1Schema,
   ConnectedServiceAuthGroupResponseV1Schema,
@@ -340,13 +337,11 @@ export async function listConnectedServiceAuthGroups(params: Readonly<{
   const serviceId = encodeURIComponent(params.serviceId);
   try {
     const response = await axios.get(
-      `${serverUrl}/v3/connect/${serviceId}/groups`,
+      appendConnectedServiceAuthGroupReaderCapabilities(`${serverUrl}/v3/connect/${serviceId}/groups`),
       {
         headers: {
           ...authHeaders(params.token),
           [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-          [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-          [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
         },
         timeout: resolveConnectedServicesServerApiTimeoutMs(),
       },
@@ -384,13 +379,11 @@ export async function getConnectedServiceAuthGroup(params: Readonly<{
 
   try {
     const response = await axios.get(
-      `${serverUrl}/v3/connect/${serviceId}/groups/${groupId}`,
+      appendConnectedServiceAuthGroupReaderCapabilities(`${serverUrl}/v3/connect/${serviceId}/groups/${groupId}`),
       {
         headers: {
           ...authHeaders(params.token),
           [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-          [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-          [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
         },
         timeout: resolveConnectedServicesServerApiTimeoutMs(),
         signal: params.signal,
