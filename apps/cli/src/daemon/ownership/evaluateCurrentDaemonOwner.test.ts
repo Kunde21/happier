@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { spawn } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { createEnvKeyScope } from '@/testkit/env/envScope';
 import { withTempDir } from '@/testkit/fs/tempDir';
@@ -95,37 +98,33 @@ describe('evaluateCurrentDaemonOwner', () => {
         });
     });
 
-    it('returns a process conflict when a daemon is starting with a lock but no state yet', async () => {
+    it('allows an expected daemon to finish initial authentication when its startup lock exists before state', async () => {
         await withTempDir('happier-daemon-owner-starting-lock-', async (homeDir) => {
             envScope.patch({
                 HAPPIER_HOME_DIR: homeDir,
                 HAPPIER_ACTIVE_SERVER_ID: 'cloud',
                 HAPPIER_PUBLIC_RELEASE_CHANNEL: 'stable',
+                HAPPIER_DAEMON_PROCESS_INVENTORY_FALLBACK: '1',
             });
-            vi.resetModules();
-            vi.doMock('@/daemon/controlClient', () => ({
-                inspectDaemonRunningStateAndCleanupStaleState: async () => ({
-                    status: 'starting',
-                    pid: 12345,
-                }),
-            }));
+            const child = spawn(
+                process.execPath,
+                ['-e', 'setInterval(() => {}, 1000)', join(process.cwd(), 'src/index.ts'), 'daemon', 'start-sync'],
+                { stdio: 'ignore' },
+            );
+            if (!child.pid) throw new Error('missing daemon fixture pid');
 
             try {
-                const { evaluateCurrentDaemonOwner } = await import('./evaluateCurrentDaemonOwner');
+                vi.resetModules();
+                const [{ configuration }, { evaluateCurrentDaemonOwner }] = await Promise.all([
+                    import('@/configuration'),
+                    import('./evaluateCurrentDaemonOwner'),
+                ]);
+                mkdirSync(dirname(configuration.daemonLockFile), { recursive: true });
+                writeFileSync(configuration.daemonLockFile, String(child.pid), 'utf8');
 
-                const evaluation = await evaluateCurrentDaemonOwner();
-
-                expect(evaluation.kind).toBe('conflict');
-                if (evaluation.kind !== 'conflict') {
-                    throw new Error(`unexpected evaluation: ${evaluation.kind}`);
-                }
-                expect(evaluation.owner.source).toBe('process');
-                expect(evaluation.owner.status).toBe('starting');
-                expect(evaluation.owner.state.pid).toBe(12345);
-                expect(evaluation.owner.versionMatches).toBe(false);
-                expect(evaluation.owner.releaseChannelMatches).toBe(false);
+                await expect(evaluateCurrentDaemonOwner()).resolves.toEqual({ kind: 'none' });
             } finally {
-                vi.doUnmock('@/daemon/controlClient');
+                child.kill('SIGKILL');
             }
         });
     });
@@ -164,7 +163,7 @@ describe('evaluateCurrentDaemonOwner', () => {
         });
     });
 
-    it('accepts a state-less daemon with the same explicit lifecycle scope despite a different endpoint profile', async () => {
+    it('blocks a real state-less daemon with the same explicit lifecycle scope despite a different endpoint profile', async () => {
         await withTempDir('happier-daemon-owner-lifecycle-match-', async (homeDir) => {
             envScope.patch({
                 HAPPIER_HOME_DIR: homeDir,
@@ -205,7 +204,7 @@ describe('evaluateCurrentDaemonOwner', () => {
         });
     });
 
-    it('accepts a state-less daemon with the same explicit lifecycle scope despite a changed endpoint URL', async () => {
+    it('blocks a real state-less daemon with the same explicit lifecycle scope despite a changed endpoint URL', async () => {
         await withTempDir('happier-daemon-owner-lifecycle-match-url-change-', async (homeDir) => {
             envScope.patch({
                 HAPPIER_HOME_DIR: homeDir,

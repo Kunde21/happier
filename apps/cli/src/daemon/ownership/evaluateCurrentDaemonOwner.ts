@@ -164,23 +164,7 @@ export async function evaluateCurrentDaemonOwner(): Promise<DaemonOwnerEvaluatio
   }
 
   if (!('state' in inspection)) {
-    const owner: CurrentDaemonOwner = {
-      status: inspection.status,
-      source: 'process',
-      state: {
-        pid: inspection.pid,
-        httpPort: 0,
-        startedAt: Date.now(),
-        startedWithCliVersion: 'unknown',
-      },
-      currentCliVersion,
-      currentPublicReleaseChannel,
-      versionMatches: false,
-      releaseChannelMatches: false,
-      serviceManaged: null,
-      startupSource: 'unknown',
-    };
-    return { kind: 'conflict', owner };
+    return { kind: 'none' };
   }
 
   const state = inspection.state;
