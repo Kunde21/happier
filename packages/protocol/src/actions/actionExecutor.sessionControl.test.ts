@@ -264,7 +264,7 @@ describe('createActionExecutor (session control)', () => {
     expect(res).toEqual({ ok: true, result: { ok: true } });
     expect(sessionPermissionModeSet).toHaveBeenCalledWith({
       sessionId: 's1',
-      permissionMode: 'read_only',
+      permissionMode: 'read-only',
       serverId: 'server-a',
     });
   });

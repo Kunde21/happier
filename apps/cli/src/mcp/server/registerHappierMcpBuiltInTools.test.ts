@@ -4,6 +4,33 @@ import { ActionsSettingsV1Schema } from '@happier-dev/protocol';
 import { registerHappierMcpBuiltInTools } from './registerHappierMcpBuiltInTools';
 
 describe('registerHappierMcpBuiltInTools', () => {
+  it('projects canonical read annotations only onto concrete action tools', () => {
+    const registrations = new Map<string, Record<string, unknown>>();
+
+    registerHappierMcpBuiltInTools({
+      registerTool: (name, meta) => registrations.set(name, meta as Record<string, unknown>),
+    }, {
+      sessionId: 'sess-current',
+      surface: 'session_agent',
+      actionsSettings: ActionsSettingsV1Schema.parse({ v: 1, actions: {} }),
+      deps: {
+        changeTitle: async () => ({ success: true }),
+        startExecutionRun: async () => ({ ok: false as const, errorCode: 'unsupported', error: 'unsupported' }),
+        executeActionByToolName: async () => ({ ok: true as const, result: {} }),
+      },
+    });
+
+    expect(registrations.get('execution_run_wait')?.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+    expect(registrations.get('execution_run_get')?.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+    expect(registrations.get('action_execute')).not.toHaveProperty('annotations');
+  });
+
   it('projects declared contextual fields as optional only when trusted context is available', () => {
     const registrations = new Map<string, { inputSchema?: { safeParse?: (value: unknown) => { success: boolean } } }>();
 

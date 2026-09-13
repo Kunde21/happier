@@ -73,6 +73,7 @@ export function registerHappierMcpBuiltInTools(
                 description: tool.description,
                 title: tool.title,
                 inputSchema,
+                ...(tool.annotations === undefined ? {} : { annotations: tool.annotations }),
             },
             async (args: unknown, extra?: unknown) => {
                 try {
