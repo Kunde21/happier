@@ -2,13 +2,55 @@ import { describe, expect, it } from 'vitest';
 
 import { BUILT_IN_ACP_CONFIG, getBuiltInAcpConfig, hasBuiltInAcpConfig } from './acp.js';
 import { getProviderCliRuntimeSpec } from './providers/providerCliRuntime.js';
+import { getAgentToolsCapability } from './tools.js';
 import type { AgentId } from './types.js';
 
 const devinAgentId = 'devin' as AgentId;
 
 describe('built-in ACP config', () => {
   it('keeps the built-in ACP allowlist explicit and drift-free', () => {
-    expect(Object.keys(BUILT_IN_ACP_CONFIG).sort()).toEqual(['customAcp', 'devin', 'kiro']);
+    expect(Object.keys(BUILT_IN_ACP_CONFIG).sort()).toEqual(['agy', 'customAcp', 'devin', 'droid', 'fx', 'kimi', 'kiro']);
+  });
+
+  it('declares FX and Factory Droid through provider-advertised generic ACP controls', () => {
+    expect(getBuiltInAcpConfig('fx')).toMatchObject({
+      launcher: { command: 'fx', args: ['acp'] },
+      supportsLoadSession: true,
+      supportsModes: 'yes',
+      supportsModels: 'yes',
+      mcpServers: 'pass',
+    });
+    expect(getBuiltInAcpConfig('droid')).toMatchObject({
+      launcher: { command: 'droid', args: ['exec', '--output-format', 'acp'] },
+      supportsLoadSession: true,
+      supportsModes: 'yes',
+      supportsModels: 'yes',
+      mcpServers: 'pass',
+    });
+  });
+
+  it('declares Agy through negotiated generic ACP controls without a permission override', () => {
+    expect(getBuiltInAcpConfig('agy')).toEqual({
+      agentId: 'agy',
+      launcher: { command: 'agy', args: [] },
+      transportProfile: 'generic',
+      supportsLoadSession: true,
+      supportsModes: 'auto',
+      supportsModels: 'auto',
+      promptImageSupport: 'auto',
+      mcpServers: 'pass',
+    });
+  });
+
+  it('declares current Kimi Code through standard negotiated ACP controls', () => {
+    expect(getBuiltInAcpConfig('kimi')).toMatchObject({
+      launcher: { command: 'kimi', args: ['acp'] },
+      supportsLoadSession: true,
+      supportsModes: 'no',
+      supportsModels: 'yes',
+      mcpServers: 'pass',
+    });
+    expect(getBuiltInAcpConfig('kimi')).not.toHaveProperty('permissionModeMapping');
   });
 
   it('keeps first-class Grok provider wiring out of the generic ACP catalog', () => {
@@ -75,5 +117,24 @@ describe('built-in ACP config', () => {
   it('does not mark non-ACP shell-bridge providers as built-in ACP', () => {
     expect(hasBuiltInAcpConfig('gemini')).toBe(false);
     expect(hasBuiltInAcpConfig('pi')).toBe(false);
+  });
+
+  /**
+   * The runner resolves Happier/custom MCP servers only for `native_mcp` delivery, then the
+   * ACP backend decides whether those descriptors ride `session/new`/`session/load`. An agent
+   * that declares ACP pass-through while declaring shell-bridge delivery therefore reaches the
+   * provider with an empty MCP map — the declaration promises tools the runner never resolves.
+   */
+  it('never declares ACP MCP pass-through for an agent whose tools delivery is not native MCP', () => {
+    const inconsistent = Object.values(BUILT_IN_ACP_CONFIG)
+      .filter((config) => config !== undefined && config.mcpServers !== 'drop')
+      .filter((config) => getAgentToolsCapability(config.agentId).delivery !== 'native_mcp')
+      .map((config) => config.agentId);
+    expect(inconsistent).toEqual([]);
+  });
+
+  it('keeps Kimi Code on native MCP delivery so its ACP pass-through carries real servers', () => {
+    expect(getBuiltInAcpConfig('kimi')?.mcpServers).toBe('pass');
+    expect(getAgentToolsCapability('kimi').delivery).toBe('native_mcp');
   });
 });

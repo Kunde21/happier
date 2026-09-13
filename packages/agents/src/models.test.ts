@@ -202,12 +202,14 @@ describe('agent model config', () => {
     const kimi = getAgentModelConfig('kimi');
     expect(kimi).toMatchObject({
       supportsSelection: true,
+      supportsFreeform: false,
       nonAcpApplyScope: 'next_prompt',
+      acpApplyBehavior: 'set_model',
       acpModelConfigOptionId: 'model',
+      acpModelSetMethod: 'config_option',
       dynamicProbe: 'auto',
       defaultMode: 'default',
       allowedModes: ['default'],
     });
-    expect(kimi.supportsFreeform).not.toBe(true);
   });
 });

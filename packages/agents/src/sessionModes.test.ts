@@ -40,6 +40,7 @@ describe('sessionModes', () => {
   });
 
   it('keeps flat compatibility shims aligned with the structured descriptor', () => {
+    expect(getAgentSessionModesKind('kimi')).toBe('none');
     expect(getAgentSessionModesKind('claude')).toBe('staticAgentModes');
     expect(getAgentSessionModesKind('opencode')).toBe('acpAgentModes');
     expect(getAgentSessionModesKind('codex')).toBe('acpPolicyPresets');

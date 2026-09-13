@@ -11,7 +11,7 @@ export type AgentAuthProbeParser =
   | 'copilotGhAuth'
   | 'kiroWhoamiJson'
   | 'cursorAboutJson'
-  | 'commandExitStatus';
+  | 'devinAuthStatus';
 
 export type AgentAuthProbeBackgroundChecks = 'safe' | 'manual_only';
 
@@ -106,7 +106,7 @@ export const AGENT_AUTH_PROBE_CONFIG: Readonly<Record<AgentId, AgentAuthProbeCon
     agentId: 'devin',
     binaryNames: [getProviderCliRuntimeSpec('devin').binaryName],
     statusCommand: ['auth', 'status'],
-    parser: 'commandExitStatus',
+    parser: 'devinAuthStatus',
     // The current CLI writes its log on startup, so do not invoke it as an ambient background probe.
     backgroundChecks: 'manual_only',
   },
@@ -148,6 +148,31 @@ export const AGENT_AUTH_PROBE_CONFIG: Readonly<Record<AgentId, AgentAuthProbeCon
     parser: 'unknown',
     backgroundChecks: 'safe',
     envVars: ['XAI_API_KEY'],
+  },
+  agy: {
+    agentId: 'agy',
+    binaryNames: [getProviderCliRuntimeSpec('agy').binaryName],
+    statusCommand: null,
+    parser: 'unknown',
+    // Interactive `agy` auth is local-login backed; never probe it ambiently.
+    // The managed ACP server surface stays separate from this CLI identity.
+    backgroundChecks: 'manual_only',
+  },
+  fx: {
+    agentId: 'fx',
+    binaryNames: [getProviderCliRuntimeSpec('fx').binaryName],
+    statusCommand: ['status', '--json'],
+    parser: 'unknown',
+    backgroundChecks: 'manual_only',
+    envVars: ['VERCEL_OIDC_TOKEN', 'AI_GATEWAY_API_KEY'],
+  },
+  droid: {
+    agentId: 'droid',
+    binaryNames: [getProviderCliRuntimeSpec('droid').binaryName],
+    statusCommand: null,
+    parser: 'unknown',
+    backgroundChecks: 'manual_only',
+    envVars: ['FACTORY_API_KEY'],
   },
 });
 

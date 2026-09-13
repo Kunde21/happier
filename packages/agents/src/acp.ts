@@ -72,6 +72,54 @@ export const BUILT_IN_ACP_CONFIG: Readonly<Partial<Record<AgentId, BuiltInAcpCon
       plan: 'plan',
     },
   },
+  agy: {
+    agentId: 'agy',
+    // The interactive CLI remains `agy`; the CLI catalog replaces this launch
+    // command with the ensured managed registry artifact for ACP sessions.
+    launcher: { command: providerLauncherCommand('agy'), args: [] },
+    transportProfile: 'generic',
+    supportsLoadSession: true,
+    supportsModes: 'auto',
+    supportsModels: 'auto',
+    promptImageSupport: 'auto',
+    mcpServers: 'pass',
+  },
+  fx: {
+    agentId: 'fx',
+    launcher: { command: providerLauncherCommand('fx'), args: ['acp'] },
+    transportProfile: 'generic',
+    supportsLoadSession: true,
+    supportsModes: 'yes',
+    supportsModels: 'yes',
+    promptImageSupport: 'yes',
+    mcpServers: 'pass',
+    permissionModeMapping: {
+      default: null,
+      'read-only': 'ask',
+      'safe-yolo': 'code',
+    },
+  },
+  droid: {
+    agentId: 'droid',
+    launcher: { command: providerLauncherCommand('droid'), args: ['exec', '--output-format', 'acp'] },
+    transportProfile: 'generic',
+    supportsLoadSession: true,
+    supportsModes: 'yes',
+    supportsModels: 'yes',
+    promptImageSupport: 'auto',
+    mcpServers: 'pass',
+  },
+  kimi: {
+    agentId: 'kimi',
+    launcher: { command: providerLauncherCommand('kimi'), args: ['acp'] },
+    transportProfile: 'generic',
+    supportsLoadSession: true,
+    // Do not expose automatic approval modes until authenticated live behavior is verified.
+    supportsModes: 'no',
+    supportsModels: 'yes',
+    promptImageSupport: 'yes',
+    mcpServers: 'pass',
+  },
 });
 
 export function hasBuiltInAcpConfig(agentId: AgentId): boolean {
