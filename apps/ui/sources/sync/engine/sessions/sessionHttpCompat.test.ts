@@ -165,6 +165,14 @@ describe('session record coercion carries the server-materialized unread entry f
         expect(parsed?.session.unreadSince).toBe(UNREAD_SINCE_MS);
     });
 
+    it('normalizes a nullable rollback projection to absence', () => {
+        const parsed = parseCompatSessionByIdResponse({
+            session: rawSessionRow({ rollbackEligibleTurnStarts: null }),
+        });
+
+        expect(parsed?.session.rollbackEligibleTurnStarts).toBeUndefined();
+    });
+
     it('coerces a row from a server that does not send unreadSince to null', async () => {
         const request = v2ListRequest([rawSessionRow()]);
 

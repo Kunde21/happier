@@ -344,12 +344,8 @@ export async function fetchAndApplySessionById(params: Readonly<{
     agentState,
     accessLevel: normalizedAccessLevel,
     canApprovePermissions: row.share?.canApprovePermissions ?? undefined,
-    ...(sessionTurns
-      ? {
-        sessionTurns,
-        rollbackEligibleTurnStarts,
-      }
-      : {}),
+    ...(sessionTurns ? { sessionTurns } : {}),
+    rollbackEligibleTurnStarts: rollbackEligibleTurnStarts ? [...rollbackEligibleTurnStarts] : undefined,
   };
 
   const previousSession = params.getExistingSession?.(sessionId);
@@ -362,12 +358,8 @@ export async function fetchAndApplySessionById(params: Readonly<{
       ...row,
       serverId: typeof params.serverId === 'string' && params.serverId.trim().length > 0 ? params.serverId.trim() : undefined,
       metadata,
-      ...(sessionTurns
-        ? {
-          sessionTurns,
-          rollbackEligibleTurnStarts,
-        }
-        : {}),
+      ...(sessionTurns ? { sessionTurns } : {}),
+      rollbackEligibleTurnStarts: rollbackEligibleTurnStarts ? [...rollbackEligibleTurnStarts] : undefined,
     },
   };
 }
