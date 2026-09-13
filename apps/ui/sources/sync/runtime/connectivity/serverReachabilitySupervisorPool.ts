@@ -399,10 +399,8 @@ export async function waitForServerReachable(params: Readonly<{
     const tokenChanged = entry.token !== params.token;
     entry.token = params.token;
 
-    // IMPORTANT: `createManagedConnectionSupervisor.start()` will immediately create/connect a transport when the
-    // supervisor is already started but currently offline/auth_failed. For reachability supervision we must not
-    // bypass the existing probe/backoff schedule (otherwise each caller waiting for reachability can reset the
-    // offline state and cause request storms).
+    // `start()` preserves an offline reconnect schedule, but this phase gate also makes the
+    // reachability pool's activation intent explicit and keeps auth recovery tied to token change.
     //
     // Only start when the supervisor has never been started (idle) or when it was explicitly stopped (shutting_down).
     // If we are stuck in auth_failed and the auth token changed, restart from a fresh initial probe.

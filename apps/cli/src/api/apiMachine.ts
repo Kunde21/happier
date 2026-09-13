@@ -338,8 +338,10 @@ export class ApiMachineClient {
             logger: (msg, data) => logger.debug(msg, data),
             onRegistrationError: (error) => {
                 const probe = classifyMachineTransportErrorToProbeResult(error);
-                if (probe) {
-                    this.connectionSupervisor?.reportProbeResult?.(probe);
+                const supervisor = this.connectionSupervisor;
+                const probeReportScope = supervisor?.captureProbeReportScope?.();
+                if (probe && probeReportScope) {
+                    supervisor?.reportProbeResult?.(probe, probeReportScope);
                 }
             },
             onRegistrationAcknowledged: () => {
@@ -1150,6 +1152,7 @@ export class ApiMachineClient {
         opts: { reason: 'connect' | 'reconnect' | 'live' },
         signal: AbortSignal = new AbortController().signal,
     ): Promise<void> {
+        const probeReportScope = this.connectionSupervisor?.captureProbeReportScope?.();
         // A live account update is a committed runtime/user action. Preserve that authority so
         // every live group-bound runtime consumes the generation. Startup and reconnect catch-up
         // stay passive and cannot manufacture a restart, continuation, or provider input.
@@ -1174,6 +1177,7 @@ export class ApiMachineClient {
                 supervisor: this.connectionSupervisor,
                 error,
                 hadAuth: true,
+                probeReportScope,
             })) {
                 return;
             }
@@ -1228,6 +1232,7 @@ export class ApiMachineClient {
                     supervisor: this.connectionSupervisor,
                     error: result.error,
                     hadAuth: true,
+                    probeReportScope,
                 })) {
                     return;
                 }
