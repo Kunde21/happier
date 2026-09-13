@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { createEnvKeyScope } from '@/testkit/env/envScope';
 import { createTempDirSync, removeTempDirSync } from '@/testkit/fs/tempDir';
-import { startManagedOpenCodeServer } from './openCodeManagedServer';
+import { buildOpenCodeV2BrokerConfigContent, startManagedOpenCodeServer } from './openCodeManagedServer';
 
 const envKeys = ['PATH', 'HOME', 'HAPPIER_HOME_DIR', 'HAPPIER_OPENCODE_PATH'] as const;
 const TEMP_DIRS = new Set<string>();
@@ -17,6 +17,17 @@ afterEach(() => {
 });
 
 describe('startManagedOpenCodeServer', () => {
+  it('uses the pinned V2 plugin config key for broker materialization', () => {
+    const config = JSON.parse(buildOpenCodeV2BrokerConfigContent(['openai', 'anthropic']));
+    expect(config).toEqual({
+      plugin: [
+        expect.stringMatching(/happier-broker-openai\.js$/u),
+        expect.stringMatching(/happier-broker-anthropic\.js$/u),
+      ],
+    });
+    expect(config).not.toHaveProperty('plugins');
+  });
+
   it('fails closed when the OpenCode CLI is unavailable', async () => {
     const root = createTempDirSync('happier-opencode-server-test-');
     TEMP_DIRS.add(root);

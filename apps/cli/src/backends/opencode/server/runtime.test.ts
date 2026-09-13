@@ -12058,8 +12058,14 @@ describe('createOpenCodeServerRuntime — connected-service broker preflight (fa
       }), 'utf8');
       const healthFetch = vi.fn(async (input: string | URL | Request) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url === 'http://127.0.0.1:7777/api/health') {
+          return new Response('{}', { status: 404, headers: { 'content-type': 'application/json' } });
+        }
         if (url === 'http://127.0.0.1:7777/global/health') {
-          return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+          return new Response(JSON.stringify({ healthy: true, version: 'test' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
         }
         throw new Error(`Unexpected OpenCode client request in broker reuse test: ${url}`);
       });

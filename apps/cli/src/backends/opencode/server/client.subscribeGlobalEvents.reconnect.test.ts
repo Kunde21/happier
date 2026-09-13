@@ -148,7 +148,11 @@ describe('createOpenCodeServerRuntimeClient.subscribeGlobalEvents', () => {
   });
 
   it('reopens the instance event stream and requires a fresh boundary when the directory changes', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => createOkJsonResponse({ healthy: true, version: 'test' })) as any);
+    vi.stubGlobal('fetch', vi.fn(async (url: any) => createOkJsonResponse(
+      String(url).includes('/global/health')
+        ? { healthy: true, version: 'test' }
+        : {},
+    )) as any);
 
     const { subscribeSseJson } = await import('./openCodeSse');
     const subscribeMock = subscribeSseJson as unknown as ReturnType<typeof vi.fn>;
@@ -180,6 +184,7 @@ describe('createOpenCodeServerRuntimeClient.subscribeGlobalEvents', () => {
     const onEvent = vi.fn();
     const controller = new AbortController();
     await client.subscribeGlobalEvents({ signal: controller.signal, onEvent });
+    await expect.poll(() => subscribeMock.mock.calls.length).toBe(1);
 
     expect(client.setDirectoryOverride('/tmp/right')).toBe(true);
     expect(firstClose).toHaveBeenCalledTimes(1);
@@ -306,7 +311,7 @@ describe('createOpenCodeServerRuntimeClient.subscribeGlobalEvents', () => {
     const fetchSpy = vi.fn(async (url: any) => {
       const urlStr = String(url);
       if (urlStr.includes('127.0.0.1:9999') && urlStr.includes('/global/health')) {
-        return createResponse({ ok: false, status: 502, statusText: 'Bad Gateway', body: { healthy: false } }) as any;
+        return createOkJsonResponse({ healthy: true, version: 'test' }) as any;
       }
       if (urlStr.includes('127.0.0.1:10000') && urlStr.includes('/global/health')) {
         return createOkJsonResponse({ healthy: true, version: 'test' }) as any;

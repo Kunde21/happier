@@ -135,30 +135,49 @@ async function fetchJson<T>(params: {
     if (timer) clearTimeout(timer);
   }
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    // Provider error bodies can echo prompt content or credentials. Keep request diagnostics to
+    // method, redacted URL, and HTTP status; do not deserialize or log the response body.
+    void response.body?.cancel().catch(() => {});
     throw new Error(
-      `OpenCode HTTP ${params.method} ${redactOpenCodeUrlForError(params.url)} failed: ${response.status} ${response.statusText}${text ? `\n${text}` : ''}`
+      `OpenCode HTTP ${params.method} ${redactOpenCodeUrlForError(params.url)} failed: ${response.status} ${response.statusText}`
     );
   }
   if (response.status === 204) return undefined as unknown as T;
   return (await response.json()) as T;
 }
 
-function isRetryableManagedServerTransportError(error: unknown): boolean {
+type ManagedServerTransportFailureKind =
+  | 'fetch_failed'
+  | 'connection_refused'
+  | 'connection_reset'
+  | 'socket_hang_up'
+  | 'connect_error'
+  | 'terminated'
+  | 'network_error'
+  | 'peer_closed';
+
+type ManagedServerRetryOperation =
+  | 'session_messages_list'
+  | 'session_update'
+  | 'session_todo'
+  | 'session_diff'
+  | 'session_status_list'
+  | 'permission_list'
+  | 'question_list';
+
+function classifyRetryableManagedServerTransportError(error: unknown): ManagedServerTransportFailureKind | null {
   const message = error instanceof Error ? error.message : String(error ?? '');
   const normalized = message.trim().toLowerCase();
-  if (!normalized) return false;
-  if (normalized.startsWith('opencode http ')) return false;
-  return (
-    normalized.includes('fetch failed')
-    || normalized.includes('econnrefused')
-    || normalized.includes('econnreset')
-    || normalized.includes('socket hang up')
-    || normalized.includes('connect_error')
-    || normalized.includes('terminated')
-    || normalized.includes('networkerror')
-    || normalized.includes('other side closed')
-  );
+  if (!normalized || normalized.startsWith('opencode http ')) return null;
+  if (normalized.includes('fetch failed')) return 'fetch_failed';
+  if (normalized.includes('econnrefused')) return 'connection_refused';
+  if (normalized.includes('econnreset')) return 'connection_reset';
+  if (normalized.includes('socket hang up')) return 'socket_hang_up';
+  if (normalized.includes('connect_error')) return 'connect_error';
+  if (normalized.includes('terminated')) return 'terminated';
+  if (normalized.includes('networkerror')) return 'network_error';
+  if (normalized.includes('other side closed')) return 'peer_closed';
+  return null;
 }
 
 function isOpenCodeSseReadIdleTimeoutError(error: unknown): boolean {
@@ -294,6 +313,111 @@ function readOpenCodeProviderList(raw: unknown): ReadonlyArray<{ id: string; env
   }) as Array<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }>;
 }
 
+type OpenCodeApiGeneration = Readonly<{
+  kind: 'v1' | 'v2';
+  legacyApiCompatible: boolean;
+  legacyMcpCompatible: boolean;
+}>;
+
+function readWrappedOpenCodeV2Data(raw: unknown): unknown {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>).data : undefined;
+}
+
+function normalizeOpenCodeV2Session(raw: unknown): OpenCodeSession {
+  const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const location = record.location && typeof record.location === 'object' && !Array.isArray(record.location)
+    ? record.location as Record<string, unknown>
+    : null;
+  const normalized: Record<string, unknown> = {
+    ...record,
+    id: typeof record.id === 'string' ? record.id : '',
+    ...(typeof location?.directory === 'string' ? { directory: location.directory } : {}),
+  };
+  delete normalized.location;
+  return normalized as OpenCodeSession;
+}
+
+function normalizeOpenCodeV2Message(raw: unknown, sessionId: string): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const message = raw as Record<string, unknown>;
+  const type = typeof message.type === 'string' ? message.type : '';
+  const role = type === 'user' || type === 'assistant' ? type : type;
+  const info: Record<string, unknown> = { ...message, role, sessionID: sessionId };
+  delete info.type;
+  delete info.text;
+  delete info.content;
+  const parts = Array.isArray(message.content)
+    ? message.content.map((part) => {
+        if (!part || typeof part !== 'object' || Array.isArray(part)) return part;
+        const record = part as Record<string, unknown>;
+        return {
+          ...record,
+          sessionID: sessionId,
+          messageID: message.id,
+          ...(record.type === 'tool' ? { callID: record.id, tool: record.name } : {}),
+        };
+      })
+    : type === 'user' && typeof message.text === 'string'
+      ? [{ type: 'text', text: message.text }]
+      : [];
+  return { info, parts };
+}
+
+function normalizeOpenCodeV2PermissionRequest(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const record = raw as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {
+    id: record.id,
+    sessionID: record.sessionID,
+    permission: record.action,
+    patterns: Array.isArray(record.resources) ? record.resources : [],
+    metadata: record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+      ? record.metadata
+      : {},
+    always: Array.isArray(record.save) ? record.save : [],
+    ...(record.tool && typeof record.tool === 'object' && !Array.isArray(record.tool) ? { tool: record.tool } : {}),
+  };
+  return normalized;
+}
+
+function normalizeOpenCodeV2Event(type: string, rawData: unknown): Readonly<{ type: string; properties: unknown }> {
+  if (type === 'permission.asked') {
+    return { type, properties: normalizeOpenCodeV2PermissionRequest(rawData) };
+  }
+  if (type === 'session.next.execution.settled' && rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+    const data = rawData as Record<string, unknown>;
+    if (data.outcome === 'failure') {
+      return {
+        type: 'session.error',
+        properties: { sessionID: data.sessionID, error: data.error ?? { message: 'OpenCode V2 execution failed' } },
+      };
+    }
+    return { type: 'session.idle', properties: { sessionID: data.sessionID } };
+  }
+  return { type, properties: rawData };
+}
+
+function buildOpenCodeV2Prompt(parts: unknown[]): Record<string, unknown> {
+  const text: string[] = [];
+  const files: unknown[] = [];
+  for (const part of parts) {
+    const record = part && typeof part === 'object' && !Array.isArray(part) ? part as Record<string, unknown> : null;
+    if (record?.type === 'text' && typeof record.text === 'string') text.push(record.text);
+    else if (
+      record?.type === 'file'
+      && typeof record.url === 'string'
+      && typeof record.mime === 'string'
+    ) {
+      files.push({
+        uri: record.url,
+        ...(typeof record.filename === 'string' ? { name: record.filename } : {}),
+      });
+    }
+    else throw new Error('OpenCode V2 prompt contains an unsupported part');
+  }
+  return { text: text.join(''), ...(files.length > 0 ? { files } : {}) };
+}
+
 async function sleepUntilOrAbort(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;
   await new Promise<void>((resolve) => {
@@ -347,12 +471,20 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
   const probeHealth = async (candidateBaseUrl: string): Promise<boolean> => {
     try {
       const probeTimeoutMs = httpTimeoutMs ? Math.min(2_000, httpTimeoutMs) : 900;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), probeTimeoutMs);
-      timer.unref?.();
-      const res = await fetch(buildUrl(candidateBaseUrl, '/global/health'), { method: 'GET', headers, signal: ctrl.signal }).catch(() => null);
-      clearTimeout(timer);
-      return Boolean(res?.ok);
+      for (const path of ['/api/health', '/global/health']) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), probeTimeoutMs);
+        timer.unref?.();
+        const res = await fetch(buildUrl(candidateBaseUrl, path), { method: 'GET', headers, signal: ctrl.signal }).catch(() => null);
+        clearTimeout(timer);
+        if (res?.ok) {
+          const body = await res.json().catch(() => null) as unknown;
+          if (body && typeof body === 'object' && !Array.isArray(body) && (body as { healthy?: unknown }).healthy === true) {
+            return true;
+          }
+        }
+      }
+      return false;
     } catch {
       return false;
     }
@@ -366,6 +498,10 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
         requireBrokerLoadNonce: requiresOpenCodeBrokerLoadNonce(env),
       }),
   );
+  let apiGeneration: (OpenCodeApiGeneration & { key: string }) | null = null;
+  const permissionSessionByRequestId = new Map<string, string>();
+  const questionSessionByRequestId = new Map<string, string>();
+  const todosBySessionId = new Map<string, unknown[]>();
 
   // Managed-server generation identity. The runtime uses this to detect mid-turn server replacement
   // (Lane E). It is tracked only in managed mode; explicit URL / override modes never emit changes.
@@ -387,6 +523,10 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
     }
     const previous = managedServerIdentity;
     managedServerIdentity = nextIdentity;
+    apiGeneration = null;
+    permissionSessionByRequestId.clear();
+    questionSessionByRequestId.clear();
+    todosBySessionId.clear();
     // The initial baseline must not surface as a "change"; only genuine replacements do.
     if (reason === 'initial') return;
     try {
@@ -478,30 +618,73 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
     }
   };
 
+  const ensureApiGeneration = async (): Promise<OpenCodeApiGeneration> => {
+    const key = `${baseUrl}:${managedServerIdentity?.generationKey ?? ''}`;
+    if (apiGeneration?.key === key) return apiGeneration;
+    const probe = async (path: string): Promise<unknown> => {
+      try {
+        return await fetchJson<unknown>({
+          url: buildUrl(baseUrl, path), method: 'GET', headers,
+          timeoutMs: Math.min(2_000, httpTimeoutMs ?? 2_000),
+        });
+      } catch {
+        return null;
+      }
+    };
+    const v2 = await probe('/api/health');
+    if (v2 && typeof v2 === 'object' && !Array.isArray(v2) && (v2 as Record<string, unknown>).healthy === true) {
+      const legacy = await probe('/global/health');
+      const legacyRecord = legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : null;
+      const legacyMcp = legacyRecord?.healthy === true && typeof legacyRecord.version === 'string'
+        ? await probe('/mcp')
+        : null;
+      apiGeneration = {
+        key,
+        kind: 'v2',
+        legacyApiCompatible: legacyRecord?.healthy === true && typeof legacyRecord.version === 'string',
+        legacyMcpCompatible: Boolean(legacyMcp && typeof legacyMcp === 'object' && !Array.isArray(legacyMcp)),
+      };
+      return apiGeneration;
+    }
+    const legacy = await probe('/global/health');
+    const legacyRecord = legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : null;
+    if (legacyRecord?.healthy === true && typeof legacyRecord.version === 'string') {
+      apiGeneration = { key, kind: 'v1', legacyApiCompatible: true, legacyMcpCompatible: true };
+      return apiGeneration;
+    }
+    throw new Error('OpenCode server generation detection failed: neither authenticated V2 nor V1 health contract is available');
+  };
+
   const fetchJsonWithManagedServerRetry = async <T>(
+    diagnostic: Readonly<{
+      operation: ManagedServerRetryOperation;
+      method: 'GET' | 'PATCH';
+    }>,
     request: (currentBaseUrl: string) => Promise<T>,
   ): Promise<T> => {
     try {
       return await request(baseUrl);
     } catch (error) {
-      if (!usingManagedServer || !isRetryableManagedServerTransportError(error)) {
+      const failureKind = classifyRetryableManagedServerTransportError(error);
+      if (!usingManagedServer || !failureKind) {
         throw error;
       }
-      logger.debug('[OpenCodeServer] Retrying managed HTTP request after transient transport failure', error);
+      logger.debug('[OpenCodeServer] Retrying managed HTTP request after transient transport failure', {
+        operation: diagnostic.operation,
+        method: diagnostic.method,
+        failedAttempt: 1,
+        nextAttempt: 2,
+        failureKind,
+      });
       await refreshBaseUrlIfManagedBestEffort({ allowEnsure: true, reason: 'http_retry_ensure' });
       await waitForManagedServerHealthAfterRefreshBestEffort();
       return await request(baseUrl);
     }
   };
 
-  // Best-effort health probe (useful for diagnostics if url is stale).
+  // Detect once per server generation at the authenticated transport boundary.
   try {
-    await fetchJson<{ healthy: boolean; version: string }>({
-      url: buildUrl(baseUrl, '/global/health'),
-      method: 'GET',
-      headers,
-      timeoutMs: Math.min(2_000, httpTimeoutMs ?? 2_000),
-    });
+    await ensureApiGeneration();
   } catch (error) {
     logger.debug('[OpenCodeServer] Health probe failed (non-fatal)', error);
   }
@@ -511,14 +694,29 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
   let subscriptionLoopAbort: AbortController | null = null;
   let connectionGeneration = 0;
   let disposed = false;
+  const rememberRequestSessions = (items: unknown[], target: Map<string, string>): void => {
+    for (const item of items) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const record = item as Record<string, unknown>;
+      if (typeof record.id === 'string' && typeof record.sessionID === 'string') {
+        target.set(record.id, record.sessionID);
+      }
+    }
+  };
 
   const fetchSessionMessagesListRaw = async (sessionId: string): Promise<unknown> => (
-    await fetchJsonWithManagedServerRetry((currentBaseUrl) => fetchJson<unknown>({
-      url: buildUrl(currentBaseUrl, `/session/${encodeURIComponent(sessionId)}/message`, { directory: resolveDirectory() }),
-      method: 'GET',
-      headers,
-      timeoutMs: httpTimeoutMs,
-    }))
+    await fetchJsonWithManagedServerRetry({ operation: 'session_messages_list', method: 'GET' }, async (currentBaseUrl) => {
+      const api = await ensureApiGeneration();
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(currentBaseUrl, `${api.kind === 'v2' ? '/api' : ''}/session/${encodeURIComponent(sessionId)}/message`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
+        method: 'GET',
+        headers,
+        timeoutMs: httpTimeoutMs,
+      });
+      if (api.kind !== 'v2') return raw;
+      const data = readWrappedOpenCodeV2Data(raw);
+      return Array.isArray(data) ? data.map((message) => normalizeOpenCodeV2Message(message, sessionId)) : data;
+    })
   );
 
   const client: OpenCodeServerRuntimeClient = {
@@ -532,34 +730,58 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       return true;
     },
     sessionList: async () => {
+      const api = await ensureApiGeneration();
       const raw = await fetchJson<unknown>({
-        url: buildUrl(baseUrl, '/session', { directory: resolveDirectory() }),
+        url: buildUrl(baseUrl, `${api.kind === 'v2' ? '/api' : ''}/session`, { directory: resolveDirectory() }),
         method: 'GET',
         headers,
         timeoutMs: httpTimeoutMs,
       });
-      return Array.isArray(raw) ? raw : [];
+      const data = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
+      return Array.isArray(data) ? (api.kind === 'v2' ? data.map(normalizeOpenCodeV2Session) : data) : [];
     },
     sessionCreate: async (opts) => {
-      return await fetchJson<OpenCodeSession>({
-        url: buildUrl(baseUrl, '/session', { directory: resolveDirectory() }),
+      const api = await ensureApiGeneration();
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, `${api.kind === 'v2' ? '/api' : ''}/session`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
         method: 'POST',
         headers,
-        body: {
+        body: api.kind === 'v2' ? {
+          location: { directory: resolveDirectory() },
+        } : {
           ...(Array.isArray(opts?.permission) ? { permission: opts?.permission } : {}),
         },
         timeoutMs: httpTimeoutMs,
       });
+      return api.kind === 'v2' ? normalizeOpenCodeV2Session(readWrappedOpenCodeV2Data(raw)) : raw as OpenCodeSession;
     },
     sessionGet: async ({ sessionId }) => {
-      return await fetchJson<OpenCodeSession>({
-        url: buildUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}`, { directory: resolveDirectory() }),
+      const api = await ensureApiGeneration();
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, `${api.kind === 'v2' ? '/api' : ''}/session/${encodeURIComponent(sessionId)}`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
         method: 'GET',
         headers,
         timeoutMs: httpTimeoutMs,
       });
+      return api.kind === 'v2' ? normalizeOpenCodeV2Session(readWrappedOpenCodeV2Data(raw)) : raw as OpenCodeSession;
     },
     sessionUpdate: async ({ sessionId, permission, title, time }) => {
+      const initialApi = await ensureApiGeneration();
+      if (initialApi.kind === 'v2') {
+        if (time) {
+          throw new Error('OpenCode V2 session update does not support legacy archive-time fields');
+        }
+        if (typeof title === 'string') {
+          throw new Error('OpenCode V2 session title updates are unavailable');
+        }
+        // V2 has no mutable session permission-ruleset field. Permission intent remains enforced by
+        // the runtime's canonical permission request/reply owner, so the V1-only projection is omitted.
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(baseUrl, `/api/session/${encodeURIComponent(sessionId)}`),
+          method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        });
+        return normalizeOpenCodeV2Session(readWrappedOpenCodeV2Data(raw));
+      }
       const body: Record<string, unknown> = {};
       if (Array.isArray(permission)) {
         body.permission = permission;
@@ -571,13 +793,15 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
         body.time = time;
       }
 
-      return await fetchJsonWithManagedServerRetry((currentBaseUrl) => fetchJson<OpenCodeSession>({
-        url: buildUrl(currentBaseUrl, `/session/${encodeURIComponent(sessionId)}`, { directory: resolveDirectory() }),
-        method: 'PATCH',
-        headers,
-        body,
-        timeoutMs: httpTimeoutMs,
-      }));
+      const { api, raw } = await fetchJsonWithManagedServerRetry({ operation: 'session_update', method: 'PATCH' }, async (currentBaseUrl) => {
+        const api = await ensureApiGeneration();
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(currentBaseUrl, `/session/${encodeURIComponent(sessionId)}`, { directory: resolveDirectory() }),
+          method: 'PATCH', headers, body, timeoutMs: httpTimeoutMs,
+        });
+        return { api, raw };
+      });
+      return api.kind === 'v2' ? normalizeOpenCodeV2Session(readWrappedOpenCodeV2Data(raw)) : raw as OpenCodeSession;
     },
     sessionMessagesList: async ({ sessionId }) => {
       const raw = await fetchSessionMessagesListRaw(sessionId);
@@ -585,37 +809,52 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
     },
     sessionMessagesListRaw: async ({ sessionId }) => await fetchSessionMessagesListRaw(sessionId),
     sessionTodo: async ({ sessionId }) => {
-      const raw = await fetchJsonWithManagedServerRetry((currentBaseUrl) => fetchJson<unknown>({
-        url: buildUrl(currentBaseUrl, `/session/${encodeURIComponent(sessionId)}/todo`, { directory: resolveDirectory() }),
-        method: 'GET',
-        headers,
-        timeoutMs: httpTimeoutMs,
-      }));
-      return Array.isArray(raw) ? raw : [];
+      const initialApi = await ensureApiGeneration();
+      if (initialApi.kind === 'v2') return todosBySessionId.get(sessionId) ?? [];
+      const { api, raw } = await fetchJsonWithManagedServerRetry({ operation: 'session_todo', method: 'GET' }, async (currentBaseUrl) => {
+        const api = await ensureApiGeneration();
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(currentBaseUrl, `${api.kind === 'v2' ? '/api' : ''}/session/${encodeURIComponent(sessionId)}/todo`, { directory: resolveDirectory() }),
+          method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        });
+        return { api, raw };
+      });
+      const data = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
+      return Array.isArray(data) ? data : [];
     },
     sessionDiff: async ({ sessionId, messageId }) => {
-      const raw = await fetchJsonWithManagedServerRetry((currentBaseUrl) => fetchJson<unknown>({
-        url: buildUrl(currentBaseUrl, `/session/${encodeURIComponent(sessionId)}/diff`, {
-          directory: resolveDirectory(),
-          ...(messageId ? { messageID: messageId } : {}),
-        }),
-        method: 'GET',
-        headers,
-        timeoutMs: httpTimeoutMs,
-      }));
+      const { raw } = await fetchJsonWithManagedServerRetry({ operation: 'session_diff', method: 'GET' }, async (currentBaseUrl) => {
+        const api = await ensureApiGeneration();
+        if (api.kind === 'v2' && !api.legacyApiCompatible) {
+          throw new Error('OpenCode V2 session diff is unavailable without the legacy API surface');
+        }
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(currentBaseUrl, `/session/${encodeURIComponent(sessionId)}/diff`, {
+            directory: resolveDirectory(),
+            ...(messageId ? { messageID: messageId } : {}),
+          }),
+          method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        });
+        return { raw };
+      });
       return Array.isArray(raw) ? raw : [];
     },
     sessionStatusList: async () => {
-      const raw = await fetchJsonWithManagedServerRetry((currentBaseUrl) => fetchJson<unknown>({
-        url: buildUrl(currentBaseUrl, '/session/status', { directory: resolveDirectory() }),
-        method: 'GET',
-        headers,
-        timeoutMs: httpTimeoutMs,
-      }));
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-      return raw as Record<string, { type?: string }>;
+      const { api, raw } = await fetchJsonWithManagedServerRetry({ operation: 'session_status_list', method: 'GET' }, async (currentBaseUrl) => {
+        const api = await ensureApiGeneration();
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(currentBaseUrl, api.kind === 'v2' ? '/api/session/active' : '/session/status', api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
+          method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        });
+        return { api, raw };
+      });
+      const data = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+      return data as Record<string, { type?: string }>;
     },
     globalConfigGet: async () => {
+      const api = await ensureApiGeneration();
+      if (api.kind === 'v2') return {};
       return await fetchJson<{ model?: string }>({
         url: buildUrl(baseUrl, '/global/config'),
         method: 'GET',
@@ -624,36 +863,48 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       });
     },
     agentsList: async () => {
-      const agents = await fetchJson<unknown>({
-        url: buildUrl(baseUrl, '/agent'),
+      const api = await ensureApiGeneration();
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, api.kind === 'v2' ? '/api/agent' : '/agent', api.kind === 'v2' ? { 'location[directory]': resolveDirectory() } : undefined),
         method: 'GET',
         headers,
         timeoutMs: httpTimeoutMs,
       });
-      return Array.isArray(agents) ? agents as any : [];
+      const agents = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
+      return Array.isArray(agents) ? agents as Array<{ name: string; description?: string }> : [];
     },
     appSkills: async () => {
-      const skills = await fetchJson<unknown>({
-        url: buildUrl(baseUrl, '/skill', { directory: resolveDirectory() }),
+      const api = await ensureApiGeneration();
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, api.kind === 'v2' ? '/api/skill' : '/skill', api.kind === 'v2' ? { 'location[directory]': resolveDirectory() } : { directory: resolveDirectory() }),
         method: 'GET',
         headers,
         timeoutMs: httpTimeoutMs,
       });
+      const skills = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
       return Array.isArray(skills) ? skills : [];
     },
     providersList: async () => {
-      const providers = await fetchJson<unknown>({
-        url: buildUrl(baseUrl, '/provider'),
+      const api = await ensureApiGeneration();
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, api.kind === 'v2' ? '/api/provider' : '/provider', api.kind === 'v2' ? { 'location[directory]': resolveDirectory() } : undefined),
         method: 'GET',
         headers,
         timeoutMs: httpTimeoutMs,
       });
-      return readOpenCodeProviderList(providers);
+      const providers = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
+      return api.kind === 'v2'
+        ? (Array.isArray(providers) ? providers as Array<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }> : [])
+        : readOpenCodeProviderList(providers);
     },
     mcpAdd: async ({ name, config }) => {
       const serverName = typeof name === 'string' ? name.trim() : '';
       if (!serverName) {
         throw new Error('OpenCode MCP registration requires a server name');
+      }
+      const api = await ensureApiGeneration();
+      if (api.kind === 'v2' && !api.legacyMcpCompatible) {
+        throw new Error('OpenCode V2 dynamic MCP is unavailable: this server does not expose the pinned legacy health and /mcp contracts');
       }
       const response = await fetchJson<unknown>({
         url: buildUrl(baseUrl, '/mcp', { directory: resolveDirectory() }),
@@ -670,6 +921,10 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
     mcpDisconnect: async ({ name }) => {
       const serverName = typeof name === 'string' ? name.trim() : '';
       if (!serverName) return;
+      const api = await ensureApiGeneration();
+      if (api.kind === 'v2' && !api.legacyMcpCompatible) {
+        throw new Error('OpenCode V2 dynamic MCP is unavailable: this server does not expose the pinned legacy health and /mcp contracts');
+      }
       await fetchJson<void>({
         url: buildUrl(baseUrl, `/mcp/${encodeURIComponent(serverName)}/disconnect`, { directory: resolveDirectory() }),
         method: 'POST',
@@ -679,14 +934,35 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       });
     },
     sessionPromptAsync: async ({ sessionId, messageId, parts, agent, model, variant, config }) => {
+      const api = await ensureApiGeneration();
       const normalizedVariant = typeof variant === 'string' ? variant.trim() : '';
+      if (api.kind === 'v2') {
+        if (normalizedVariant || config) {
+          throw new Error('OpenCode V2 prompt does not support legacy variant or config fields');
+        }
+        if (agent) {
+          await fetchJson<void>({
+            url: buildUrl(baseUrl, `/api/session/${encodeURIComponent(sessionId)}/agent`),
+            method: 'POST', headers, body: { agent }, timeoutMs: httpTimeoutMs,
+          });
+        }
+        if (model) {
+          await fetchJson<void>({
+            url: buildUrl(baseUrl, `/api/session/${encodeURIComponent(sessionId)}/model`),
+            method: 'POST', headers, body: { model }, timeoutMs: httpTimeoutMs,
+          });
+        }
+      }
       // prompt_async is effectful. Once its POST is attempted, transport loss is ambiguous and
       // must surface to the canonical Pending owner; replaying it can duplicate provider work.
       await fetchJson<void>({
-        url: buildUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}/prompt_async`, { directory: resolveDirectory() }),
+        url: buildUrl(baseUrl, `${api.kind === 'v2' ? '/api' : ''}/session/${encodeURIComponent(sessionId)}/${api.kind === 'v2' ? 'prompt' : 'prompt_async'}`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
         method: 'POST',
         headers,
-        body: {
+        body: api.kind === 'v2' ? {
+          ...(messageId ? { id: messageId } : {}),
+          prompt: buildOpenCodeV2Prompt(parts),
+        } : {
           ...(messageId ? { messageID: messageId } : {}),
           ...(agent ? { agent } : {}),
           ...(model ? { model } : {}),
@@ -698,21 +974,27 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       });
     },
     sessionSummarize: async ({ sessionId, model, auto }) => {
-      await fetchJsonWithManagedServerRetry((currentBaseUrl) => fetchJson<void>({
-        url: buildUrl(currentBaseUrl, `/session/${encodeURIComponent(sessionId)}/summarize`, { directory: resolveDirectory() }),
+      const api = await ensureApiGeneration();
+      // Summarization is effectful. A transport failure after the POST is ambiguous, so replaying
+      // it could duplicate provider work just like replaying prompt_async.
+      await fetchJson<void>({
+        url: buildUrl(baseUrl, api.kind === 'v2'
+          ? `/api/session/${encodeURIComponent(sessionId)}/compact`
+          : `/session/${encodeURIComponent(sessionId)}/summarize`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
         method: 'POST',
         headers,
-        body: {
+        body: api.kind === 'v2' ? {} : {
           providerID: model.providerID,
           modelID: model.modelID,
           ...(typeof auto === 'boolean' ? { auto } : {}),
         },
         timeoutMs: httpTimeoutMs,
-      }));
+      });
     },
     sessionAbort: async ({ sessionId }) => {
+      const api = await ensureApiGeneration();
       await fetchJson<void>({
-        url: buildUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}/abort`, { directory: resolveDirectory() }),
+        url: buildUrl(baseUrl, `${api.kind === 'v2' ? '/api' : ''}/session/${encodeURIComponent(sessionId)}/${api.kind === 'v2' ? 'interrupt' : 'abort'}`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
         method: 'POST',
         headers,
         body: {},
@@ -720,6 +1002,10 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       });
     },
     sessionFork: async ({ sessionId, messageId }) => {
+      const api = await ensureApiGeneration();
+      if (api.kind === 'v2' && !api.legacyApiCompatible) {
+        throw new Error('OpenCode V2 session fork is unavailable without the legacy API surface');
+      }
       return await fetchJson<OpenCodeSession>({
         url: buildUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}/fork`, { directory: resolveDirectory() }),
         method: 'POST',
@@ -729,55 +1015,82 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       });
     },
     questionReply: async ({ requestId, answers }) => {
-      return await fetchJson<boolean>({
-        url: buildUrl(baseUrl, `/question/${encodeURIComponent(requestId)}/reply`, { directory: resolveDirectory() }),
+      const api = await ensureApiGeneration();
+      const sessionId = questionSessionByRequestId.get(requestId);
+      if (api.kind === 'v2' && !sessionId) throw new Error(`OpenCode V2 question ${requestId} has no known session`);
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, api.kind === 'v2'
+          ? `/api/session/${encodeURIComponent(sessionId!)}/question/${encodeURIComponent(requestId)}/reply`
+          : `/question/${encodeURIComponent(requestId)}/reply`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
         method: 'POST',
         headers,
         body: { answers },
         timeoutMs: httpTimeoutMs,
       });
+      return api.kind === 'v2' ? true : raw === true;
     },
     questionReject: async ({ requestId }) => {
-      return await fetchJson<boolean>({
-        url: buildUrl(baseUrl, `/question/${encodeURIComponent(requestId)}/reject`, { directory: resolveDirectory() }),
+      const api = await ensureApiGeneration();
+      const sessionId = questionSessionByRequestId.get(requestId);
+      if (api.kind === 'v2' && !sessionId) throw new Error(`OpenCode V2 question ${requestId} has no known session`);
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, api.kind === 'v2'
+          ? `/api/session/${encodeURIComponent(sessionId!)}/question/${encodeURIComponent(requestId)}/reject`
+          : `/question/${encodeURIComponent(requestId)}/reject`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
         method: 'POST',
         headers,
         body: {},
         timeoutMs: httpTimeoutMs,
       });
+      return api.kind === 'v2' ? true : raw === true;
     },
     permissionReply: async ({ requestId, reply }) => {
-      return await fetchJson<boolean>({
-        url: buildUrl(baseUrl, `/permission/${encodeURIComponent(requestId)}/reply`, { directory: resolveDirectory() }),
+      const api = await ensureApiGeneration();
+      const sessionId = permissionSessionByRequestId.get(requestId);
+      if (api.kind === 'v2' && !sessionId) throw new Error(`OpenCode V2 permission ${requestId} has no known session`);
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, api.kind === 'v2'
+          ? `/api/session/${encodeURIComponent(sessionId!)}/permission/${encodeURIComponent(requestId)}/reply`
+          : `/permission/${encodeURIComponent(requestId)}/reply`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
         method: 'POST',
         headers,
         body: { reply },
         timeoutMs: httpTimeoutMs,
       });
+      return api.kind === 'v2' ? true : raw === true;
     },
     permissionList: async () => {
-      const raw = await fetchJsonWithManagedServerRetry((currentBaseUrl) => fetchJson<unknown>({
-        url: buildUrl(currentBaseUrl, '/permission', { directory: resolveDirectory() }),
-        method: 'GET',
-        headers,
-        timeoutMs: httpTimeoutMs,
-      }));
-      if (!Array.isArray(raw)) {
+      const { api, raw } = await fetchJsonWithManagedServerRetry({ operation: 'permission_list', method: 'GET' }, async (currentBaseUrl) => {
+        const api = await ensureApiGeneration();
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(currentBaseUrl, api.kind === 'v2' ? '/api/permission/request' : '/permission', api.kind === 'v2' ? { 'location[directory]': resolveDirectory() } : { directory: resolveDirectory() }),
+          method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        });
+        return { api, raw };
+      });
+      const data = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
+      if (!Array.isArray(data)) {
         throw new Error('OpenCode permission list returned invalid data');
       }
-      return raw;
+      const permissions = api.kind === 'v2' ? data.map(normalizeOpenCodeV2PermissionRequest) : data;
+      rememberRequestSessions(permissions, permissionSessionByRequestId);
+      return permissions;
     },
     questionList: async () => {
-      const raw = await fetchJsonWithManagedServerRetry((currentBaseUrl) => fetchJson<unknown>({
-        url: buildUrl(currentBaseUrl, '/question', { directory: resolveDirectory() }),
-        method: 'GET',
-        headers,
-        timeoutMs: httpTimeoutMs,
-      }));
-      if (!Array.isArray(raw)) {
+      const { api, raw } = await fetchJsonWithManagedServerRetry({ operation: 'question_list', method: 'GET' }, async (currentBaseUrl) => {
+        const api = await ensureApiGeneration();
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(currentBaseUrl, api.kind === 'v2' ? '/api/question/request' : '/question', api.kind === 'v2' ? { 'location[directory]': resolveDirectory() } : { directory: resolveDirectory() }),
+          method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        });
+        return { api, raw };
+      });
+      const data = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
+      if (!Array.isArray(data)) {
         throw new Error('OpenCode question list returned invalid data');
       }
-      return raw;
+      rememberRequestSessions(data, questionSessionByRequestId);
+      return data;
     },
     subscribeGlobalEvents: async ({ signal, onEvent }) => {
       if (disposed) return;
@@ -804,8 +1117,9 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
           localAbort.signal.addEventListener('abort', onAbort, { once: true });
 
           try {
+            const api = await ensureApiGeneration();
             const streamDirectory = resolveDirectory();
-            const url = buildUrl(baseUrl, '/event', { directory: streamDirectory });
+            const url = buildUrl(baseUrl, api.kind === 'v2' ? '/api/event' : '/event', api.kind === 'v2' ? undefined : { directory: streamDirectory });
             const nextHeaders: Record<string, string> = { ...headers };
             subscription = await subscribeSseJson<unknown>({
               url,
@@ -816,13 +1130,35 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
                 if (currentConnectionGeneration !== connectionGeneration) return;
                 if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
                 const rawEvent = msg as Record<string, unknown>;
-                const eventType = typeof rawEvent.type === 'string' ? rawEvent.type : '';
-                if (!eventType) return;
+                const wireEventType = typeof rawEvent.type === 'string' ? rawEvent.type : '';
+                if (!wireEventType) return;
+                const normalizedEvent = api.kind === 'v2'
+                  ? normalizeOpenCodeV2Event(wireEventType, rawEvent.data)
+                  : { type: wireEventType, properties: rawEvent.properties };
+                const eventType = normalizedEvent.type;
+                const eventLocation = rawEvent.location && typeof rawEvent.location === 'object' && !Array.isArray(rawEvent.location)
+                  ? rawEvent.location as Record<string, unknown>
+                  : null;
+                const properties = normalizedEvent.properties;
+                if (api.kind === 'v2' && (eventType === 'permission.asked' || eventType === 'question.asked')) {
+                  rememberRequestSessions(
+                    [properties],
+                    eventType === 'permission.asked' ? permissionSessionByRequestId : questionSessionByRequestId,
+                  );
+                }
+                if (api.kind === 'v2' && eventType === 'todo.updated' && properties && typeof properties === 'object' && !Array.isArray(properties)) {
+                  const todoEvent = properties as Record<string, unknown>;
+                  if (typeof todoEvent.sessionID === 'string' && Array.isArray(todoEvent.todos)) {
+                    todosBySessionId.set(todoEvent.sessionID, todoEvent.todos);
+                  }
+                }
                 const event: OpenCodeGlobalEvent = {
-                  directory: streamDirectory,
+                  directory: api.kind === 'v2' && typeof eventLocation?.directory === 'string'
+                    ? eventLocation.directory
+                    : streamDirectory,
                   payload: {
                     type: eventType,
-                    properties: rawEvent.properties,
+                    properties,
                   },
                 };
                 if (eventType === 'server.connected') {

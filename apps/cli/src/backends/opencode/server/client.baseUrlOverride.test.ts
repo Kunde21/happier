@@ -57,7 +57,7 @@ describe('createOpenCodeServerRuntimeClient (baseUrlOverride)', () => {
     });
 
     expect(urls[0]).toContain('http://override.test');
-    expect(urls[0]).toContain('/global/health');
+    expect(urls[0]).toContain('/api/health');
   });
 
   it('still sends configured auth headers to explicit baseUrlOverride requests', async () => {

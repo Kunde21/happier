@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -8,7 +8,9 @@ import { resolveOpenCodeManagedServerChildEnv } from '@/backends/opencode/server
 
 import {
   ensureOpenCodeBrokerPluginAssets,
+  resolveOpenCodeBrokerPluginDir,
   resolveOpenCodeBrokerPluginPath,
+  resolveOpenCodeV2BrokerPluginPath,
   resolveOpenCodeConnectedConfigHomeDir,
 } from './openCodeBrokerPluginAssets';
 
@@ -29,6 +31,16 @@ describe('openCodeBrokerPluginAssets', () => {
 
     // Idempotent: a second call with no change does not throw.
     await ensureOpenCodeBrokerPluginAssets({ providers: ['openai', 'anthropic'], happyHomeDir: home });
+  });
+
+  it('materializes V2 plugins outside the auto-load directory used by V1', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'happier-broker-assets-v2-'));
+    await ensureOpenCodeBrokerPluginAssets({ providers: ['openai'], apiGeneration: 'v2', happyHomeDir: home });
+
+    const v2Path = resolveOpenCodeV2BrokerPluginPath('openai', home);
+    await expect(readFile(v2Path, 'utf8')).resolves.toContain('export default HappierOpenCodeAuthBrokerPlugin');
+    expect(dirname(v2Path)).not.toBe(resolveOpenCodeBrokerPluginDir(home));
+    await expect(stat(resolveOpenCodeBrokerPluginPath('openai', home))).rejects.toBeTruthy();
   });
 
   it('retires versioned Happier broker siblings while preserving unrelated plugins', async () => {

@@ -8,7 +8,7 @@ This page documents how Happier integrates with **OpenCode** and what matters fo
 ## Requirements
 
 - OpenCode CLI installed on your machine.
-- Binary available on `PATH` (or set `HAPPIER_OPENCODE_PATH`).
+- Binary available on `PATH` as `opencode` or `opencode2` (or set `HAPPIER_OPENCODE_PATH`). Happier prefers the stable `opencode` name when both are installed; an explicit override is authoritative.
 
 ## Install OpenCode
 
@@ -65,6 +65,8 @@ For most users, the important part is:
 - attaching later should use `happier attach <session-id>`, not a raw vendor attach command.
 
 By default, Happier uses a **managed local OpenCode server** on the machine and reuses it across sessions. Advanced users can set an explicit OpenCode server URL in settings; when you do that, Happier will keep using that explicit server for the session.
+
+The server-native backend negotiates the installed server's V1 or V2 API over the same authenticated connection. Operations still supplied only by the legacy API—dynamic MCP registration, session diff, and session fork—remain available on dual-surface beta servers. A pure-V2 server fails those operations explicitly instead of sending unsupported requests.
 
 ## Start OpenCode from a terminal
 
@@ -200,7 +202,7 @@ For the full user guide, see:
 
 If OpenCode is not detected:
 
-1. Verify `opencode --version` works.
+1. Verify `opencode --version` or `opencode2 --version` works.
 2. Restart Happier.
 3. Set `HAPPIER_OPENCODE_PATH` if your binary is not in PATH.
 

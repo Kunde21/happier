@@ -69,4 +69,51 @@ describe('waitForOpenCodeServerHealth', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it('falls back to V1 when the V2 health request stalls', async () => {
+    const paths: string[] = [];
+    const server = await startHealthServer((req, res) => {
+      paths.push(req.url ?? '');
+      if (req.url === '/api/health') return;
+      if (req.url === '/global/health') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ healthy: true, version: 'fake' }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    servers.add(server);
+
+    await expect(waitForOpenCodeServerHealth({
+      baseUrl: server.baseUrl,
+      timeoutMs: 1_000,
+      pollIntervalMs: 25,
+    })).resolves.toBeUndefined();
+    expect(paths).toContain('/global/health');
+  });
+
+  it('accepts the authenticated OpenCode V2 health contract', async () => {
+    const expectedAuth = `Basic ${Buffer.from('tester:top-secret', 'utf8').toString('base64')}`;
+    const paths: string[] = [];
+    const server = await startHealthServer((req, res) => {
+      paths.push(req.url ?? '');
+      if (req.url !== '/api/health' || req.headers.authorization !== expectedAuth) {
+        res.writeHead(req.headers.authorization === expectedAuth ? 404 : 401);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ healthy: true }));
+    });
+    servers.add(server);
+
+    await expect(waitForOpenCodeServerHealth({
+      baseUrl: server.baseUrl,
+      timeoutMs: 2_000,
+      pollIntervalMs: 25,
+      headers: { Authorization: expectedAuth },
+    })).resolves.toBeUndefined();
+    expect(paths).toContain('/api/health');
+  });
 });

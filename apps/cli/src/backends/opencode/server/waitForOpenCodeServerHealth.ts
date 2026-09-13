@@ -9,15 +9,35 @@ export async function waitForOpenCodeServerHealth(params: {
   while (Date.now() < deadline) {
     if (params.signal?.aborted) throw new Error('Aborted while waiting for OpenCode server health');
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), Math.min(1_500, params.pollIntervalMs * 5));
-      timer.unref?.();
-      const res = await fetch(`${params.baseUrl}/global/health`, {
-        signal: ctrl.signal,
-        ...(params.headers && Object.keys(params.headers).length > 0 ? { headers: params.headers } : {}),
-      }).catch(() => null);
-      clearTimeout(timer);
-      if (res && res.ok) return;
+      const request = async (path: string): Promise<Response | null> => {
+        const ctrl = new AbortController();
+        const onAbort = () => ctrl.abort();
+        params.signal?.addEventListener('abort', onAbort, { once: true });
+        const requestTimeoutMs = Math.min(
+          1_500,
+          params.pollIntervalMs * 5,
+          Math.max(1, deadline - Date.now()),
+        );
+        const timer = setTimeout(() => ctrl.abort(), requestTimeoutMs);
+        timer.unref?.();
+        try {
+          return await fetch(`${params.baseUrl}${path}`, {
+            signal: ctrl.signal,
+            ...(params.headers && Object.keys(params.headers).length > 0 ? { headers: params.headers } : {}),
+          }).catch(() => null);
+        } finally {
+          clearTimeout(timer);
+          params.signal?.removeEventListener('abort', onAbort);
+        }
+      };
+      const isHealthy = async (response: Response | null): Promise<boolean> => {
+        if (!response?.ok) return false;
+        const body = await response.json().catch(() => null) as unknown;
+        return Boolean(body && typeof body === 'object' && !Array.isArray(body) && (body as { healthy?: unknown }).healthy === true);
+      };
+      const v2 = await request('/api/health');
+      const healthy = await isHealthy(v2) || await isHealthy(await request('/global/health'));
+      if (healthy) return;
     } catch {
       // ignore and retry until deadline
     }

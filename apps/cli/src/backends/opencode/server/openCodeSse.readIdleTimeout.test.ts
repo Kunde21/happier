@@ -187,6 +187,7 @@ describe('createOpenCodeServerRuntimeClient read idle configuration', () => {
 
     const controller = new AbortController();
     await client.subscribeGlobalEvents({ signal: controller.signal, onEvent: vi.fn() });
+    await expect.poll(() => subscribeSseJsonMock.mock.calls.length).toBe(1);
 
     expect(subscribeSseJsonMock).toHaveBeenCalledWith(expect.objectContaining({
       readIdleTimeoutMs: 5_000,

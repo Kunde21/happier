@@ -19,7 +19,10 @@ import {
   OPEN_CODE_BROKER_SELECTIONS_ENV,
   parseOpenCodeBrokerSelections,
 } from '@/backends/opencode/brokerPlugin/openCodeBrokerPluginEnv';
-import { ensureOpenCodeBrokerPluginAssets } from '@/backends/opencode/brokerPlugin/openCodeBrokerPluginAssets';
+import {
+  ensureOpenCodeBrokerPluginAssets,
+  resolveOpenCodeV2BrokerPluginPath,
+} from '@/backends/opencode/brokerPlugin/openCodeBrokerPluginAssets';
 import { resolveOpenCodeManagedServerTrackedPid } from './resolveOpenCodeManagedServerTrackedPid';
 import { terminateManagedOpenCodeServerPidBestEffort } from './terminateManagedOpenCodeServerPidBestEffort';
 import { waitForOpenCodeServerHealth } from './waitForOpenCodeServerHealth';
@@ -50,14 +53,27 @@ function resolveOpenCodeCommand(): Readonly<{ command: string; args: readonly st
   return { command: launch.command, args: launch.args };
 }
 
+export function buildOpenCodeV2BrokerConfigContent(
+  providers: readonly (typeof OPEN_CODE_BROKER_PROVIDERS)[number][],
+): string {
+  return JSON.stringify({
+    plugin: providers.map((provider) => resolveOpenCodeV2BrokerPluginPath(provider)),
+  });
+}
+
 /**
  * For connected (config-isolated) sessions only, ensure the Happier-owned config home exists and the
  * broker plugin file(s) referenced by the materialized `OPENCODE_CONFIG_CONTENT` are written. Keyed
  * on the selection-identity env so NATIVE sessions (no selection identity) are a strict no-op and
  * keep loading the user's own config/plugins.
  */
-async function ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(env: NodeJS.ProcessEnv): Promise<string | null> {
-  if (typeof env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV] !== 'string') return null;
+async function ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(
+  env: NodeJS.ProcessEnv,
+  apiGeneration: 'v1' | 'v2',
+): Promise<Readonly<{ brokerLoadNonce: string | null; openCodeConfigContent?: string }>> {
+  if (typeof env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV] !== 'string') {
+    return { brokerLoadNonce: null };
+  }
   const selections = parseOpenCodeBrokerSelections(env[OPEN_CODE_BROKER_SELECTIONS_ENV]);
   const providers = OPEN_CODE_BROKER_PROVIDERS.filter((provider) => selections[provider]);
   let brokerLoadNonce: string | null = null;
@@ -65,8 +81,13 @@ async function ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(env: NodeJS.Proces
     brokerLoadNonce = randomUUID();
     env[OPEN_CODE_BROKER_LOAD_NONCE_ENV] = brokerLoadNonce;
   }
-  await ensureOpenCodeBrokerPluginAssets({ providers });
-  return brokerLoadNonce;
+  await ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration });
+  return {
+    brokerLoadNonce,
+    ...(apiGeneration === 'v2' && providers.length > 0 ? {
+      openCodeConfigContent: buildOpenCodeV2BrokerConfigContent(providers),
+    } : {}),
+  };
 }
 
 export async function startManagedOpenCodeServer(params: Readonly<{
@@ -113,10 +134,17 @@ export async function startManagedOpenCodeServer(params: Readonly<{
   // Connected sessions (selection identity present) are config-isolated: ensure the Happier-owned
   // empty config home exists and write the broker plugin file(s) before spawn. Native sessions have
   // no selection identity ⇒ this is a no-op ⇒ native HOME/XDG/config/plugins remain untouched.
-  const brokerLoadNonce = await ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(process.env);
+  const resolvedBinaryName = basename(cmd).replace(/\.(?:cmd|exe)$/iu, '').toLowerCase();
+  const brokerAssets = await ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(
+    process.env,
+    resolvedBinaryName === 'opencode2' ? 'v2' : 'v1',
+  );
+  const brokerLoadNonce = brokerAssets.brokerLoadNonce;
 
   const childEnv = resolveOpenCodeManagedServerChildEnv({
-    baseEnv: process.env,
+    baseEnv: brokerAssets.openCodeConfigContent
+      ? { ...process.env, OPENCODE_CONFIG_CONTENT: brokerAssets.openCodeConfigContent }
+      : process.env,
     xdgRootDir: xdgRootDir.length > 0 ? xdgRootDir : null,
     isolateConfig,
   });
