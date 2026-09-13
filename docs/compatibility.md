@@ -68,6 +68,23 @@ Product seams still own the actual compatibility implementation.
 
 Before adding dual writers, parallel persisted formats, rollout modes, operator flags, socket-drain protocols, or a mandatory client floor, compare their lifetime cost with the actual user behavior required. If preserving old-client/new-server behavior for a major change would require substantial machinery, stop and obtain an explicit developer/product decision among: operation-scoped degradation, a documented client update requirement, or the heavier compatibility transition. An agent must not silently choose either forced upgrades or heavy compatibility machinery. This exception is for genuinely incompatible, high-cost transitions; routine server changes must remain compatible and must not manufacture client-update requirements.
 
+### Browser request headers and CORS
+
+A new request header is both a wire-contract change and, for cross-origin web clients,
+a browser CORS change. Before emitting one, verify the new client against the exact
+supported predecessor relay: the browser's `Access-Control-Request-Headers` must be a
+subset of that relay's `Access-Control-Allow-Headers`. Updating only the current server
+allowlist cannot make a new browser client compatible with a relay that is already
+deployed.
+
+Prefer a CORS-safelisted request header, query/URL negotiation, or an existing typed
+request body when those preserve the operation's semantics. If a custom request header
+is necessary, emit it only when the peer has already advertised support, unless every
+supported predecessor already allows it. Test the real `OPTIONS` preflight against a
+provenance-pinned predecessor, including the exact requested header list. A custom
+response header is a separate browser contract and must also appear in
+`Access-Control-Expose-Headers` before browser code can read it.
+
 ### Self-hosted relay release checks
 
 For stable releases, prioritize current UI, CLI, and daemon core flows against
@@ -127,8 +144,8 @@ it can be removed when those strict response readers are no longer supported.
 ### Model-entitlement pool disable opt-in (development)
 
 `autoDisablePlanInvalidAccounts` is optional and absent means false. Updated V3
-clients negotiate the field independently with
-`x-happier-connected-service-auto-disable-plan-invalid: 1`; the response boundary
+clients negotiate the field independently with the CORS-safe
+`happierAutoDisablePlanInvalidAccounts=1` query parameter; the response boundary
 omits it for older strict readers without disturbing the existing quota-reset
 Accept negotiation. Writes require the corresponding server feature bit.
 
@@ -160,13 +177,18 @@ provider-reported allowances. Updated clients author it only when the server
 advertises `connectedServices.poolQuotaLimitSelection`; `selected` always
 contains at least one unique provider allowance ID, while `all` contains none.
 
-Updated group readers send
-`x-happier-connected-service-pool-quota-limit-selection: 1`. The existing V3
+Updated group readers send the CORS-safe
+`happierPoolQuotaLimitSelection=1` query parameter. The existing V3
 group response boundary omits the field for strict predecessor readers while
 preserving the independently negotiated quota-reset and plan-disable fields.
 When the field is absent in storage, a negotiated reader receives the explicit
 `all` shape. Older-client PATCH operations remain merges and cannot erase a
 stored selection.
+
+`windowDurationMs` is an optional additive quota-meter fact. Updated readers use
+it only for presentation; absence preserves the existing meter semantics and older
+readers safely ignore it. Pool-selected usage projection filters only meters and
+preserves account-, subscription-, freshness-, and recovery-credit fields.
 
 ### Session draft rollout
 
