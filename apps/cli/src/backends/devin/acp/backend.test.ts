@@ -43,6 +43,7 @@ describe('createDevinBackend', () => {
     const passedOptions = calls[0]?.[1];
     await passedOptions?.prepareProcessLaunch?.();
     expect(prepareDevinMcpProcessLaunch).toHaveBeenCalledWith({
+      cwd: '/workspace',
       processEnv: expect.objectContaining({ DEVIN_TEST_ENV: 'scoped' }),
       mcpServers,
     });

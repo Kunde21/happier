@@ -10,6 +10,10 @@ export function createDevinBackend(options: DevinBackendOptions): AgentBackend {
   const processEnv = { ...process.env, ...options.env };
   return createCatalogDefinedAcpBackend('devin', {
     ...options,
-    prepareProcessLaunch: async () => prepareDevinMcpProcessLaunch({ processEnv, mcpServers }),
+    prepareProcessLaunch: async () => prepareDevinMcpProcessLaunch({
+      cwd: options.cwd,
+      processEnv,
+      mcpServers,
+    }),
   });
 }
