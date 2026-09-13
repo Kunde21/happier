@@ -92,7 +92,8 @@ describe('InboxPopoverButton', () => {
     });
 
     it('lets Inbox item navigation dismiss the popover without changing the model owner', async () => {
-        const model = { hasContent: false, openInbox: vi.fn() } as never;
+        const openInbox = vi.fn();
+        const model = { hasContent: false, openInbox } as never;
         const { InboxPopoverButton } = await import('./InboxPopoverButton');
         const screen = await renderScreen(
             <InboxPopoverButton
@@ -109,6 +110,6 @@ describe('InboxPopoverButton', () => {
             (capture.contentProps?.onBeforeNavigate as (() => void) | undefined)?.();
         });
         expect(screen.findAllByType('Popover' as never)).toHaveLength(0);
-        expect(model.openInbox).not.toHaveBeenCalled();
+        expect(openInbox).not.toHaveBeenCalled();
     });
 });
