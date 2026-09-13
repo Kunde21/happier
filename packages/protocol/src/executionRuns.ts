@@ -34,6 +34,12 @@ import {
   ExecutionRunListRequestSchema as ExecutionRunListRequestSchemaBase,
   ExecutionRunStatusSchema as ExecutionRunStatusSchemaBase,
 } from './executionRunListRequest.js';
+export {
+  ExecutionRunRequestedConfigurationSchema,
+  projectExecutionRunRequestedConfiguration,
+  type ExecutionRunRequestedConfiguration,
+} from './executionRunRequestedConfiguration.js';
+import { ExecutionRunRequestedConfigurationSchema } from './executionRunRequestedConfiguration.js';
 
 /**
  * Public contract for execution runs (sub-agents / reviews / planning / delegation / voice agent).
@@ -117,6 +123,7 @@ export const ExecutionRunPublicStateSchema = z.object({
   backendTarget: BackendTargetRefSchema,
   display: ExecutionRunDisplaySchema.optional(),
   launchOrigin: ExecutionRunLaunchOriginSchema.optional(),
+  requestedConfiguration: ExecutionRunRequestedConfigurationSchema.optional(),
   // Policy/class fields are required for client surfaces (e.g. to decide if send/resume controls apply).
   permissionMode: z.string().min(1),
   retentionPolicy: ExecutionRunRetentionPolicySchema,

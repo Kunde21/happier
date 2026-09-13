@@ -6,6 +6,7 @@ import {
   ExecutionRunPublicStateSchema,
   ExecutionRunSendRequestSchema,
   ExecutionRunStartRequestSchema,
+  ExecutionRunStartResponseSchema,
   ExecutionRunTransportErrorCodeSchema,
 } from './executionRuns.js';
 import { EphemeralTaskKindSchema } from './ephemeralTasks.js';
@@ -58,6 +59,42 @@ describe('executionRuns protocol', () => {
       status: 'succeeded',
       startedAtMs: now,
     })).toThrow();
+  });
+
+  it('projects only privacy-bounded requested launch configuration', () => {
+    const requestedConfiguration = {
+      modelId: 'meta/muse-spark-1.3-contributor',
+      reasoningEffort: 'xhigh',
+      apiToken: 'must-not-survive',
+    };
+    const base = {
+      runId: 'run_1',
+      callId: 'subagent_run_1',
+      sidechainId: 'subagent_run_1',
+    };
+
+    expect(ExecutionRunStartResponseSchema.parse({
+      ...base,
+      requestedConfiguration,
+    }).requestedConfiguration).toEqual({
+      modelId: 'meta/muse-spark-1.3-contributor',
+      reasoningEffort: 'xhigh',
+    });
+    expect(ExecutionRunPublicStateSchema.parse({
+      ...base,
+      intent: 'delegate',
+      backendTarget: { kind: 'builtInAgent', agentId: 'pi' },
+      permissionMode: 'safe-yolo',
+      retentionPolicy: 'ephemeral',
+      runClass: 'bounded',
+      ioMode: 'request_response',
+      status: 'running',
+      startedAtMs: 1,
+      requestedConfiguration,
+    }).requestedConfiguration).toEqual({
+      modelId: 'meta/muse-spark-1.3-contributor',
+      reasoningEffort: 'xhigh',
+    });
   });
 
   it('validates start request', () => {

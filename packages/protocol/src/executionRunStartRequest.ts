@@ -5,6 +5,7 @@ import { ConnectedServiceBindingsV1Schema } from './connect/connectedServiceBind
 import { HappierReplayStrategySchema } from './sessionContinueWithReplay.js';
 import { LlmTaskRunnerConfigV1Schema } from './llmTasks/llmTaskRunnerConfigV1.js';
 import { AcpConfigOptionOverridesV1Schema } from './sessionMetadata/metadataOverridesV1.js';
+import { ExecutionRunRequestedConfigurationSchema } from './executionRunRequestedConfiguration.js';
 import {
   HappierReplayRecentMessagesCountSchema,
   HappierReplayWireMaxSeedCharsSchema,
@@ -178,5 +179,6 @@ export const ExecutionRunStartResponseSchema = z.object({
   runId: z.string().min(1),
   callId: z.string().min(1),
   sidechainId: z.string().min(1),
+  requestedConfiguration: ExecutionRunRequestedConfigurationSchema.optional(),
 }).passthrough();
 export type ExecutionRunStartResponse = z.infer<typeof ExecutionRunStartResponseSchema>;
