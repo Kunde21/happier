@@ -3855,29 +3855,7 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
                 title: "Kilo"
             },
             kimi: {
-                title: "Kimi",
-                sections: {
-                    compatibility: {
-                        title: "相容性",
-                        footer: "僅在 Kimi ACP 啟動卡住的 Linux/容器環境中使用相容模式。"
-                    }
-                },
-                fields: {
-                    kimiAcpPythonSelector: {
-                        title: "Python stdio 選擇器",
-                        subtitle: "選擇 Happier 如何啟動 Kimi ACP 的 Python stdio 迴圈。",
-                        options: {
-                            auto: {
-                                title: "自動",
-                                subtitle: "使用 Kimi 預設的 Python 選擇器。"
-                            },
-                            poll: {
-                                title: "相容模式",
-                                subtitle: "對 Kimi ACP stdio 使用 poll()，而不是 epoll()。"
-                            }
-                        }
-                    }
-                }
+                title: "Kimi"
             },
             kiro: {
                 title: "Kiro"

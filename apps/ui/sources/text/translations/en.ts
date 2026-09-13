@@ -3932,29 +3932,7 @@ export const en = {
                 title: "Kilo"
             },
             kimi: {
-                title: "Kimi",
-                sections: {
-                    compatibility: {
-                        title: "Compatibility",
-                        footer: "Use compatibility mode only for Linux/container environments where Kimi ACP startup hangs."
-                    }
-                },
-                fields: {
-                    kimiAcpPythonSelector: {
-                        title: "Python stdio selector",
-                        subtitle: "Choose how Happier starts Kimi ACP's Python stdio loop.",
-                        options: {
-                            auto: {
-                                title: "Automatic",
-                                subtitle: "Use Kimi's default Python selector."
-                            },
-                            poll: {
-                                title: "Compatibility mode",
-                                subtitle: "Use poll() instead of epoll() for Kimi ACP stdio."
-                            }
-                        }
-                    }
-                }
+                title: "Kimi"
             },
             kiro: {
                 title: "Kiro"
