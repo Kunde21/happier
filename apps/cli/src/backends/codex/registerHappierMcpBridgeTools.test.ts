@@ -21,8 +21,8 @@ describe('registerHappierMcpBridgeTools', () => {
     const { registerHappierMcpBridgeTools } = await import('./registerHappierMcpBridgeTools');
     const calls: any[] = [];
     const registrar = {
-      registerTool: (name: string, _def: any, handler: (args: any) => Promise<any>) => {
-        calls.push({ name, handler });
+      registerTool: (name: string, definition: any, handler: (args: any) => Promise<any>) => {
+        calls.push({ name, definition, handler });
       },
     };
 
@@ -46,6 +46,11 @@ describe('registerHappierMcpBridgeTools', () => {
 
     const actionExecute = calls.find((c) => c.name === 'action_execute');
     expect(actionExecute).toBeTruthy();
+    expect(actionExecute.definition).not.toHaveProperty('annotations');
+    expect(calls.find((c) => c.name === 'execution_run_wait')?.definition.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
     const res = await actionExecute.handler({
       actionId: 'subagents.delegate.start',
       input: {

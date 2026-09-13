@@ -16,12 +16,22 @@ import {
   resolveManagedCliReleaseChannelSync,
 } from '@happier-dev/cli-common/firstPartyRuntime'
 import { CANONICAL_DAEMON_STATE_BASENAME } from '@/daemon/ownership/daemonOwnershipPaths'
-import { createServerUrlComparableKey, HAPPIER_REPLAY_SEED_MAX_CHARS, HAPPIER_REPLAY_SEED_MIN_CHARS } from '@happier-dev/protocol'
+import {
+  createServerUrlComparableKey,
+  HAPPIER_REPLAY_SEED_MAX_CHARS,
+  HAPPIER_REPLAY_SEED_MIN_CHARS,
+  MAX_EXECUTION_RUN_OBSERVATION_TIMEOUT_SECONDS,
+} from '@happier-dev/protocol'
 import packageJson from '../package.json'
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings'
 
 export const DEFAULT_MCP_TOOL_CALL_TIMEOUT_MS = 100_000_000;
 export const DEFAULT_EXECUTION_RUN_WAIT_MCP_TIMEOUT_GRACE_MS = 60_000;
+// Codex's default inbound MCP tool-call deadline is 300 seconds. Happier run waits
+// legitimately observe work for up to one hour, so leave two minutes for admission and the result
+// to traverse the bridge without making every stalled tool effectively unbounded.
+export const DEFAULT_CODEX_HAPPIER_MCP_TOOL_CALL_TIMEOUT_MS =
+  MAX_EXECUTION_RUN_OBSERVATION_TIMEOUT_SECONDS * 1_000 + 120_000;
 const MAX_SAFE_NODE_TIMEOUT_MS = 2_147_000_000;
 
 export type ShellBridgeContextEnvMode = 'off' | 'home' | 'full';
@@ -231,6 +241,7 @@ class Configuration {
   // MCP client request timeouts for tool calls proxied by Happier-owned bridges.
   public readonly mcpToolCallTimeoutMs: number
   public readonly mcpExecutionRunWaitTimeoutGraceMs: number
+  public readonly codexHappierMcpToolCallTimeoutMs: number
 
   // Transcript lookup / recovery (fallback path when socket ACK/broadcast is missed).
   public readonly transcriptLookupRequestTimeoutMs: number
@@ -597,6 +608,14 @@ class Configuration {
         min: 0,
         max: MAX_SAFE_NODE_TIMEOUT_MS,
         default: DEFAULT_EXECUTION_RUN_WAIT_MCP_TIMEOUT_GRACE_MS,
+      },
+    );
+    this.codexHappierMcpToolCallTimeoutMs = resolveIntEnvWithBounds(
+      'HAPPIER_CODEX_HAPPIER_MCP_TOOL_CALL_TIMEOUT_MS',
+      {
+        min: 60_000,
+        max: MAX_SAFE_NODE_TIMEOUT_MS,
+        default: DEFAULT_CODEX_HAPPIER_MCP_TOOL_CALL_TIMEOUT_MS,
       },
     );
 

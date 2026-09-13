@@ -28,6 +28,7 @@ export function registerHappierMcpBridgeTools(
       description: tool.description,
       title: tool.title,
       inputSchema: tool.inputSchema,
+      ...(tool.annotations === undefined ? {} : { annotations: tool.annotations }),
     };
 
     server.registerTool(tool.name, meta, forward(tool.name));
