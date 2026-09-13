@@ -33,9 +33,6 @@ import { pickPermissionOptionId as pickAcpPermissionOptionId } from '@/agent/acp
 export const KILO_TIMEOUTS = {
   // Kilo may run plugin installs/config probes on first ACP start. Be conservative.
   init: 90_000,
-  toolCall: 120_000,
-  investigation: 300_000,
-  think: 30_000,
   idle: 500,
 } as const;
 
@@ -179,10 +176,8 @@ export class KiloTransport implements TransportHandler {
     return lowerId.includes('task') || (typeof toolKind === 'string' && toolKind.includes('task'));
   }
 
-  getToolCallTimeout(toolCallId: string, toolKind?: string): number {
-    if (this.isInvestigationTool(toolCallId, toolKind)) return KILO_TIMEOUTS.investigation;
-    if (toolKind === 'think') return KILO_TIMEOUTS.think;
-    return KILO_TIMEOUTS.toolCall;
+  getToolCallTimeout(_toolCallId: string, _toolKind?: string): number | null {
+    return null;
   }
 
   getIdleTimeout(): number {

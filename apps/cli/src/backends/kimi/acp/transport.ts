@@ -16,8 +16,6 @@ import {
 
 const KIMI_TIMEOUTS = {
   init: 90_000,
-  toolCall: 120_000,
-  think: 30_000,
   idle: 500,
 } as const;
 
@@ -138,9 +136,8 @@ export class KimiTransport implements TransportHandler {
     return false;
   }
 
-  getToolCallTimeout(_toolCallId: string, toolKind?: string): number {
-    if (toolKind === 'think') return KIMI_TIMEOUTS.think;
-    return KIMI_TIMEOUTS.toolCall;
+  getToolCallTimeout(_toolCallId: string, _toolKind?: string): number | null {
+    return null;
   }
 
   getIdleTimeout(): number {

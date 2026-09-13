@@ -23,9 +23,6 @@ import {
 
 export const AUGGIE_TIMEOUTS = {
   init: 60_000,
-  toolCall: 120_000,
-  investigation: 600_000,
-  think: 30_000,
   idle: 500,
 } as const;
 
@@ -124,13 +121,8 @@ export class AuggieTransport implements TransportHandler {
     return toolName;
   }
 
-  getToolCallTimeout(toolCallId: string, toolKind?: string): number {
-    const lowerId = toolCallId.toLowerCase();
-    if (lowerId.includes('investigat') || lowerId.includes('index') || lowerId.includes('search')) {
-      return AUGGIE_TIMEOUTS.investigation;
-    }
-    if (toolKind === 'think') return AUGGIE_TIMEOUTS.think;
-    return AUGGIE_TIMEOUTS.toolCall;
+  getToolCallTimeout(_toolCallId: string, _toolKind?: string): number | null {
+    return null;
   }
 
   getIdleTimeout(): number {

@@ -33,9 +33,6 @@ import {
 export const COPILOT_TIMEOUTS = {
   // Copilot may run auth checks or plugin setup on first ACP start. Be conservative.
   init: 90_000,
-  toolCall: 120_000,
-  investigation: 300_000,
-  think: 30_000,
   idle: 500,
 } as const;
 
@@ -165,10 +162,8 @@ export class CopilotTransport implements TransportHandler {
     return lowerId.includes('task') || (typeof toolKind === 'string' && toolKind.includes('task'));
   }
 
-  getToolCallTimeout(toolCallId: string, toolKind?: string): number {
-    if (this.isInvestigationTool(toolCallId, toolKind)) return COPILOT_TIMEOUTS.investigation;
-    if (toolKind === 'think') return COPILOT_TIMEOUTS.think;
-    return COPILOT_TIMEOUTS.toolCall;
+  getToolCallTimeout(_toolCallId: string, _toolKind?: string): number | null {
+    return null;
   }
 
   getIdleTimeout(): number {
