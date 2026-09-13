@@ -28,6 +28,7 @@ import {
 } from './createClaudeUnifiedHookLifecycleBridge';
 import { createReplayableHookSubscription } from './createReplayableHookSubscription';
 import { createClaudeUnifiedTranscriptBridge } from './createClaudeUnifiedTranscriptBridge';
+import { isClaudeMainChainCompactBoundary } from '../localControl/readClaudeTranscriptTurnSignal';
 import type { ClaudeRemoteSubagentFileCollector } from '../remote/sidechains/claudeRemoteSubagentFileCollector';
 import {
   createClaudeUnifiedTerminalReadinessBridge,
@@ -783,10 +784,6 @@ function normalizeMessageBatch<Mode>(input: ClaudeUnifiedTerminalQueuedInput<Mod
     ...(input.providerAcceptancePending === true ? { providerAcceptancePending: true } : {}),
     ...(input.pendingProviderAction ? { pendingProviderAction: input.pendingProviderAction } : {}),
   };
-}
-
-function isCompactBoundaryTranscriptMessage(message: RawJSONLines): boolean {
-  return message.type === 'system' && (message as Record<string, unknown>).subtype === 'compact_boundary';
 }
 
 function isAcceptedPromptTranscriptCandidate(value: unknown): boolean {
@@ -2186,7 +2183,7 @@ export async function runClaudeUnifiedTerminalSession<Mode extends EnhancedMode 
         return true;
       };
       const confirmCompactBoundaryPromptAcceptedFromTranscript = (message: RawJSONLines): boolean => {
-        if (!isCompactBoundaryTranscriptMessage(message)) return false;
+        if (!isClaudeMainChainCompactBoundary(message)) return false;
         void arbiter.confirmPromptAcceptedByProviderIf((batch) => isCompactSlashCommandPrompt(batch.message)).catch(() => undefined);
         return true;
       };

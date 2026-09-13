@@ -585,6 +585,35 @@ describe('createClaudeUnifiedHookLifecycleBridge', () => {
     }
   });
 
+  it('does not let sidechain compact boundary transcript rows complete the parent compaction lifecycle', () => {
+    const observeLifecycle = vi.fn();
+    const drainWhenSafe = vi.fn().mockResolvedValue(undefined);
+    const bridge = createClaudeUnifiedHookLifecycleBridge({
+      subscribeClaudeSessionHooks: () => null,
+      arbiter: {
+        observeLifecycle,
+        confirmPromptAcceptedByProvider: vi.fn().mockResolvedValue(false),
+        drainWhenSafe,
+      },
+      completionQuiescenceMs: 0,
+    });
+
+    try {
+      bridge.observeTranscript({
+        type: 'system',
+        uuid: 'sidechain-compact-boundary',
+        subtype: 'compact_boundary',
+        session_id: 'claude-sidechain-session-id',
+        isSidechain: true,
+      } as any);
+
+      expect(observeLifecycle).not.toHaveBeenCalled();
+      expect(drainWhenSafe).not.toHaveBeenCalled();
+    } finally {
+      bridge.dispose();
+    }
+  });
+
   it('waits for async ready completion before redraining after a completed turn', async () => {
     let subscribedHook: ((data: SessionHookData) => void) | undefined;
     let resolveReady: (() => void) | undefined;

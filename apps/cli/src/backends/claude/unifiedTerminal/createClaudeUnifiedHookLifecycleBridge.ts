@@ -10,6 +10,7 @@ import {
   createClaudeLocalLifecycleTracker,
   isClaudeTaskNotificationUserPromptHook,
 } from '../localControl/claudeLocalLifecycleTracker';
+import { isClaudeMainChainCompactBoundary } from '../localControl/readClaudeTranscriptTurnSignal';
 import {
   type createClaudeProviderActivityLedger,
 } from '../providerActivity/createClaudeProviderActivityLedger';
@@ -127,12 +128,6 @@ function readHookRequestId(data: SessionHookData): string {
     || readHookString(data, 'request_id')
     || readHookString(data, 'requestId')
     || readHookString(data, 'id');
-}
-
-function readSystemSubtype(message: RawJSONLines): string {
-  if (message.type !== 'system') return '';
-  const raw = (message as Record<string, unknown>).subtype;
-  return typeof raw === 'string' ? raw : '';
 }
 
 export function createClaudeUnifiedHookLifecycleBridge(opts: Readonly<{
@@ -680,7 +675,7 @@ export function createClaudeUnifiedHookLifecycleBridge(opts: Readonly<{
     },
     observeTranscript(message) {
       noteTurnStallProgress();
-      if (readSystemSubtype(message) === 'compact_boundary') {
+      if (isClaudeMainChainCompactBoundary(message)) {
         observeCompactionCompleted();
       }
       if (isClaudeRuntimeAuthFailureEvidence(message)) {
