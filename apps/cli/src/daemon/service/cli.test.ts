@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildLaunchdPlistXml, renderSystemdServiceUnit, renderWindowsScheduledTaskWrapperPs1 } from '@happier-dev/cli-common/service';
@@ -863,11 +864,21 @@ describe('runDaemonServiceCliCommand', () => {
         commandExistsInPath: vi.fn(() => true),
       }));
 
-      const [{ runDaemonServiceCliCommand }, { clearDaemonStateForTests: clearDaemonState }] = await Promise.all([
+      const [{ runDaemonServiceCliCommand }, { clearDaemonStateForTests: clearDaemonState }, { configuration }] = await Promise.all([
         loadCliModule(),
         import('@/persistence'),
+        import('@/configuration'),
       ]);
       clearDaemonState();
+
+      const child = spawn(
+        process.execPath,
+        ['-e', 'setInterval(() => {}, 1000)', join(process.cwd(), 'src/index.ts'), 'daemon', 'start-sync'],
+        { stdio: 'ignore' },
+      );
+      if (!child.pid) throw new Error('missing daemon fixture pid');
+      mkdirSync(dirname(configuration.daemonLockFile), { recursive: true });
+      writeFileSync(configuration.daemonLockFile, String(child.pid), 'utf8');
 
       const output = captureStdoutJsonOutput<{ ok: boolean; platform: string }>();
       try {
@@ -877,6 +888,7 @@ describe('runDaemonServiceCliCommand', () => {
         expect(payload.platform).toBe('linux');
       } finally {
         output.restore();
+        child.kill('SIGKILL');
       }
     });
   });
