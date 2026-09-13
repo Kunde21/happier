@@ -2190,7 +2190,6 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
         transcript: '對話記錄',
         transcriptSubtitle: '思考、工具呈現與程式碼顯示',
         permissions: '權限',
-        errors: '錯誤',
         permissionsSubtitle: '權限模式與核准行為',
         filesSourceControl: '檔案與原始碼控制',
         filesSourceControlSubtitle: '編輯器、差異比較與原始碼控制整合',
