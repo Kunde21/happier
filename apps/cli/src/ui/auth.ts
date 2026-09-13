@@ -402,14 +402,14 @@ async function doMobileAuth(params: Readonly<{
     pairing: TerminalPairingAuthentication;
     pairingRequirement: TerminalPairingRequirement | null;
 }>): Promise<Credentials | null> {
-    console.log('\nMobile Authentication\n');
+    console.log('\nConnect this computer\n');
     console.log(`Relay URL: ${configuration.serverUrl}`);
     if (configuration.apiServerUrl !== configuration.serverUrl) {
         console.log(`API URL: ${configuration.apiServerUrl}`);
     }
     console.log(`Web app URL: ${configuration.webappUrl}\n`);
     printServerUrlReachabilityHint(configuration.serverUrl);
-    console.log('Recommended: use the mobile app first. It makes linking additional devices easier.');
+    console.log('Approve this computer with Happier on your phone.');
     if (params.pairingRequirement === 'v3') {
         console.log('Authenticated pairing v3 is required. For protection from an untrusted relay, approve with the native mobile app; web pairing trusts the web app origin.');
     }
@@ -449,13 +449,10 @@ async function doMobileAuth(params: Readonly<{
     console.log('Scan this QR code with your Happier mobile app:\n');
     displayQRCode(terminalLinks.mobileUrl);
 
-    console.log('\nOr manually enter this URL:');
+    console.log('\nCopy this link if you cannot scan the code:');
     console.log(terminalLinks.mobileUrl);
     console.log('');
-
-    console.log('Web (fallback):');
-    console.log(terminalLinks.webUrl);
-    console.log('');
+    console.log('Prefer a browser? Cancel and run this command again, then choose Web browser.');
 
     return await waitForAuthentication(params);
 }
@@ -469,7 +466,7 @@ async function doWebAuth(params: Readonly<{
     pairing: TerminalPairingAuthentication;
     pairingRequirement: TerminalPairingRequirement | null;
 }>): Promise<Credentials | null> {
-    console.log('\nWeb Authentication\n');
+    console.log('\nConnect this computer\n');
     console.log(`This terminal is connected to: ${configuration.serverUrl}`);
     if (configuration.apiServerUrl !== configuration.serverUrl) {
         console.log(`API URL: ${configuration.apiServerUrl}`);
@@ -497,29 +494,23 @@ async function doWebAuth(params: Readonly<{
         const browserOpened = await openBrowser(webUrl);
 
         if (browserOpened) {
-            console.log('✓ Browser opened\n');
-            console.log('Complete authentication in your browser window.');
+            console.log('✓ Browser opened');
         } else {
-            console.log('Could not open browser automatically.');
+            console.log('No browser opened. This is normal on a headless or remote computer.');
         }
     } else {
-        console.log('Browser opening is disabled (HAPPIER_NO_BROWSER_OPEN is set).');
-        console.log('Open the URL below in the browser profile/account you want to authenticate.');
+        console.log('Browser opening is disabled; use the link below from any browser.');
     }
 
     // I changed this to always show the URL because we got a report from
     // someone running happy inside the dev-box container image that they saw the
     // "Complete authentication in your browser window." but nothing opened.
     // https://github.com/slopus/happy/issues/19
-    console.log('\nIf the browser did not open, please copy and paste this URL:');
+    console.log('\nCopy this link into any browser:');
     console.log(webUrl);
     console.log('');
-    console.log('If you want to use the mobile app instead, manually open this deep link:');
-    console.log(terminalLinks.mobileUrl);
-    console.log('');
-    if (!terminalLinks.mobileUrl.includes('server=')) {
-        printMobileLinkMissingServerUrlHint({ serverUrl: configuration.serverUrl, kind: 'terminalConnect' });
-    }
+    console.log('Sign in to the same Happier account you use on your other devices, then approve this computer.');
+    console.log('Prefer the mobile app? Cancel and run this command again, then choose Mobile app.\n');
 
     return await waitForAuthentication(params, 'planet');
 }
@@ -599,13 +590,11 @@ async function waitForAuthentication(
 
                     if (opened.type === 'legacy') {
                         await writeCredentialsLegacy({ secret: opened.key, token });
-                        print('\n\n✓ Authentication successful\n');
                         return { encryption: { type: 'legacy', secret: opened.key }, token };
                     }
 
                     const publicKeyBytes = tweetnacl.box.keyPair.fromSecretKey(opened.key).publicKey;
                     await writeCredentialsDataKey({ publicKey: publicKeyBytes, machineKey: opened.key, token });
-                    print('\n\n✓ Authentication successful\n');
                     return { encryption: { type: 'dataKey', publicKey: publicKeyBytes, machineKey: opened.key }, token };
                 };
 
@@ -901,7 +890,9 @@ export async function ensureMachineIdForCredentials(
  * Ensure authentication and machine setup
  * This replaces the onboarding flow and ensures everything is ready
  */
-export async function authAndSetupMachineIfNeeded(): Promise<{
+export async function authAndSetupMachineIfNeeded(opts: Readonly<{
+    callerIntent?: 'standalone' | 'setup-managed';
+}> = {}): Promise<{
     credentials: Credentials;
     machineId: string;
 }> {
@@ -935,6 +926,7 @@ export async function authAndSetupMachineIfNeeded(): Promise<{
         env: process.env,
         isDaemonProcess: configuration.isDaemonProcess,
         startedBy: 'terminal',
+        callerIntent: opts.callerIntent,
       })
     ) {
       try {

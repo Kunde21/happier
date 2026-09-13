@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Credentials, Settings } from '@/persistence';
 import type { ActiveServerStoredTokenValidationResult } from '@/auth/validateStoredAuthTokenAgainstActiveServer';
 
-const authAndSetupMachineIfNeededMock = vi.hoisted(() => vi.fn(async () => ({
+const authAndSetupMachineIfNeededMock = vi.hoisted(() => vi.fn(async (_options?: unknown) => ({
   machineId: 'm1',
   credentials: { token: 't1', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
 })));
@@ -14,9 +14,14 @@ const readSettingsMock = vi.hoisted(() => vi.fn<() => Promise<Partial<Settings>>
 const clearCredentialsMock = vi.hoisted(() => vi.fn(async () => {}));
 const clearMachineIdMock = vi.hoisted(() => vi.fn(async () => {}));
 const stopDaemonMock = vi.hoisted(() => vi.fn(async () => {}));
+const reconcileBackgroundServicesMock = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock('@/ui/auth', () => ({
-  authAndSetupMachineIfNeeded: () => authAndSetupMachineIfNeededMock(),
+  authAndSetupMachineIfNeeded: (options?: unknown) => authAndSetupMachineIfNeededMock(options),
+}));
+
+vi.mock('../backgroundServiceFollowUp', () => ({
+  reconcileDefaultFollowingBackgroundServicesAfterAuthentication: () => reconcileBackgroundServicesMock(),
 }));
 
 vi.mock('@/auth/validateStoredAuthTokenAgainstActiveServer', () => ({
@@ -81,6 +86,9 @@ describe('happier auth login --print-configure-links', () => {
     clearCredentialsMock.mockReset();
     clearMachineIdMock.mockReset();
     stopDaemonMock.mockReset();
+    reconcileBackgroundServicesMock.mockReset();
+    reconcileBackgroundServicesMock.mockResolvedValue(true);
+    process.exitCode = undefined;
     vi.resetModules();
   });
 
@@ -109,6 +117,18 @@ describe('happier auth login --print-configure-links', () => {
     }
   });
 
+  it('prints authentication success exactly once after machine setup completes', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const { handleAuthLogin } = await import('./login');
+      await handleAuthLogin([]);
+      const output = consoleSpy.mock.calls.flat().map(String).join('\n');
+      expect(output.match(/Authentication successful/gu) ?? []).toHaveLength(1);
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
   it('hands --wait-timeout to the wait the auth flow performs', async () => {
     // The bound only exists if both files agree on this key; a rename on either
     // side leaves `happier setup` holding the terminal forever and says nothing.
@@ -132,6 +152,73 @@ describe('happier auth login --print-configure-links', () => {
       await handleAuthLogin([]);
 
       expect(process.env.HAPPIER_AUTH_WAIT_TIMEOUT_MS).toBeUndefined();
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it('passes setup-managed intent so setup remains the only daemon-start owner', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const { handleAuthLogin } = await import('./login');
+      await handleAuthLogin(['--no-daemon-start']);
+
+      expect(authAndSetupMachineIfNeededMock).toHaveBeenCalledWith({ callerIntent: 'setup-managed' });
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it('surfaces an incomplete background-service follow-up to setup without clearing credentials', async () => {
+    reconcileBackgroundServicesMock.mockResolvedValue(false);
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { handleAuthLogin } = await import('./login');
+      await handleAuthLogin(['--no-daemon-start']);
+
+      expect(process.exitCode).toBe(1);
+      expect(clearCredentialsMock).not.toHaveBeenCalled();
+      expect(clearMachineIdMock).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+      consoleLogSpy.mockRestore();
+    }
+  });
+
+  it('reconciles setup-managed service readiness when credentials and machine registration already exist', async () => {
+    readCredentialsMock.mockResolvedValue({
+      token: 'valid-token',
+      encryption: { type: 'legacy', secret: new Uint8Array(32) },
+    });
+    readSettingsMock.mockResolvedValue({ machineId: 'machine-1' });
+    reconcileBackgroundServicesMock.mockResolvedValue(false);
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { handleAuthLogin } = await import('./login');
+      await handleAuthLogin(['--no-daemon-start']);
+
+      expect(authAndSetupMachineIfNeededMock).toHaveBeenCalledWith({ callerIntent: 'setup-managed' });
+      expect(reconcileBackgroundServicesMock).toHaveBeenCalledOnce();
+      expect(process.exitCode).toBe(1);
+      expect(clearCredentialsMock).not.toHaveBeenCalled();
+      expect(clearMachineIdMock).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+      consoleLogSpy.mockRestore();
+    }
+  });
+
+  it('keeps standalone authentication successful when its optional service follow-up is incomplete', async () => {
+    reconcileBackgroundServicesMock.mockResolvedValue(false);
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const { handleAuthLogin } = await import('./login');
+      await handleAuthLogin([]);
+
+      expect(process.exitCode).toBeUndefined();
+      expect(authAndSetupMachineIfNeededMock).toHaveBeenCalledWith({ callerIntent: 'standalone' });
     } finally {
       consoleSpy.mockRestore();
     }

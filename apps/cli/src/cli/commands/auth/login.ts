@@ -37,6 +37,7 @@ function readWaitTimeoutSecondsFlag(args: readonly string[]): number | null {
 export async function handleAuthLogin(args: string[]): Promise<void> {
   args = await applyServerSelectionFromArgs(args);
 
+  const callerIntent = args.includes('--no-daemon-start') ? 'setup-managed' : 'standalone';
   const forceAuth = args.includes('--force') || args.includes('-f');
   const noOpen = args.includes('--no-open') || args.includes('--no-browser') || args.includes('--no-browser-open');
   const printConfigureLinks = args.includes('--print-configure-links');
@@ -111,14 +112,19 @@ export async function handleAuthLogin(args: string[]): Promise<void> {
     if (existingCreds && readiness.credentialState === 'unknown') {
       console.log(chalk.yellow('⚠️  The selected relay did not answer, so the stored sign-in could not be verified'));
       console.log(chalk.gray('  Stored credentials were kept unchanged.'));
-      if (readiness.machineRegistered) {
+      if (readiness.machineRegistered && callerIntent === 'standalone') {
         console.log(chalk.gray('  Retry this command when the relay is available.'));
         return;
       }
       console.log(chalk.gray('  Machine registration will be retried with the stored credential.\n'));
     }
 
-    if (existingCreds && readiness.credentialState === 'valid' && readiness.machineRegistered) {
+    if (
+      existingCreds
+      && readiness.credentialState === 'valid'
+      && readiness.machineRegistered
+      && callerIntent === 'standalone'
+    ) {
       console.log(chalk.green('✓ Already authenticated'));
       console.log(chalk.gray(`  Machine ID: ${readiness.machineId}`));
       console.log(chalk.gray(`  Host: ${os.hostname()}`));
@@ -144,10 +150,13 @@ export async function handleAuthLogin(args: string[]): Promise<void> {
   }
 
   try {
-    const result = await authAndSetupMachineIfNeeded();
+    const result = await authAndSetupMachineIfNeeded({ callerIntent });
     console.log(chalk.green('\n✓ Authentication successful'));
     console.log(chalk.gray(`  Machine ID: ${result.machineId}`));
-    await reconcileDefaultFollowingBackgroundServicesAfterAuthentication();
+    const backgroundServiceReady = await reconcileDefaultFollowingBackgroundServicesAfterAuthentication();
+    if (!backgroundServiceReady && callerIntent === 'setup-managed') {
+      process.exitCode = 1;
+    }
   } catch (error) {
     console.error(chalk.red('Authentication failed:'), error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
