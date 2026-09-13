@@ -212,13 +212,10 @@ describe("connectRoutes connected service auth groups (integration)", () => {
         await createConnectedProfile(user.id, "openai-codex", "work");
         const app = await createReadyApp();
         const quotaResetHeaders = { ...authHeaders(user.id), accept: "application/json; happier-connected-service-auto-quota-reset=1" };
-        const headers = {
-            ...quotaResetHeaders,
-            "x-happier-connected-service-auto-disable-plan-invalid": "1",
-            "x-happier-connected-service-pool-quota-limit-selection": "1",
-        };
+        const headers = quotaResetHeaders;
+        const readerQuery = "happierAutoDisablePlanInvalidAccounts=1&happierPoolQuotaLimitSelection=1";
         const url = "/v3/connect/openai-codex/groups/reset-pool";
-        const create = await app.inject({ method: "POST", url: "/v3/connect/openai-codex/groups", headers,
+        const create = await app.inject({ method: "POST", url: `/v3/connect/openai-codex/groups?${readerQuery}`, headers,
             payload: { groupId: "reset-pool", displayName: null, activeProfileId: "work", members: [{ profileId: "work", priority: 10 }], policy: { autoUseQuotaResetsWhenExhausted: true, autoDisablePlanInvalidAccounts: true, quotaLimitSelection: { mode: "selected", providerLimitIds: ["standard"] } } },
         });
         expect(create.statusCode).toBe(200);
@@ -238,16 +235,16 @@ describe("connectRoutes connected service auth groups (integration)", () => {
         } });
         expect(oldEdit.statusCode).toBe(200);
         expect(oldEdit.json().group.policy).not.toHaveProperty("autoUseQuotaResetsWhenExhausted");
-        const newRead = await app.inject({ method: "GET", url, headers });
+        const newRead = await app.inject({ method: "GET", url: `${url}?${readerQuery}`, headers });
         expect(newRead.json().group.policy).toMatchObject({ autoUseQuotaResetsWhenExhausted: true, autoDisablePlanInvalidAccounts: true, quotaLimitSelection: { mode: "selected", providerLimitIds: ["standard"] }, cooldownMs: 1234 });
         process.env.HAPPIER_FEATURE_CONNECTED_SERVICES_QUOTAS__ENABLED = "0";
-        const disabledRead = await app.inject({ method: "GET", url, headers });
+        const disabledRead = await app.inject({ method: "GET", url: `${url}?${readerQuery}`, headers });
         expect(disabledRead.json().group.policy).not.toHaveProperty("autoUseQuotaResetsWhenExhausted");
         process.env.HAPPIER_FEATURE_CONNECTED_SERVICES_QUOTAS__ENABLED = "1";
-        const restoredRead = await app.inject({ method: "GET", url, headers });
+        const restoredRead = await app.inject({ method: "GET", url: `${url}?${readerQuery}`, headers });
         expect(restoredRead.json().group.policy.autoUseQuotaResetsWhenExhausted).toBe(true);
 
-        const createDefault = await app.inject({ method: "POST", url: "/v3/connect/openai-codex/groups", headers,
+        const createDefault = await app.inject({ method: "POST", url: `/v3/connect/openai-codex/groups?${readerQuery}`, headers,
             payload: { groupId: "default-limits-pool", displayName: null, activeProfileId: "work", members: [{ profileId: "work", priority: 10 }] },
         });
         expect(createDefault.statusCode).toBe(200);

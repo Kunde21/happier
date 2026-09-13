@@ -298,6 +298,7 @@ describe('connectedServiceSchemas', () => {
                     details: {
                         code: 'near_limit',
                         rawScope: 'account:weekly',
+                        modelDisplayName: 'GPT 5',
                     },
                 },
             ],
@@ -332,6 +333,7 @@ describe('connectedServiceSchemas', () => {
             details: expect.objectContaining({
                 code: 'near_limit',
                 rawScope: 'account:weekly',
+                modelDisplayName: 'GPT 5',
             }),
         }));
     });
@@ -628,6 +630,20 @@ describe('connectedServiceSchemas', () => {
             expect(schema.safeParse({ quotaLimitSelection: { mode: 'selected', providerLimitIds: [] } }).success).toBe(false);
             expect(schema.safeParse({ quotaLimitSelection: { mode: 'selected', providerLimitIds: [' spark ', 'spark'] } }).success).toBe(false);
         }
+    });
+
+    it('appends CORS-safe auth-group reader capabilities without replacing existing query parameters', () => {
+        const appendReaderCapabilities = (schemas as Record<string, unknown>)
+            .appendConnectedServiceAuthGroupReaderCapabilities;
+        expect(typeof appendReaderCapabilities).toBe('function');
+        expect((appendReaderCapabilities as (path: string) => string)('/v3/connect/openai-codex/groups')).toBe(
+            '/v3/connect/openai-codex/groups?happierAutoDisablePlanInvalidAccounts=1&happierPoolQuotaLimitSelection=1',
+        );
+        expect((appendReaderCapabilities as (path: string) => string)(
+            '/v3/connect/openai-codex/groups/main/members/work?expectedGeneration=4',
+        )).toBe(
+            '/v3/connect/openai-codex/groups/main/members/work?expectedGeneration=4&happierAutoDisablePlanInvalidAccounts=1&happierPoolQuotaLimitSelection=1',
+        );
     });
 
     it('parses the default connected-service account group policy', () => {

@@ -49,10 +49,7 @@ import {
   buildProviderAccountUsageRecordId,
   CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER,
   CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-  CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER,
-  CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-  CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER,
-  CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
+  appendConnectedServiceAuthGroupReaderCapabilities,
   ConnectedServiceAuthGroupErrorResponseV1Schema,
   ConnectedServiceAuthGroupResponseV1Schema,
   ConnectedServiceCredentialHealthV1Schema,
@@ -1009,7 +1006,7 @@ export class ApiClient {
 
     try {
       const response = await axios.post(
-        `${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/active-profile`,
+        appendConnectedServiceAuthGroupReaderCapabilities(`${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/active-profile`),
         {
           profileId: params.activeProfileId,
           expectedGeneration,
@@ -1020,8 +1017,6 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),
         },
@@ -1075,7 +1070,7 @@ export class ApiClient {
 
     try {
       const response = await axios.patch(
-        `${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/runtime-state`,
+        appendConnectedServiceAuthGroupReaderCapabilities(`${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/runtime-state`),
         {
           ...(expectedGeneration === undefined ? {} : { expectedGeneration }),
           ...(expectedRuntimeStateRevision === undefined ? {} : { expectedRuntimeStateRevision }),
@@ -1087,8 +1082,6 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),
         },
@@ -1142,7 +1135,7 @@ export class ApiClient {
 
     try {
       const response = await axios.post(
-        `${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/members`,
+        appendConnectedServiceAuthGroupReaderCapabilities(`${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/members`),
         {
           profileId: params.profileId,
           ...(params.priority === undefined ? {} : { priority: params.priority }),
@@ -1154,8 +1147,6 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),
         },
@@ -1205,7 +1196,7 @@ export class ApiClient {
 
     try {
       const response = await axios.patch(
-        `${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/members/${profileId}`,
+        appendConnectedServiceAuthGroupReaderCapabilities(`${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/members/${profileId}`),
         {
           ...(params.priority === undefined ? {} : { priority: params.priority }),
           ...(params.enabled === undefined ? {} : { enabled: params.enabled }),
@@ -1220,8 +1211,6 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),
         },
@@ -1274,14 +1263,12 @@ export class ApiClient {
 
     try {
       const response = await axios.delete(
-        `${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/members/${profileId}`,
+        appendConnectedServiceAuthGroupReaderCapabilities(`${serverUrl}/v3/connect/${serviceId}/groups/${groupId}/members/${profileId}`),
         {
           headers: {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json',
             [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-            [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-            [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
           },
           params: { expectedGeneration },
           timeout: resolveConnectedServicesServerApiTimeoutMs(),

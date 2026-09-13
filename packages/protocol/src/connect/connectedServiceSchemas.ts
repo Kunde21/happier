@@ -420,6 +420,7 @@ export const ConnectedServiceQuotaMeterV1Schema = z
         resetAtMs: z.number().int().nonnegative().nullable().optional(),
         resetSource: ConnectedServiceQuotaResetSourceV1Schema.optional(),
         providerLimitId: z.string().trim().min(1).optional(),
+        windowDurationMs: z.number().int().positive().optional(),
         modelId: z.string().trim().min(1).nullable().optional(),
         isExhausted: z.boolean().optional(),
         isSoftLimited: z.boolean().optional(),
@@ -437,6 +438,7 @@ export const ConnectedServiceQuotaMeterV1Schema = z
                 note: z.string().min(1).nullable().optional(),
                 code: z.string().trim().min(1).optional(),
                 rawScope: z.string().trim().min(1).optional(),
+                modelDisplayName: z.string().trim().min(1).optional(),
                 remainingPct: z.number().finite().min(0).max(100).nullable().optional(),
                 scope: ConnectedServiceQuotaMeterScopeV1Schema.optional(),
                 providerLimitId: z.string().trim().min(1).optional(),
@@ -502,10 +504,27 @@ export type SealedConnectedServiceQuotaSnapshotV1 = z.infer<typeof SealedConnect
 // Explicit reader negotiation: older strict V1 readers cannot accept the opt-in field.
 export const CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER = 'accept';
 export const CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE = 'application/json; happier-connected-service-auto-quota-reset=1';
-export const CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER = 'x-happier-connected-service-auto-disable-plan-invalid';
-export const CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE = '1';
-export const CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER = 'x-happier-connected-service-pool-quota-limit-selection';
-export const CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE = '1';
+export const CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_QUERY_KEY = 'happierAutoDisablePlanInvalidAccounts';
+export const CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_QUERY_KEY = 'happierPoolQuotaLimitSelection';
+export const CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE = '1';
+
+export const ConnectedServiceAuthGroupReaderCapabilitiesQueryV1Schema = z.object({
+    [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_QUERY_KEY]: z
+        .literal(CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE)
+        .optional(),
+    [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_QUERY_KEY]: z
+        .literal(CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE)
+        .optional(),
+});
+
+export type ConnectedServiceAuthGroupReaderCapabilitiesQueryV1 = z.infer<
+    typeof ConnectedServiceAuthGroupReaderCapabilitiesQueryV1Schema
+>;
+
+export function appendConnectedServiceAuthGroupReaderCapabilities(path: string): string {
+    const separator = path.includes('?') ? '&' : '?';
+    return `${path}${separator}${CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}&${CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}`;
+}
 
 const ConnectedServiceSelectedProviderLimitIdsSchema = z
     .array(z.string().trim().min(1))

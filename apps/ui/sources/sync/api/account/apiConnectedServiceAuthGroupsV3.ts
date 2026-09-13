@@ -7,10 +7,7 @@ import { createConnectedServiceApiError } from './connectedServiceApiError';
 import {
     CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER,
     CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-    CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER,
-    CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-    CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER,
-    CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
+    appendConnectedServiceAuthGroupReaderCapabilities,
     ConnectedServiceAuthGroupListResponseV1Schema,
     type ConnectedServiceAuthGroupMemberCreateRequestV1,
     type ConnectedServiceAuthGroupMemberPatchRequestV1,
@@ -43,13 +40,11 @@ async function fetchAuthGroupEnvelope(
 ): Promise<ConnectedServiceAuthGroupV1> {
     return await backoff(async () => {
         const response = await serverFetch(
-            path,
+            appendConnectedServiceAuthGroupReaderCapabilities(path),
             {
                 method: init.method,
                 headers: {
                     [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-                    [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-                    [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
                     Authorization: `Bearer ${credentials.token}`,
                     // Only declare a JSON body when one is actually sent: Fastify rejects
                     // body-less requests that carry a JSON content-type (FST_ERR_CTP_EMPTY_JSON_BODY).
@@ -109,13 +104,11 @@ export async function listConnectedServiceAuthGroupsV3(
 ): Promise<ReadonlyArray<ConnectedServiceAuthGroupV1>> {
     return await backoff(async () => {
         const response = await serverFetch(
-            `/v3/connect/${encodeURIComponent(params.serviceId)}/groups`,
+            appendConnectedServiceAuthGroupReaderCapabilities(`/v3/connect/${encodeURIComponent(params.serviceId)}/groups`),
             {
                 method: 'GET',
                 headers: {
                     [CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER]: CONNECTED_SERVICE_AUTO_QUOTA_RESET_HEADER_VALUE,
-                    [CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER]: CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_HEADER_VALUE,
-                    [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER]: CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_HEADER_VALUE,
                     Authorization: `Bearer ${credentials.token}`,
                     'Content-Type': 'application/json',
                 },
