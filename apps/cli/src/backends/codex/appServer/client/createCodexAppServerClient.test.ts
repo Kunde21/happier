@@ -586,7 +586,7 @@ describe('createCodexAppServerClient', () => {
         });
     });
 
-    it('uses the startup RPC timeout for slow thread/start requests', async () => {
+    it('keeps side-effecting thread/start alive past the startup RPC timeout', async () => {
         await withTempDir('happier-codex-app-server-client-thread-start-timeout-', async (root) => {
             const fakeAppServer = await writeFakeCodexAppServerScript({
                 dir: root,
@@ -613,7 +613,7 @@ describe('createCodexAppServerClient', () => {
             const client = await createCodexAppServerClient({
                 processEnv: createCodexAppServerProcessEnv(fakeAppServer, {
                     HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '250',
-                    HAPPIER_CODEX_APP_SERVER_STARTUP_RPC_TIMEOUT_MS: '5000',
+                    HAPPIER_CODEX_APP_SERVER_STARTUP_RPC_TIMEOUT_MS: '250',
                 }),
             });
 

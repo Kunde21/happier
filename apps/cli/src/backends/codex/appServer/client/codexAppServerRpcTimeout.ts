@@ -1,5 +1,8 @@
-const STARTUP_RPC_METHODS = new Set(['initialize', 'thread/start']);
+const STARTUP_RPC_METHODS = new Set(['initialize']);
 const LONG_RUNNING_RPC_METHODS = new Set([
+    // Starting a thread is side-effecting admission. A timeout cannot establish whether Codex
+    // accepted it, and loaded starts can legitimately exceed the ordinary startup RPC budget.
+    'thread/start',
     'thread/resume',
     'thread/fork',
     'conversation/fork',

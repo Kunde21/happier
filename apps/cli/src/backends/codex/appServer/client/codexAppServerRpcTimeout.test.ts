@@ -18,24 +18,24 @@ describe('codexAppServerRpcTimeout', () => {
         expect(readCodexAppServerRpcTimeoutMs({ HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '9999999' } as NodeJS.ProcessEnv)).toBe(600_000);
     });
 
-    it('keeps provider side-effecting turn admission and resume requests alive', () => {
+    it('keeps provider side-effecting thread, turn, and resume admission lifecycle-owned', () => {
         const env = {
             HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '1200',
             HAPPIER_CODEX_APP_SERVER_STARTUP_RPC_TIMEOUT_MS: '20000',
         } as NodeJS.ProcessEnv;
 
         expect(readCodexAppServerRequestTimeoutMs('initialize', env)).toBe(20_000);
-        expect(readCodexAppServerRequestTimeoutMs('thread/start', env)).toBe(20_000);
+        expect(readCodexAppServerRequestTimeoutMs('thread/start', env)).toBeNull();
         expect(readCodexAppServerRequestTimeoutMs('thread/resume', env)).toBeNull();
         expect(readCodexAppServerRequestTimeoutMs('turn/start', env)).toBeNull();
         expect(readCodexAppServerRequestTimeoutMs('turn/steer', env)).toBeNull();
         expect(readCodexAppServerRequestTimeoutMs('model/list', env)).toBe(1200);
     });
 
-    it('defaults initialize and thread/start to the shared 60s startup budget', () => {
+    it('bounds process initialization but not side-effecting thread admission', () => {
         expect(readCodexAppServerStartupRpcTimeoutMs({} as NodeJS.ProcessEnv)).toBe(60_000);
         expect(readCodexAppServerRequestTimeoutMs('initialize', {} as NodeJS.ProcessEnv)).toBe(60_000);
-        expect(readCodexAppServerRequestTimeoutMs('thread/start', {} as NodeJS.ProcessEnv)).toBe(60_000);
+        expect(readCodexAppServerRequestTimeoutMs('thread/start', {} as NodeJS.ProcessEnv)).toBeNull();
     });
 
     it('keeps provider-native fork requests alive without inflating ordinary RPCs', () => {
@@ -55,6 +55,6 @@ describe('codexAppServerRpcTimeout', () => {
         } as NodeJS.ProcessEnv;
 
         expect(readCodexAppServerStartupRpcTimeoutMs(env)).toBe(25_000);
-        expect(readCodexAppServerRequestTimeoutMs('thread/start', env)).toBe(25_000);
+        expect(readCodexAppServerRequestTimeoutMs('initialize', env)).toBe(25_000);
     });
 });
