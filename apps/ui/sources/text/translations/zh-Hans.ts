@@ -4100,34 +4100,15 @@ export const zhHans: TranslationStructure = {
                 title: "Kilo"
             },
             kimi: {
-                title: "Kimi",
-                sections: {
-                    compatibility: {
-                        title: "兼容性",
-                        footer: "仅在 Kimi ACP 启动卡住的 Linux/容器环境中使用兼容模式。"
-                    }
-                },
-                fields: {
-                    kimiAcpPythonSelector: {
-                        title: "Python stdio 选择器",
-                        subtitle: "选择 Happier 如何启动 Kimi ACP 的 Python stdio 循环。",
-                        options: {
-                            auto: {
-                                title: "自动",
-                                subtitle: "使用 Kimi 默认的 Python 选择器。"
-                            },
-                            poll: {
-                                title: "兼容模式",
-                                subtitle: "对 Kimi ACP stdio 使用 poll() 而不是 epoll()。"
-                            }
-                        }
-                    }
-                }
+                title: "Kimi"
             },
             kiro: {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
+            agy: { title: 'Agy' },
+            fx: { title: "FX" },
+            droid: { title: "Factory Droid" },
             grok: {
                 title: "Grok Build"
             },
@@ -4584,6 +4565,9 @@ export const zhHans: TranslationStructure = {
       codexAcp: {
         title: "Codex ACP 适配器",
       },
+      agyAcpServer: {
+          title: "Agy ACP 服务器",
+      },
       githubCli: {
         title: "GitHub 命令行工具",
       },
@@ -4876,6 +4860,18 @@ export const zhHans: TranslationStructure = {
       reinstallTitle: "重新安装 Codex ACP？",
       description:
         "这将安装一个围绕 Codex 的实验性 ACP 适配器，用于加载/恢复线程。",
+    },
+    agyAcpBanner: {
+        title: "Agy ACP 服务器",
+        install: "安装",
+        update: "更新",
+        reinstall: "重新安装",
+    },
+    agyAcpInstallModal: {
+        installTitle: "安装 Agy ACP 服务器？",
+        updateTitle: "更新 Agy ACP 服务器？",
+        reinstallTitle: "重新安装 Agy ACP 服务器？",
+        description: "这将安装用于 Agy 会话的官方固定版 Agy ACP 服务器。交互式 agy 命令行仍需单独安装。",
     },
         githubCliBanner: {
             title: 'GitHub CLI',
@@ -6195,6 +6191,12 @@ export const zhHans: TranslationStructure = {
     kiroSessionIdCopied: "Kiro 会话 ID 已复制到剪贴板",
     devinSessionId: "Devin 会话 ID",
     devinSessionIdCopied: "Devin 会话 ID 已复制到剪贴板",
+    agySessionId: "Agy 会话 ID",
+    agySessionIdCopied: "Agy 会话 ID 已复制到剪贴板",
+    fxSessionId: "FX 会话 ID",
+    fxSessionIdCopied: "FX 会话 ID 已复制到剪贴板",
+    droidSessionId: "Factory Droid 会话 ID",
+    droidSessionIdCopied: "Factory Droid 会话 ID 已复制到剪贴板",
     customAcpSessionId: "自定义 ACP 会话 ID",
     grokSessionId: "Grok 会话 ID",
     grokSessionIdCopied: "Grok 会话 ID 已复制到剪贴板",
@@ -6434,6 +6436,9 @@ export const zhHans: TranslationStructure = {
       kilo: "Kilo",
       kiro: "Kiro",
       devin: "Devin",
+      agy: 'Agy',
+      fx: "FX",
+      droid: "Factory Droid",
       customAcp: "Custom ACP",
       pi: "Pi",
       copilot: "Copilot",
@@ -10370,10 +10375,13 @@ settingsSession: {
       geminiSubtitleExperimental: "Gemini 命令行（实验）",
       auggieSubtitle: "Auggie 命令行",
       qwenSubtitleExperimental: "Qwen Code 命令行（实验）",
-      kimiSubtitleExperimental: "Kimi 命令行（实验）",
+      kimiSubtitleExperimental: "Kimi Code 命令行（实验）",
       kiloSubtitleExperimental: "Kilo 命令行（实验）",
       kiroSubtitleExperimental: "Kiro 命令行（实验）",
       devinSubtitleExperimental: "Devin 命令行（实验）",
+      agySubtitleExperimental: "Agy 命令行（实验）",
+      fxSubtitleExperimental: "FX 命令行（实验）",
+      droidSubtitleExperimental: "Factory Droid 命令行（实验）",
       customAcpSubtitleExperimental: "自定义 ACP 命令行（实验）",
       grokSubtitleExperimental: "Grok Build 命令行（实验）",
       piSubtitleExperimental: "Pi 命令行（实验）",

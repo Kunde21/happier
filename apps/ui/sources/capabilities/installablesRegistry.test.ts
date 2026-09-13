@@ -9,11 +9,17 @@ describe('getInstallablesRegistryEntries', () => {
 
         expect(entries.map((e) => e.key)).toEqual(INSTALLABLES_CATALOG.map((e) => e.key));
         expect(entries.map((e) => e.capabilityId)).toEqual(INSTALLABLES_CATALOG.map((e) => e.capabilityId));
-        expect(entries.map((e) => e.supportsManagedOverrideInstall)).toEqual([false, false]);
+        expect(entries.map((e) => e.supportsManagedOverrideInstall)).toEqual([false, false, false]);
         expect(entries.map((e) => [e.key, e.defaultPolicy])).toEqual([
             [INSTALLABLE_KEYS.CODEX_ACP, { autoInstallWhenNeeded: true, autoUpdateMode: 'auto' }],
+            [INSTALLABLE_KEYS.AGY_ACP_SERVER, { autoInstallWhenNeeded: true, autoUpdateMode: 'auto' }],
             [INSTALLABLE_KEYS.GH, { autoInstallWhenNeeded: false, autoUpdateMode: 'notify' }],
         ]);
+        expect(entries.find((entry) => entry.key === INSTALLABLE_KEYS.AGY_ACP_SERVER)).toMatchObject({
+            title: 'Agy ACP server',
+            iconName: 'hardware-chip-outline',
+            groupTitleKey: 'newSession.agyAcpBanner.title',
+        });
         expect(entries.find((entry) => entry.key === INSTALLABLE_KEYS.GH)).toMatchObject({
             title: 'GitHub CLI',
             iconName: 'git-pull-request',

@@ -24,6 +24,7 @@ export type RuntimeInstallableAdapter = Readonly<{
 
 const runtimeInstallableLoaders: Partial<Record<InstallableKey, () => Promise<RuntimeInstallableAdapter>>> = {
   [INSTALLABLE_KEYS.CODEX_ACP]: async () => (await import('@/backends/codex/acp/runtimeInstallable')).codexAcpRuntimeInstallable,
+  [INSTALLABLE_KEYS.AGY_ACP_SERVER]: async () => (await import('@/backends/agy/acp/runtimeInstallable')).agyAcpRuntimeInstallable,
 };
 
 export async function getRuntimeInstallableAdapter(key: InstallableKey): Promise<RuntimeInstallableAdapter> {

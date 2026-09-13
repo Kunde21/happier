@@ -23,6 +23,7 @@ import { CLAUDE_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/claude/uiBehavio
 import { AUGGIE_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/auggie/uiBehavior';
 import { OPENCODE_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/opencode/uiBehavior';
 import { PI_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/pi/uiBehavior';
+import { AGY_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/agy/uiBehavior';
 import { CUSTOM_ACP_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/customAcp/uiBehavior';
 import type { AgentInputExtraActionChip } from '@/components/sessions/agentInput';
 import { resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
@@ -342,6 +343,7 @@ const AGENTS_UI_BEHAVIOR_OVERRIDES: Readonly<Partial<Record<AgentId, AgentUiBeha
     auggie: AUGGIE_UI_BEHAVIOR_OVERRIDE,
     pi: PI_UI_BEHAVIOR_OVERRIDE,
     customAcp: CUSTOM_ACP_UI_BEHAVIOR_OVERRIDE,
+    agy: AGY_UI_BEHAVIOR_OVERRIDE,
 });
 
 export const AGENTS_UI_BEHAVIOR: Readonly<Record<AgentId, AgentUiBehavior>> = Object.freeze(

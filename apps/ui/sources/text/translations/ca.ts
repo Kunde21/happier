@@ -4011,34 +4011,15 @@ export const ca: TranslationStructure = {
                 title: "Kilo"
             },
             kimi: {
-                title: "Kimi",
-                sections: {
-                    compatibility: {
-                        title: "Compatibilitat",
-                        footer: "Utilitza el mode de compatibilitat només en entorns Linux/contenidor on l'inici de Kimi ACP es queda penjat."
-                    }
-                },
-                fields: {
-                    kimiAcpPythonSelector: {
-                        title: "Selector de stdio de Python",
-                        subtitle: "Tria com Happier inicia el bucle stdio de Python de Kimi ACP.",
-                        options: {
-                            auto: {
-                                title: "Automàtic",
-                                subtitle: "Utilitza el selector de Python predeterminat de Kimi."
-                            },
-                            poll: {
-                                title: "Mode de compatibilitat",
-                                subtitle: "Utilitza poll() en lloc d'epoll() per al stdio de Kimi ACP."
-                            }
-                        }
-                    }
-                }
+                title: "Kimi"
             },
             kiro: {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
+            agy: { title: 'Agy' },
+            fx: { title: "FX" },
+            droid: { title: "Factory Droid" },
             grok: {
                 title: "Grok Build"
             },
@@ -4458,6 +4439,9 @@ deps: {
             codexAcp: {
                 title: 'Adaptador ACP de Codex',
             },
+            agyAcpServer: {
+                title: "Servidor ACP d'Agy",
+            },
             githubCli: {
                 title: 'CLI de GitHub',
             },
@@ -4730,6 +4714,18 @@ deps: {
             updateTitle: 'Actualitzar Codex ACP?',
             reinstallTitle: 'Reinstal·lar Codex ACP?',
             description: 'Això instal·la un adaptador ACP experimental al voltant de Codex que admet carregar/reprendre fils.',
+        },
+        agyAcpBanner: {
+            title: "Servidor ACP d'Agy",
+            install: "Instal·lar",
+            update: "Actualitzar",
+            reinstall: "Reinstal·lar",
+        },
+        agyAcpInstallModal: {
+            installTitle: "Instal·lar el servidor ACP d'Agy?",
+            updateTitle: "Actualitzar el servidor ACP d'Agy?",
+            reinstallTitle: "Reinstal·lar el servidor ACP d'Agy?",
+            description: "Això instal·la el servidor ACP oficial i fixat d'Agy que s'utilitza per a les sessions d'Agy. La CLI interactiva agy s'instal·la per separat.",
         },
         githubCliBanner: {
             title: 'GitHub CLI',
@@ -6038,6 +6034,12 @@ deps: {
         kiroSessionIdCopied: 'ID de la sessió de Kiro copiat al porta-retalls',
         devinSessionId: 'ID de la sessió de Devin',
         devinSessionIdCopied: 'ID de la sessió de Devin copiat al porta-retalls',
+        agySessionId: "ID de la sessió d'Agy",
+        agySessionIdCopied: "ID de la sessió d'Agy copiat al porta-retalls",
+        fxSessionId: "ID de la sessió de FX",
+        fxSessionIdCopied: "ID de la sessió de FX copiat al porta-retalls",
+        droidSessionId: "ID de la sessió de Factory Droid",
+        droidSessionIdCopied: "ID de la sessió de Factory Droid copiat al porta-retalls",
         customAcpSessionId: 'ID de la sessió d’ACP personalitzat',
         grokSessionId: "ID de la sessió de Grok",
         grokSessionIdCopied: "ID de la sessió de Grok copiat al porta-retalls",
@@ -6258,6 +6260,9 @@ deps: {
             kilo: 'Kilo',
             kiro: 'Kiro',
             devin: 'Devin',
+            agy: 'Agy',
+            fx: "FX",
+            droid: "Factory Droid",
         customAcp: 'ACP personalitzat',
             pi: 'Pi',
             copilot: 'Copilot',
@@ -9999,10 +10004,13 @@ settingsSession: {
             geminiSubtitleExperimental: 'CLI de Gemini (experimental)',
             auggieSubtitle: 'CLI d\'Auggie',
             qwenSubtitleExperimental: 'CLI de Qwen Code (experimental)',
-            kimiSubtitleExperimental: 'CLI de Kimi (experimental)',
+            kimiSubtitleExperimental: 'CLI de Kimi Code (experimental)',
             kiloSubtitleExperimental: 'CLI de Kilo (experimental)',
             kiroSubtitleExperimental: 'CLI de Kiro (experimental)',
             devinSubtitleExperimental: 'CLI de Devin (experimental)',
+            agySubtitleExperimental: "CLI d'Agy (experimental)",
+            fxSubtitleExperimental: "CLI de FX (experimental)",
+            droidSubtitleExperimental: "CLI de Factory Droid (experimental)",
             customAcpSubtitleExperimental: 'CLI d’ACP personalitzat (experimental)',
             grokSubtitleExperimental: "CLI de Grok Build (experimental)",
             piSubtitleExperimental: 'CLI de Pi (experimental)',

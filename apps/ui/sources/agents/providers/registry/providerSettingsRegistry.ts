@@ -18,6 +18,9 @@ import { QWEN_PROVIDER_SETTINGS_PLUGIN } from '../qwen/settings/plugin';
 import { COPILOT_PROVIDER_SETTINGS_PLUGIN } from '../copilot/settings/plugin';
 import { CURSOR_PROVIDER_SETTINGS_PLUGIN } from '../cursor/settings/plugin';
 import { GROK_PROVIDER_SETTINGS_PLUGIN } from '../grok/settings/plugin';
+import { AGY_PROVIDER_SETTINGS_PLUGIN } from '../agy/settings/plugin';
+import { FX_PROVIDER_SETTINGS_PLUGIN } from '../fx/settings/plugin';
+import { DROID_PROVIDER_SETTINGS_PLUGIN } from '../droid/settings/plugin';
 
 function isTranslationRef(value: unknown): value is Readonly<{ key: string }> {
     return Boolean(
@@ -154,6 +157,9 @@ export const PROVIDER_SETTINGS_PLUGINS = [
     COPILOT_PROVIDER_SETTINGS_PLUGIN,
     CURSOR_PROVIDER_SETTINGS_PLUGIN,
     GROK_PROVIDER_SETTINGS_PLUGIN,
+    AGY_PROVIDER_SETTINGS_PLUGIN,
+    FX_PROVIDER_SETTINGS_PLUGIN,
+    DROID_PROVIDER_SETTINGS_PLUGIN,
 ] as const satisfies readonly ProviderSettingsPlugin[];
 
 assertProviderSettingsPluginsValid(PROVIDER_SETTINGS_PLUGINS);

@@ -1,4 +1,5 @@
 import type { AgentBackend } from '@/agent/core';
+import type { createAcpRuntime } from '@/agent/acp/runtime/createAcpRuntime';
 import type { ApiSessionClient } from '@/api/session/sessionClient';
 import type { Metadata } from '@/api/types';
 import type { ChecklistId } from '@/capabilities/checklistIds';
@@ -59,10 +60,18 @@ export type {
 };
 
 export type CatalogAcpBackendCreateResult = Readonly<{ backend: AgentBackend }>;
-export type CatalogAcpBackendFactory = (opts: unknown) => CatalogAcpBackendCreateResult;
+export type CatalogAcpBackendFactory = (
+  opts: unknown,
+) => CatalogAcpBackendCreateResult | Promise<CatalogAcpBackendCreateResult>;
 export type CatalogAcpRuntimeBackendOptionsResolver = (params: Readonly<{
   session: ApiSessionClient;
 }>) => Readonly<Record<string, unknown>>;
+
+export type CatalogAcpRuntimeSessionModelAdapter = Readonly<{
+  resolveSessionModelConfigUpdate: NonNullable<Parameters<typeof createAcpRuntime>[0]['resolveSessionModelConfigUpdate']>;
+  deriveSessionModelsFromConfigOptions: NonNullable<Parameters<typeof createAcpRuntime>[0]['deriveSessionModelsFromConfigOptions']>;
+  resolveSessionConfigOptionUpdate: NonNullable<Parameters<typeof createAcpRuntime>[0]['resolveSessionConfigOptionUpdate']>;
+}>;
 
 export type VendorResumeSupportParams = Readonly<{
   experimentalCodexAcp?: boolean;
@@ -445,6 +454,8 @@ export type AgentCatalogEntry = Readonly<{
    * attach only their own adapters instead of introducing provider-id branches.
    */
   getAcpRuntimeBackendOptionsResolver?: () => Promise<CatalogAcpRuntimeBackendOptionsResolver>;
+  /** Provider-owned projection for ACP model identifiers encoded in config options. */
+  getAcpRuntimeSessionModelAdapter?: () => Promise<CatalogAcpRuntimeSessionModelAdapter>;
   /**
    * Optional ACP fork-continuation shaper.
    *

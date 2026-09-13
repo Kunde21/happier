@@ -1497,10 +1497,13 @@ export const it: TranslationStructure = {
       geminiSubtitleExperimental: "Gemini CLI (sperimentale)",
       auggieSubtitle: "Auggie CLI",
       qwenSubtitleExperimental: "Qwen Code CLI (sperimentale)",
-      kimiSubtitleExperimental: "Kimi CLI (sperimentale)",
+      kimiSubtitleExperimental: "Kimi Code CLI (sperimentale)",
       kiloSubtitleExperimental: "Kilo CLI (sperimentale)",
       kiroSubtitleExperimental: "Kiro CLI (sperimentale)",
       devinSubtitleExperimental: "Devin CLI (sperimentale)",
+      agySubtitleExperimental: "Agy CLI (sperimentale)",
+      fxSubtitleExperimental: "FX CLI (sperimentale)",
+      droidSubtitleExperimental: "Factory Droid CLI (sperimentale)",
       customAcpSubtitleExperimental: "CLI ACP personalizzata (sperimentale)",
       grokSubtitleExperimental: "Grok Build CLI (sperimentale)",
       piSubtitleExperimental: "Pi CLI (sperimentale)",
@@ -4552,34 +4555,15 @@ export const it: TranslationStructure = {
                 title: "Kilo"
             },
             kimi: {
-                title: "Kimi",
-                sections: {
-                    compatibility: {
-                        title: "Compatibilità",
-                        footer: "Usa la modalità compatibilità solo in ambienti Linux/container in cui l'avvio di Kimi ACP si blocca."
-                    }
-                },
-                fields: {
-                    kimiAcpPythonSelector: {
-                        title: "Selettore stdio Python",
-                        subtitle: "Scegli come Happier avvia il ciclo stdio Python di Kimi ACP.",
-                        options: {
-                            auto: {
-                                title: "Automatico",
-                                subtitle: "Usa il selettore Python predefinito di Kimi."
-                            },
-                            poll: {
-                                title: "Modalità compatibilità",
-                                subtitle: "Usa poll() invece di epoll() per lo stdio di Kimi ACP."
-                            }
-                        }
-                    }
-                }
+                title: "Kimi"
             },
             kiro: {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
+            agy: { title: 'Agy' },
+            fx: { title: "FX" },
+            droid: { title: "Factory Droid" },
             grok: {
                 title: "Grok Build"
             },
@@ -5074,6 +5058,9 @@ export const it: TranslationStructure = {
       codexAcp: {
         title: "Adattatore Codex ACP",
       },
+      agyAcpServer: {
+          title: "Server ACP di Agy",
+      },
       githubCli: {
         title: "CLI GitHub",
       },
@@ -5396,6 +5383,18 @@ export const it: TranslationStructure = {
       reinstallTitle: "Reinstallare Codex ACP?",
       description:
         "Questo installa un adattatore ACP sperimentale per Codex che supporta il caricamento/la ripresa dei thread.",
+    },
+    agyAcpBanner: {
+        title: "Server ACP di Agy",
+        install: "Installa",
+        update: "Aggiorna",
+        reinstall: "Reinstalla",
+    },
+    agyAcpInstallModal: {
+        installTitle: "Installare il server ACP di Agy?",
+        updateTitle: "Aggiornare il server ACP di Agy?",
+        reinstallTitle: "Reinstallare il server ACP di Agy?",
+        description: "Questo installa il server ACP ufficiale e bloccato di Agy usato per le sessioni Agy. La CLI interattiva agy resta installata separatamente.",
     },
         githubCliBanner: {
             title: 'GitHub CLI',
@@ -6739,6 +6738,12 @@ export const it: TranslationStructure = {
     kiroSessionIdCopied: "ID sessione Kiro copiato negli appunti",
     devinSessionId: "ID sessione Devin",
     devinSessionIdCopied: "ID sessione Devin copiato negli appunti",
+    agySessionId: "ID sessione Agy",
+    agySessionIdCopied: "ID sessione Agy copiato negli appunti",
+    fxSessionId: "ID sessione FX",
+    fxSessionIdCopied: "ID sessione FX copiato negli appunti",
+    droidSessionId: "ID sessione Factory Droid",
+    droidSessionIdCopied: "ID sessione Factory Droid copiato negli appunti",
     customAcpSessionId: "ID sessione ACP personalizzata",
     grokSessionId: "ID sessione Grok",
     grokSessionIdCopied: "ID sessione Grok copiato negli appunti",
@@ -6981,6 +6986,9 @@ export const it: TranslationStructure = {
       kilo: "Kilo",
       kiro: "Kiro",
       devin: "Devin",
+      agy: 'Agy',
+      fx: "FX",
+      droid: "Factory Droid",
       customAcp: "ACP personalizzato",
       pi: "Pi",
       copilot: "Copilot",

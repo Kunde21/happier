@@ -6,6 +6,7 @@ import {
 } from '@happier-dev/protocol';
 import { BUILT_IN_CATALOG_DEFINED_ACP_AGENTS } from '@/agent/acp/catalog';
 import { agent as auggie } from '@/backends/auggie';
+import { agent as agy } from '@/backends/agy';
 import { agent as claude } from '@/backends/claude';
 import { agent as codex } from '@/backends/codex';
 import { agent as copilot } from '@/backends/copilot';
@@ -70,6 +71,7 @@ export const AGENTS: Partial<Record<CatalogAgentId, AgentCatalogEntry>> = {
   copilot,
   cursor,
   devin,
+  agy,
 };
 
 export function requireCatalogEntry(agentId: CatalogAgentId): AgentCatalogEntry {

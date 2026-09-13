@@ -1480,10 +1480,13 @@ export const ja: TranslationStructure = {
       geminiSubtitleExperimental: "Gemini コマンドライン（実験）",
       auggieSubtitle: "Auggie CLI",
       qwenSubtitleExperimental: "Qwen Code CLI（実験）",
-      kimiSubtitleExperimental: "Kimi CLI（実験）",
+      kimiSubtitleExperimental: "Kimi Code CLI（実験）",
       kiloSubtitleExperimental: "Kilo CLI（実験）",
       kiroSubtitleExperimental: "Kiro CLI（実験）",
       devinSubtitleExperimental: "Devin CLI（実験）",
+      agySubtitleExperimental: "Agy CLI（実験）",
+      fxSubtitleExperimental: "FX CLI（実験）",
+      droidSubtitleExperimental: "Factory Droid CLI（実験）",
       customAcpSubtitleExperimental: "カスタム ACP CLI（実験）",
       grokSubtitleExperimental: "Grok Build CLI（実験）",
       piSubtitleExperimental: "Pi CLI（実験）",
@@ -4500,34 +4503,15 @@ localTailscale: {
                 title: "Kilo"
             },
             kimi: {
-                title: "Kimi",
-                sections: {
-                    compatibility: {
-                        title: "互換性",
-                        footer: "Kimi ACP の起動が停止する Linux/コンテナ環境でのみ互換モードを使用してください。"
-                    }
-                },
-                fields: {
-                    kimiAcpPythonSelector: {
-                        title: "Python stdio セレクター",
-                        subtitle: "Happier が Kimi ACP の Python stdio ループを起動する方法を選択します。",
-                        options: {
-                            auto: {
-                                title: "自動",
-                                subtitle: "Kimi のデフォルト Python セレクターを使用します。"
-                            },
-                            poll: {
-                                title: "互換モード",
-                                subtitle: "Kimi ACP stdio に epoll() ではなく poll() を使用します。"
-                            }
-                        }
-                    }
-                }
+                title: "Kimi"
             },
             kiro: {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
+            agy: { title: 'Agy' },
+            fx: { title: "FX" },
+            droid: { title: "Factory Droid" },
             grok: {
                 title: "Grok Build"
             },
@@ -5006,6 +4990,9 @@ localTailscale: {
       codexAcp: {
         title: "Codex ACP アダプター",
       },
+      agyAcpServer: {
+          title: "Agy ACP サーバー",
+      },
       githubCli: {
         title: "GitHub コマンドライン",
       },
@@ -5324,6 +5311,18 @@ localTailscale: {
       reinstallTitle: "Codex ACP を再インストールしますか？",
       description:
         "これはスレッドの読み込み/再開に対応した、Codex 向けの実験的な ACP アダプターをインストールします。",
+    },
+    agyAcpBanner: {
+        title: "Agy ACP サーバー",
+        install: "インストール",
+        update: "更新",
+        reinstall: "再インストール",
+    },
+    agyAcpInstallModal: {
+        installTitle: "Agy ACP サーバーをインストールしますか？",
+        updateTitle: "Agy ACP サーバーを更新しますか？",
+        reinstallTitle: "Agy ACP サーバーを再インストールしますか？",
+        description: "Agy セッションで使用する公式の固定版 Agy ACP サーバーをインストールします。対話型の agy CLI は個別にインストールしたままです。",
     },
         githubCliBanner: {
             title: 'GitHub CLI',
@@ -6666,6 +6665,12 @@ localTailscale: {
     kiroSessionIdCopied: "Kiro セッション ID をクリップボードにコピーしました",
     devinSessionId: "Devin セッション ID",
     devinSessionIdCopied: "Devin セッション ID をクリップボードにコピーしました",
+    agySessionId: "Agy セッション ID",
+    agySessionIdCopied: "Agy セッション ID をクリップボードにコピーしました",
+    fxSessionId: "FX セッション ID",
+    fxSessionIdCopied: "FX セッション ID をクリップボードにコピーしました",
+    droidSessionId: "Factory Droid セッション ID",
+    droidSessionIdCopied: "Factory Droid セッション ID をクリップボードにコピーしました",
     customAcpSessionId: "カスタム ACP セッション ID",
     grokSessionId: "Grok セッション ID",
     grokSessionIdCopied: "Grok セッション ID をクリップボードにコピーしました",
@@ -6910,6 +6915,9 @@ localTailscale: {
       kilo: "Kilo",
       kiro: "Kiro",
       devin: "Devin",
+      agy: 'Agy',
+      fx: "FX",
+      droid: "Factory Droid",
       customAcp: "カスタム ACP",
       pi: "Pi",
       copilot: "Copilot",

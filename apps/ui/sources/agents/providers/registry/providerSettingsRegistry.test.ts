@@ -151,6 +151,10 @@ describe('getProviderSettingsPlugin', () => {
         }
     });
 
+    it('has a plugin entry for Agy', () => {
+        expect(getProviderSettingsPlugin('agy')).toMatchObject({ providerId: 'agy' });
+    });
+
     it('has a plugin entry for every registered backend', () => {
         for (const agentId of AGENT_IDS) {
             expect(getProviderSettingsPlugin(agentId)).not.toBeNull();
@@ -172,8 +176,8 @@ describe('getProviderSettingsPlugin', () => {
             kimiPlugin?.uiSections.flatMap((section) => section.fields.map((field) => field.key)) ?? [],
         );
 
-        expect(PROVIDER_SETTINGS_DEFAULTS.kimiAcpPythonSelector).toBe('auto');
-        expect(visibleFieldKeys.has('kimiAcpPythonSelector')).toBe(true);
+        expect('kimiAcpPythonSelector' in PROVIDER_SETTINGS_DEFAULTS).toBe(false);
+        expect(visibleFieldKeys.has('kimiAcpPythonSelector')).toBe(false);
     });
 
     it('exposes Claude unified terminal provider settings in UI sections', () => {

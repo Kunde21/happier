@@ -13,6 +13,12 @@ import {
     shouldPrefetchCodexAcpLatestVersion,
 } from './codexAcpDep';
 import {
+    buildAgyAcpLatestVersionDetectRequest,
+    getAgyAcpDepData,
+    getAgyAcpDetectResult,
+    shouldPrefetchAgyAcpLatestVersion,
+} from './agyAcpDep';
+import {
     buildGithubCliLatestVersionDetectRequest,
     getGithubCliDepData,
     getGithubCliDetectResult,
@@ -86,6 +92,28 @@ export function getInstallablesRegistryEntries(): readonly InstallableRegistryEn
                     data: data ?? null,
                 }),
             buildLatestVersionDetectRequest: buildCodexAcpLatestVersionDetectRequest,
+        },
+        [INSTALLABLE_KEYS.AGY_ACP_SERVER]: {
+            enabledWhen: () => true,
+            title: t('deps.installable.agyAcpServer.title'),
+            iconName: 'hardware-chip-outline',
+            groupTitleKey: 'newSession.agyAcpBanner.title',
+            supportsManagedOverrideInstall: false,
+            installLabels: {
+                installKey: 'newSession.agyAcpBanner.install',
+                updateKey: 'newSession.agyAcpBanner.update',
+                reinstallKey: 'newSession.agyAcpBanner.reinstall',
+            },
+            installModal: {
+                installTitleKey: 'newSession.agyAcpInstallModal.installTitle',
+                updateTitleKey: 'newSession.agyAcpInstallModal.updateTitle',
+                reinstallTitleKey: 'newSession.agyAcpInstallModal.reinstallTitle',
+                descriptionKey: 'newSession.agyAcpInstallModal.description',
+            },
+            getStatus: (results) => getAgyAcpDepData(results) as never,
+            getDetectResult: (results) => getAgyAcpDetectResult(results),
+            shouldPrefetchLatestVersion: () => shouldPrefetchAgyAcpLatestVersion(),
+            buildLatestVersionDetectRequest: buildAgyAcpLatestVersionDetectRequest,
         },
         [INSTALLABLE_KEYS.GH]: {
             enabledWhen: () => true,

@@ -1,0 +1,65 @@
+---
+title: Agy CLI (experimental)
+description: Configure Agy in Happier, including authentication, the pinned ACP server install, resume, execution runs, and MCP tools.
+---
+
+Happier runs Agy through the official pinned `agy_acp_server` ACP transport for normal
+sessions and execution runs. The interactive `agy` CLI stays a separate system-first
+terminal and login surface; Happier does not claim the two surfaces share session IDs.
+
+## Requirements and authentication
+
+Install the interactive Agy CLI using the
+[official Antigravity CLI guide](https://antigravity.google/docs/cli/install),
+make sure `agy` is available on `PATH`, and authenticate on the machine where
+Happier runs. Auth status is read from your local Agy login; Happier never probes
+it ambiently in the background.
+
+You can also open the native login flow and refresh its status from
+**Settings → AI & Agents → AI backends → Agy**.
+
+## Pinned ACP server install
+
+Happier background-installs the official pinned `agy_acp_server` v1.1.1 platform archive
+when you select Agy, and launch reuses that same install instead of downloading twice.
+Integrity is verified by SHA-256 on every download, extraction reuses the shared
+archive helpers, and the executable bit is set on Unix. A corrupt or missing artifact
+fails visibly, and the next launch re-runs the authoritative ensure to recover.
+
+Linux launches add the required `--uid=` platform arg. Platforms without a published
+v1.1.1 archive fail clearly instead of being emulated.
+
+## Start and resume sessions
+
+```bash
+happier agy
+```
+
+Happier supports new sessions, vendor resume, follow-up messages, cancellation,
+live model changes through the provider-advertised ACP `model` config option, and execution
+runs. Models, modes, and MCP tools come from negotiated provider state rather than a
+static list.
+
+## Permissions
+
+Happier sends no static permission-mode override for Agy and preserves your provider
+configuration unless you choose otherwise in the session.
+
+## MCP tools
+
+Happier passes its MCP server list through the standard ACP session request for Agy
+sessions. For shared MCP setup and session selection, see [MCP servers](/extending/mcp-servers).
+
+## Troubleshooting
+
+- Run `agy --version` on the agent machine to confirm the interactive CLI is installed.
+- If the ACP server is missing, reselect Agy in the app and watch the install progress,
+  then retry launch.
+- If a model is unavailable, retry after the ACP handshake completes; the model list is
+  provider-advertised.
+
+## Related
+
+- [Agent capabilities](/agents/capabilities) — compare Agy's current session, model, media, and tool support.
+- [Provider authentication](/agents/provider-authentication) — how Happier presents provider-owned login flows.
+- [Subagents and execution runs](/extending/subagents) — run Agy in Happier-managed non-interactive workflows.

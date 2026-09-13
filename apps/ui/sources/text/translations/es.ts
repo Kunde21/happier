@@ -4211,34 +4211,15 @@ export const es: TranslationStructure = {
                 title: "Kilo"
             },
             kimi: {
-                title: "Kimi",
-                sections: {
-                    compatibility: {
-                        title: "Compatibilidad",
-                        footer: "Usa el modo de compatibilidad solo en entornos Linux/contenedor donde el inicio de Kimi ACP se queda bloqueado."
-                    }
-                },
-                fields: {
-                    kimiAcpPythonSelector: {
-                        title: "Selector de stdio de Python",
-                        subtitle: "Elige cómo inicia Happier el bucle stdio de Python de Kimi ACP.",
-                        options: {
-                            auto: {
-                                title: "Automático",
-                                subtitle: "Usa el selector de Python predeterminado de Kimi."
-                            },
-                            poll: {
-                                title: "Modo de compatibilidad",
-                                subtitle: "Usa poll() en lugar de epoll() para el stdio de Kimi ACP."
-                            }
-                        }
-                    }
-                }
+                title: "Kimi"
             },
             kiro: {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
+            agy: { title: 'Agy' },
+            fx: { title: "FX" },
+            droid: { title: "Factory Droid" },
             grok: {
                 title: "Grok Build"
             },
@@ -4732,6 +4713,9 @@ export const es: TranslationStructure = {
       codexAcp: {
         title: "Adaptador ACP de Codex",
       },
+      agyAcpServer: {
+          title: "Servidor ACP de Agy",
+      },
       githubCli: {
         title: "CLI de GitHub",
       },
@@ -5053,6 +5037,18 @@ export const es: TranslationStructure = {
       reinstallTitle: "¿Reinstalar Codex ACP?",
       description:
         "Esto instala un adaptador ACP experimental alrededor de Codex que admite cargar/reanudar hilos.",
+    },
+    agyAcpBanner: {
+        title: "Servidor ACP de Agy",
+        install: "Instalar",
+        update: "Actualizar",
+        reinstall: "Reinstalar",
+    },
+    agyAcpInstallModal: {
+        installTitle: "¿Instalar el servidor ACP de Agy?",
+        updateTitle: "¿Actualizar el servidor ACP de Agy?",
+        reinstallTitle: "¿Reinstalar el servidor ACP de Agy?",
+        description: "Esto instala el servidor ACP oficial y fijado de Agy que se usa en las sesiones de Agy. La CLI interactiva agy se instala por separado.",
     },
         githubCliBanner: {
             title: 'GitHub CLI',
@@ -6400,6 +6396,12 @@ export const es: TranslationStructure = {
     kiroSessionIdCopied: "ID de sesión de Kiro copiado al portapapeles",
     devinSessionId: "ID de sesión de Devin",
     devinSessionIdCopied: "ID de sesión de Devin copiado al portapapeles",
+    agySessionId: "ID de sesión de Agy",
+    agySessionIdCopied: "ID de sesión de Agy copiado al portapapeles",
+    fxSessionId: "ID de sesión de FX",
+    fxSessionIdCopied: "ID de sesión de FX copiado al portapapeles",
+    droidSessionId: "ID de sesión de Factory Droid",
+    droidSessionIdCopied: "ID de sesión de Factory Droid copiado al portapapeles",
     customAcpSessionId: "ID de sesión de ACP personalizado",
     grokSessionId: "ID de sesión de Grok",
     grokSessionIdCopied: "ID de sesión de Grok copiado al portapapeles",
@@ -6644,6 +6646,9 @@ export const es: TranslationStructure = {
       kilo: "Kilo",
       kiro: "Kiro",
       devin: "Devin",
+      agy: 'Agy',
+      fx: "FX",
+      droid: "Factory Droid",
       customAcp: "ACP personalizado",
       pi: "Pi",
       copilot: "Copilot",
@@ -10840,10 +10845,13 @@ settingsSession: {
       geminiSubtitleExperimental: "CLI de Gemini (experimental)",
       auggieSubtitle: "CLI de Auggie",
       qwenSubtitleExperimental: "CLI de Qwen Code (experimental)",
-      kimiSubtitleExperimental: "CLI de Kimi (experimental)",
+      kimiSubtitleExperimental: "CLI de Kimi Code (experimental)",
       kiloSubtitleExperimental: "CLI de Kilo (experimental)",
       kiroSubtitleExperimental: "CLI de Kiro (experimental)",
       devinSubtitleExperimental: "CLI de Devin (experimental)",
+      agySubtitleExperimental: "CLI de Agy (experimental)",
+      fxSubtitleExperimental: "CLI de FX (experimental)",
+      droidSubtitleExperimental: "CLI de Factory Droid (experimental)",
       customAcpSubtitleExperimental: "CLI de ACP personalizado (experimental)",
       grokSubtitleExperimental: "CLI de Grok Build (experimental)",
       piSubtitleExperimental: "CLI de Pi (experimental)",

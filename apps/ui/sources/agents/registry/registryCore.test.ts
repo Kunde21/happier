@@ -115,7 +115,34 @@ describe('agents/registryCore', () => {
             sessionModes: { kind: 'acpAgentModes' },
             model: { acpModelConfigOptionId: 'model', acpModelSetMethod: 'config_option' },
             resume: { vendorResumeIdField: 'devinSessionId', supportsVendorResume: true },
-            tools: { delivery: 'unsupported', support: 'unsupported' },
+            tools: { delivery: 'native_mcp', support: 'supported' },
+        });
+    });
+
+    it.each([
+        ['fx', 'fx', 'fxSessionId'],
+        ['droid', 'droid', 'droidSessionId'],
+    ] as const)('provides %s as a discoverable resumable ACP Agent', (agentId, detectKey, resumeField) => {
+        expect(getAgentCore(agentId as never)).toMatchObject({
+            id: agentId,
+            cli: { detectKey, machineLoginKey: agentId, spawnAgent: agentId },
+            sessionModes: { kind: 'acpAgentModes' },
+            model: { dynamicProbe: 'auto', acpModelConfigOptionId: 'model' },
+            resume: { vendorResumeIdField: resumeField, supportsVendorResume: true },
+            tools: { delivery: 'native_mcp', support: 'supported' },
+        });
+    });
+
+    it('provides Agy as a managed, resumable ACP agent while keeping the interactive CLI distinct', () => {
+        expect(getAgentCore('agy')).toMatchObject({
+            id: 'agy',
+            cli: { detectKey: 'agy', machineLoginKey: 'antigravity-cli', spawnAgent: 'agy' },
+            sessionModes: { kind: 'none' },
+            model: { dynamicProbe: 'auto', acpModelConfigOptionId: 'model' },
+            resume: { vendorResumeIdField: 'agySessionId', supportsVendorResume: true },
+            sessionStorage: { direct: false, persisted: true },
+            tools: { delivery: 'native_mcp', support: 'supported' },
+            ui: { agentPickerIconName: 'rocket-outline' },
         });
     });
 

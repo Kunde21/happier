@@ -18,6 +18,9 @@ import { PI_UI } from '@/agents/providers/pi/ui';
 import { COPILOT_UI } from '@/agents/providers/copilot/ui';
 import { CURSOR_UI } from '@/agents/providers/cursor/ui';
 import { GROK_UI } from '@/agents/providers/grok/ui';
+import { FX_UI } from '@/agents/providers/fx/ui';
+import { DROID_UI } from '@/agents/providers/droid/ui';
+import { AGY_UI } from '@/agents/providers/agy/ui';
 
 export type AgentIconSvgXmlResolver = (
     theme: UnistylesThemes[keyof UnistylesThemes],
@@ -65,6 +68,9 @@ export const AGENTS_UI: Readonly<Record<AgentId, AgentUiConfig>> = Object.freeze
     copilot: COPILOT_UI,
     cursor: CURSOR_UI,
     grok: GROK_UI,
+    fx: FX_UI,
+    droid: DROID_UI,
+    agy: AGY_UI,
 });
 
 export function getAgentIconSource(agentId: AgentId): ImageSourcePropType | null {

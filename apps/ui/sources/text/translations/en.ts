@@ -3962,6 +3962,15 @@ export const en = {
             devin: {
                 title: "Devin"
             },
+            agy: {
+                title: "Agy"
+            },
+            fx: {
+                title: "FX"
+            },
+            droid: {
+                title: "Factory Droid"
+            },
             grok: {
                 title: "Grok Build"
             },
@@ -4400,6 +4409,9 @@ export const en = {
             codexAcp: {
                 title: 'Codex ACP adapter',
             },
+            agyAcpServer: {
+                title: 'Agy ACP server',
+            },
             githubCli: {
                 title: 'GitHub CLI',
             },
@@ -4685,6 +4697,18 @@ export const en = {
             updateTitle: 'Update Codex ACP?',
             reinstallTitle: 'Reinstall Codex ACP?',
             description: 'This installs an experimental ACP adapter around Codex that supports loading/resuming threads.',
+        },
+        agyAcpBanner: {
+            title: 'Agy ACP server',
+            install: 'Install',
+            update: 'Update',
+            reinstall: 'Reinstall',
+        },
+        agyAcpInstallModal: {
+            installTitle: 'Install Agy ACP server?',
+            updateTitle: 'Update Agy ACP server?',
+            reinstallTitle: 'Reinstall Agy ACP server?',
+            description: 'This installs the official pinned Agy ACP server used for Agy sessions. The interactive agy CLI stays separately installed.',
         },
         githubCliBanner: {
             title: 'GitHub CLI',
@@ -6037,6 +6061,12 @@ export const en = {
         kiroSessionIdCopied: 'Kiro Session ID copied to clipboard',
         devinSessionId: 'Devin Session ID',
         devinSessionIdCopied: 'Devin Session ID copied to clipboard',
+        agySessionId: 'Agy Session ID',
+        agySessionIdCopied: 'Agy Session ID copied to clipboard',
+        fxSessionId: 'FX Session ID',
+        fxSessionIdCopied: 'FX Session ID copied to clipboard',
+        droidSessionId: 'Factory Droid Session ID',
+        droidSessionIdCopied: 'Factory Droid Session ID copied to clipboard',
         customAcpSessionId: 'Custom ACP Session ID',
         grokSessionId: "Grok Session ID",
         grokSessionIdCopied: "Grok Session ID copied to clipboard",
@@ -6274,11 +6304,14 @@ export const en = {
             kilo: 'Kilo',
             kiro: 'Kiro',
             devin: 'Devin',
+            fx: 'FX',
+            droid: 'Factory Droid',
             customAcp: 'Custom ACP',
             pi: 'Pi',
             copilot: 'Copilot',
             cursor: 'Cursor',
             grok: 'Grok',
+            agy: 'Agy',
         },
         auggieIndexingChip: {
             on: 'Indexing on',
@@ -10162,10 +10195,13 @@ settingsSession: {
             geminiSubtitleExperimental: 'Gemini CLI (experimental)',
             auggieSubtitle: 'Auggie CLI',
             qwenSubtitleExperimental: 'Qwen Code CLI (experimental)',
-            kimiSubtitleExperimental: 'Kimi CLI (experimental)',
+            kimiSubtitleExperimental: 'Kimi Code CLI (experimental)',
             kiloSubtitleExperimental: 'Kilo CLI (experimental)',
             kiroSubtitleExperimental: 'Kiro CLI (experimental)',
             devinSubtitleExperimental: 'Devin CLI (experimental)',
+            agySubtitleExperimental: 'Agy CLI (experimental)',
+            fxSubtitleExperimental: 'FX CLI (experimental)',
+            droidSubtitleExperimental: 'Factory Droid CLI (experimental)',
             customAcpSubtitleExperimental: 'Custom ACP CLI (experimental)',
             grokSubtitleExperimental: "Grok Build CLI (experimental)",
             piSubtitleExperimental: 'Pi CLI (experimental)',
