@@ -226,7 +226,7 @@ describe('ApiSessionClient message commit queue', () => {
     await client.close();
   });
 
-  it('requests reconnect when message commits queue while disconnected', async () => {
+  it('leaves reconnect timing with an already-active supervisor when message commits queue while disconnected', async () => {
     vi.resetModules();
     supervisorStartCount = 0;
     sessionSocketStub = createApiSessionSocketStub({
@@ -247,7 +247,8 @@ describe('ApiSessionClient message commit queue', () => {
 
     client.sendAgentMessage('claude' as any, { type: 'message', message: 'FAKE_CLAUDE_OK_2' } as any);
 
-    await expect.poll(() => supervisorStartCount).toBeGreaterThan(0);
+    await flushMicrotasks();
+    expect(supervisorStartCount).toBe(0);
   });
 
   it('redacts socket commit errors before logging', async () => {

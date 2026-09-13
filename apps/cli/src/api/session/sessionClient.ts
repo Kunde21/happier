@@ -244,6 +244,7 @@ import {
 } from '@happier-dev/connection-supervisor';
 import { createLoopbackReadinessProbe } from '@/api/connection/createLoopbackReadinessProbe';
 import { createSessionSocketTransport } from './connection/createSessionSocketTransport';
+import { ensureSessionConnectionSupervisionActive } from './connection/ensureSessionConnectionSupervisionActive';
 import { connectionState } from '@/api/offline/serverConnectionErrors';
 import {
     createAuthenticationHttpStatusError,
@@ -892,7 +893,7 @@ export class ApiSessionClient extends EventEmitter {
             }, timeoutMs);
             timer.unref?.();
 
-            void supervisor.start().catch((error) => {
+            void ensureSessionConnectionSupervisionActive(supervisor).catch((error) => {
                 settle(() => reject(error));
             });
             check();
@@ -2252,7 +2253,7 @@ export class ApiSessionClient extends EventEmitter {
     private kickSessionSocketReconnectForQueuedMessage(localId: string): void {
         const supervisor = this.sessionConnectionSupervisor;
         if (!supervisor) return;
-        void supervisor.start().catch((error) => {
+        void ensureSessionConnectionSupervisionActive(supervisor).catch((error) => {
             logger.debug('[API] Failed to restart session socket for queued message', {
                 localId,
                 error: serializeAxiosErrorForLog(error),
@@ -2263,7 +2264,7 @@ export class ApiSessionClient extends EventEmitter {
     private kickSessionSocketReconnectForDurableMutation(reason: string): void {
         const supervisor = this.sessionConnectionSupervisor;
         if (!supervisor) return;
-        void supervisor.start().catch((error) => {
+        void ensureSessionConnectionSupervisionActive(supervisor).catch((error) => {
             logger.debug('[API] Failed to restart session socket for durable mutation', {
                 reason,
                 error: serializeAxiosErrorForLog(error),
