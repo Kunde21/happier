@@ -73,6 +73,7 @@ import {
     SessionDraftConflictResolution,
     useSessionDraftConflictComposerBanner,
 } from '@/components/sessions/drafts/SessionDraftConflictResolution';
+import { buildSessionDraftSyncStatusBadge } from '@/components/sessions/drafts/sessionDraftStatusPresentation';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { useSessionAgentInputComposerPersistence } from '@/hooks/session/useSessionAgentInputComposerPersistence';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
@@ -4330,6 +4331,10 @@ function SessionViewLoaded({
         draftScope,
     } = useDraft(sessionId, message, setMessage, { active: surfaceFocused });
     const draftConflictBanner = useSessionDraftConflictComposerBanner(draftSnapshot?.conflict ?? null);
+    const draftSyncStatusBadge = React.useMemo(
+        () => buildSessionDraftSyncStatusBadge(draftSnapshot?.status ?? 'clean'),
+        [draftSnapshot?.status],
+    );
     const messageRef = React.useRef(message);
     React.useEffect(() => {
         messageRef.current = message;
@@ -5229,6 +5234,7 @@ function SessionViewLoaded({
         const agentInputStatusBadges = React.useMemo<ReadonlyArray<AgentInputStatusBadge>>(() => [
             ...sessionStatusBadges,
             ...sessionConnectedServicesAuthSwitch.statusBadges,
+            ...(draftSyncStatusBadge ? [draftSyncStatusBadge] : []),
             ...(draftConflictBanner.statusBadge ? [draftConflictBanner.statusBadge] : []),
             ...(pendingMessageEdit
                 ? [{
@@ -5246,6 +5252,7 @@ function SessionViewLoaded({
             cancelPendingMessageEdit,
             pendingMessageEdit,
             draftConflictBanner.statusBadge,
+            draftSyncStatusBadge,
             sessionConnectedServicesAuthSwitch.statusBadges,
             sessionStatusBadges,
         ]);

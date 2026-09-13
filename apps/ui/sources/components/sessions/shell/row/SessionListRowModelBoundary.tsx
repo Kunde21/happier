@@ -304,10 +304,12 @@ const SessionListRowModelBoundaryContent = React.memo(function SessionListRowMod
     const onDeleteDraft = React.useMemo(() => {
         const scope = props.draftScope;
         if (!scope || !props.draftProjection) return null;
-        return () => deleteSessionDraft({
-            scope,
-            address: { kind: 'session', sessionId: props.item.session.id },
-        });
+        return async () => {
+            await deleteSessionDraft({
+                scope,
+                address: { kind: 'session', sessionId: props.item.session.id },
+            });
+        };
     }, [props.draftProjection, props.draftScope, props.item.session.id]);
 
     return (
