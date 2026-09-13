@@ -1,6 +1,44 @@
+import { EventEmitter } from 'node:events';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { isInteractiveTerminal, resolveInteractiveTerminal } from './promptInput';
+const createInterfaceMock = vi.hoisted(() => vi.fn());
+
+vi.mock('node:readline', () => ({ createInterface: createInterfaceMock }));
+
+import { isInteractiveTerminal, promptInput, resolveInteractiveTerminal } from './promptInput';
+
+describe('promptInput animated cancellation', () => {
+    it('rejects Ctrl-C as an abort and removes prompt listeners', async () => {
+        const previousStdin = process.stdin.isTTY;
+        const previousStdout = process.stdout.isTTY;
+        process.stdin.isTTY = true;
+        process.stdout.isTTY = true;
+        const initialKeypressListeners = process.stdin.listenerCount('keypress');
+        const rl = Object.assign(new EventEmitter(), {
+            question: vi.fn(),
+            close: vi.fn(),
+            getCursorPos: vi.fn(() => ({ rows: 0, cols: 0 })),
+            setPrompt: vi.fn(),
+            prompt: vi.fn(),
+            write: vi.fn(),
+        });
+        createInterfaceMock.mockReturnValue(rl);
+
+        try {
+            const result = promptInput('Choose: ', { animation: { animate: false, render: () => 'Choose: ' } });
+            rl.emit('SIGINT');
+
+            await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+            expect(rl.listenerCount('SIGINT')).toBe(0);
+            expect(rl.listenerCount('close')).toBe(0);
+            expect(process.stdin.listenerCount('keypress')).toBe(initialKeypressListeners);
+        } finally {
+            process.stdin.isTTY = previousStdin;
+            process.stdout.isTTY = previousStdout;
+        }
+    });
+});
 
 describe('resolveInteractiveTerminal', () => {
     it('is interactive when stdin and stdout are both TTYs', () => {

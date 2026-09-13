@@ -13,6 +13,7 @@ export type PromptAnimation = Readonly<{
   intervalMs?: number;
   render: (elapsedSeconds: number) => string;
   onMove?: (delta: -1 | 1) => void;
+  onToggle?: () => void;
   answerOnEmpty?: () => string;
 }>;
 
@@ -116,24 +117,31 @@ export async function promptInput(prompt: string, options: PromptOptions = {}): 
     let onKeypress: ((value: string, key: Readonly<{ name?: string }>) => void) | null = null;
     try {
       return await new Promise<string>((resolve, reject) => {
+        let settled = false;
         const startedAt = Date.now();
         const initialColumns = process.stdout.columns;
         const initialRows = process.stdout.rows;
-        const finish = (value: string): void => {
+        const finish = (settle: () => void): void => {
+          if (settled) return;
+          settled = true;
           if (timer) clearInterval(timer);
           timer = null;
+          rl.removeListener('SIGINT', onAbort);
           rl.removeListener('close', onClose);
           if (onKeypress) process.stdin.removeListener('keypress', onKeypress);
-          resolve(value);
+          settle();
+        };
+        const onAbort = (): void => {
+          const error = new Error('Terminal prompt aborted');
+          error.name = 'AbortError';
+          finish(() => reject(error));
         };
         const onClose = (): void => {
-          if (timer) clearInterval(timer);
-          timer = null;
-          if (onKeypress) process.stdin.removeListener('keypress', onKeypress);
           const error = new Error('Terminal prompt closed');
           error.name = 'AbortError';
-          reject(error);
+          finish(() => reject(error));
         };
+        rl.once('SIGINT', onAbort);
         rl.once('close', onClose);
         let redrawEnabled = true;
         const canRedraw = (): boolean => {
@@ -158,21 +166,21 @@ export async function promptInput(prompt: string, options: PromptOptions = {}): 
         };
         onKeypress = (_value, key) => {
           if (key.name === 'escape') {
-            if (timer) clearInterval(timer);
-            timer = null;
-            rl.removeListener('close', onClose);
-            process.stdin.removeListener('keypress', onKeypress!);
-            const error = new Error('Terminal prompt aborted');
-            error.name = 'AbortError';
-            reject(error);
+            onAbort();
             return;
           }
-          if (!redrawEnabled || (key.name !== 'up' && key.name !== 'down')) return;
+          const isToggle = key.name === 'space' || _value === ' ';
+          if (!redrawEnabled || (key.name !== 'up' && key.name !== 'down' && !isToggle)) return;
           if (!canRedraw()) {
             stopRedraw();
             return;
           }
-          options.animation!.onMove?.(key.name === 'up' ? -1 : 1);
+          if (isToggle) {
+            options.animation!.onToggle?.();
+            rl.write(null, { ctrl: true, name: 'u' });
+          } else {
+            options.animation!.onMove?.(key.name === 'up' ? -1 : 1);
+          }
           redraw();
         };
         process.stdin.on('keypress', onKeypress);
@@ -181,13 +189,12 @@ export async function promptInput(prompt: string, options: PromptOptions = {}): 
           timer.unref?.();
         }
         try {
-          rl.question(prompt, (value) => finish(value === '' ? options.animation?.answerOnEmpty?.() ?? value : value));
+          rl.question(prompt, (value) => {
+            const answer = value === '' ? options.animation?.answerOnEmpty?.() ?? value : value;
+            finish(() => resolve(answer));
+          });
         } catch (error) {
-          if (timer) clearInterval(timer);
-          timer = null;
-          rl.removeListener('close', onClose);
-          if (onKeypress) process.stdin.removeListener('keypress', onKeypress);
-          reject(error);
+          finish(() => reject(error));
         }
       });
     } finally {
