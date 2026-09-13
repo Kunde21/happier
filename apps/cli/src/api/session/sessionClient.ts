@@ -985,8 +985,10 @@ export class ApiSessionClient extends EventEmitter {
             logger: (msg, data) => logger.debug(msg, data),
             onRegistrationError: (error) => {
                 const probe = classifySessionTransportErrorToProbeResult(error);
-                if (probe) {
-                    this.sessionConnectionSupervisor?.reportProbeResult?.(probe);
+                const supervisor = this.sessionConnectionSupervisor;
+                const probeReportScope = supervisor?.captureProbeReportScope?.();
+                if (probe && probeReportScope) {
+                    supervisor?.reportProbeResult?.(probe, probeReportScope);
                 }
             },
         });
@@ -1209,6 +1211,7 @@ export class ApiSessionClient extends EventEmitter {
                 return readinessConvergence.promise;
             }
             const converge = async () => {
+                const probeReportScope = this.sessionConnectionSupervisor?.captureProbeReportScope?.();
                 const serverContract = await serverContractController.resolve({
                     sessionConnectionEpoch: epoch,
                     socket,
@@ -1240,7 +1243,7 @@ export class ApiSessionClient extends EventEmitter {
                         status: 'auth_failed',
                         statusCode: 401,
                         errorMessage: 'Authentication failed while resolving session compatibility',
-                    });
+                    }, probeReportScope);
                     return false;
                 }
 
@@ -5877,13 +5880,14 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     private installSessionSocketEventHandlers(socket: Socket<ServerToClientEvents, ClientToServerEvents>): void {
+        const probeReportScope = this.sessionConnectionSupervisor?.captureProbeReportScope?.();
         socket.on('server:restarting', (payload: unknown) => {
             this.sessionConnectionSupervisor?.reportProbeResult?.({
                 status: 'retry_later',
                 retryAfterMs: readPlannedServerRestartRetryAfterMs(payload),
                 reason: 'server_restarting',
                 errorMessage: 'Server restart in progress',
-            });
+            }, probeReportScope);
         });
 
         socket.on(SOCKET_RPC_EVENTS.REQUEST, async (data: { method: string, params: unknown }, callback: (response: unknown) => void) => {
