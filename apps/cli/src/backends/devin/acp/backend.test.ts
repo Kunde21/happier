@@ -34,6 +34,11 @@ describe('createDevinBackend', () => {
     expect(createCatalogDefinedAcpBackend).toHaveBeenCalledWith('devin', expect.objectContaining({
       mcpServers,
       prepareProcessLaunch: expect.any(Function),
+      sessionModelAdapter: expect.objectContaining({
+        projectModelState: expect.any(Function),
+        deriveModelStateFromConfigOptions: expect.any(Function),
+        resolveConfigOptionModelUpdate: expect.any(Function),
+      }),
     }));
 
     const calls = createCatalogDefinedAcpBackend.mock.calls as unknown as Array<[

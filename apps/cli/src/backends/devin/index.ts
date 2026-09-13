@@ -9,4 +9,16 @@ export const agent = {
   getAcpBackendFactory: async () => {
     return (opts: unknown) => ({ backend: createDevinBackend(opts as Parameters<typeof createDevinBackend>[0]) });
   },
+  getAcpRuntimeSessionModelAdapter: async () => {
+    const {
+      buildDevinSessionModelsFromConfigOptions,
+      resolveDevinSessionConfigOptionUpdate,
+      resolveDevinSessionModelConfigUpdate,
+    } = await import('./acp/modelControls');
+    return {
+      deriveSessionModelsFromConfigOptions: buildDevinSessionModelsFromConfigOptions,
+      resolveSessionModelConfigUpdate: resolveDevinSessionModelConfigUpdate,
+      resolveSessionConfigOptionUpdate: resolveDevinSessionConfigOptionUpdate,
+    };
+  },
 };
