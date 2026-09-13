@@ -387,6 +387,22 @@ export async function authorizeConnectedServiceRuntimeAuthFailureSource(input: R
     if (registeredBindingMatchesReport) {
       return { status: 'authorized', tracked, sourceBinding: exactRegisteredBinding };
     }
+    const freshQuotaReportTargetsSameLogicalMember =
+      input.recoveryInvocationSource !== 'scheduler_retry'
+      && !exactLiveSourceResolverApplicable
+      && classification.recoveryAction?.kind === 'quota_recovery_required'
+      && exactRegisteredBinding.serviceId === classification.serviceId
+      && registeredGroupId === (reportedGroupId || null)
+      && registeredProfileId === reportedProfileId
+      && registeredGeneration !== null
+      && reportedGeneration !== null
+      && registeredGeneration >= reportedGeneration;
+    if (freshQuotaReportTargetsSameLogicalMember) {
+      // Quota is scoped to the logical account, not to the opaque token revision. A running
+      // provider may observe a same-account credential refresh before its next quota rejection;
+      // keep that fresh in-band rejection actionable and rebind it to current daemon truth.
+      return { status: 'authorized', tracked, sourceBinding: exactRegisteredBinding };
+    }
     const scheduledRecoveryTargetsCurrentCredential =
       input.recoveryInvocationSource === 'scheduler_retry'
       && exactRegisteredBinding.serviceId === classification.serviceId

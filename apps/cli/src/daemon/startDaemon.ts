@@ -1120,26 +1120,9 @@ export function resolveConnectedServiceContinuationOriginId(input: Readonly<{
   return reportId || null;
 }
 
-type ContinueAfterRuntimeAuthSwitch = (input: Readonly<{
-  sessionId: string;
-  attemptId: string;
-  action: 'hot_applied' | 'restart_requested';
-  switchReason?: ConnectedServiceSessionAuthSwitchReason;
-}>) => Promise<void>;
-
-type ReconcileCurrentRuntimeAuthTarget = (input: Readonly<{
-  sessionId: string;
-  serviceId: ConnectedServiceId;
-  groupId: string;
-}>) => Promise<boolean>;
-
-export async function continueAfterSupersededRuntimeAuthFailure(input: Readonly<{
+export function isSupersededRuntimeAuthFailure(input: Readonly<{
   result: unknown;
-  sessionId: string;
-  interruptedOriginId?: string | null;
-  continueAfterRuntimeAuthSwitch: ContinueAfterRuntimeAuthSwitch;
-  reconcileCurrentRuntimeAuthTarget?: ReconcileCurrentRuntimeAuthTarget;
-}>): Promise<boolean> {
+}>): boolean {
   if (
     !input.result
     || typeof input.result !== 'object'
@@ -1152,32 +1135,6 @@ export async function continueAfterSupersededRuntimeAuthFailure(input: Readonly<
     )
   ) {
     return false;
-  }
-  const interruptedOriginId = input.interruptedOriginId?.trim() ?? '';
-  let currentTargetSettled = false;
-  if (
-    input.reconcileCurrentRuntimeAuthTarget
-    && 'serviceId' in input.result
-    && 'groupId' in input.result
-    && typeof input.result.serviceId === 'string'
-    && typeof input.result.groupId === 'string'
-  ) {
-    const serviceId = ConnectedServiceIdSchema.safeParse(input.result.serviceId);
-    const groupId = input.result.groupId.trim();
-    if (serviceId.success && groupId) {
-      currentTargetSettled = await input.reconcileCurrentRuntimeAuthTarget({
-        sessionId: input.sessionId,
-        serviceId: serviceId.data,
-        groupId,
-      });
-    }
-  }
-  if (currentTargetSettled && interruptedOriginId) {
-    await input.continueAfterRuntimeAuthSwitch({
-      sessionId: input.sessionId,
-      attemptId: interruptedOriginId,
-      action: 'hot_applied',
-    });
   }
   return true;
 }
@@ -6219,45 +6176,8 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
             recoveryInvocationSource: input.source,
             classification: input.classification,
           });
-          if (await continueAfterSupersededRuntimeAuthFailure({
+          if (isSupersededRuntimeAuthFailure({
             result,
-            sessionId: input.sessionId,
-            interruptedOriginId,
-            continueAfterRuntimeAuthSwitch,
-            reconcileCurrentRuntimeAuthTarget: async ({ sessionId, serviceId, groupId }) => {
-              const target = connectedServiceRuntimeRegistry.getBySessionId(sessionId);
-              if (!target) return false;
-              const registration: ConnectedServiceRuntimeTargetRegistration = {
-                key: { kind: 'session', pid: target.pid },
-                target,
-              };
-              if (
-                !connectedServiceRuntimeRegistry.isCurrentTargetRegistration(registration)
-                || !target.activeBindings.some((binding) => (
-                  binding.serviceId === serviceId && binding.groupId === groupId
-                ))
-              ) return false;
-              await enqueueConnectedServiceRuntimeTargetRegistrationReconciliation(registration, true);
-              const currentTarget = connectedServiceRuntimeRegistry.getBySessionId(sessionId);
-              if (!currentTarget) return false;
-              const snapshot = latestConnectedServiceProjectionSnapshot;
-              const group = snapshot?.groups.find((candidate) => (
-                candidate.serviceId === serviceId && candidate.groupId === groupId
-              )) ?? null;
-              if (!group?.activeProfileId) return false;
-              const credentialBoundary = snapshot?.resolveCredentialBoundary(serviceId, group.activeProfileId);
-              if (credentialBoundary?.status !== 'present') return false;
-              return currentTarget.activeBindings.some((binding) => (
-                binding.serviceId === serviceId
-                && binding.groupId === groupId
-                && binding.profileId === group.activeProfileId
-                && binding.generation === group.generation
-                && (
-                  credentialBoundary.credentialRevision === null
-                  || binding.credentialRevision === credentialBoundary.credentialRevision
-                )
-              ));
-            },
           })) {
             return result;
           }

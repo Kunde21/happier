@@ -305,6 +305,88 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
     expect(resolveCurrentRuntimeAuthFailureSource).not.toHaveBeenCalled();
   });
 
+  it('keeps an account-level quota failure actionful after the same pool member refreshed its credential', async () => {
+    const tracked = {
+      startedBy: 'daemon' as const,
+      happySessionId: 'sess_same_member_refreshed_quota',
+      pid: 123,
+      spawnOptions: { directory: '/tmp/project' },
+    } satisfies TrackedSession;
+
+    await expect(authorizeConnectedServiceRuntimeAuthFailureSource({
+      getChildren: () => [tracked],
+      sessionId: tracked.happySessionId,
+      classification: {
+        kind: 'usage_limit',
+        serviceId: 'claude-subscription',
+        profileId: 'work',
+        groupId: 'main',
+        groupGeneration: 7,
+        credentialRevision: 'csr_aaaaaaaaaaaaaaaaaaaaaa',
+        resetsAtMs: null,
+        planType: null,
+        rateLimits: null,
+        source: 'structured_provider_error',
+        recoveryAction: { kind: 'quota_recovery_required' },
+      },
+      resolveRegisteredRuntimeAuthFailureSource: () => ({
+        serviceId: 'claude-subscription',
+        groupId: 'main',
+        profileId: 'work',
+        generation: 7,
+        credentialRevision: 'csr_bbbbbbbbbbbbbbbbbbbbbb',
+      }),
+      runtimeAuthApply: registryOnlyRuntimeAuthCapability,
+    })).resolves.toEqual({
+      status: 'authorized',
+      tracked,
+      sourceBinding: {
+        serviceId: 'claude-subscription',
+        groupId: 'main',
+        profileId: 'work',
+        generation: 7,
+        credentialRevision: 'csr_bbbbbbbbbbbbbbbbbbbbbb',
+      },
+    });
+  });
+
+  it('does not attribute an old credential-auth failure to a refreshed credential on the same pool member', async () => {
+    const tracked = {
+      startedBy: 'daemon' as const,
+      happySessionId: 'sess_same_member_refreshed_auth',
+      pid: 123,
+      spawnOptions: { directory: '/tmp/project' },
+    } satisfies TrackedSession;
+
+    await expect(authorizeConnectedServiceRuntimeAuthFailureSource({
+      getChildren: () => [tracked],
+      sessionId: tracked.happySessionId,
+      classification: {
+        kind: 'auth_expired',
+        serviceId: 'claude-subscription',
+        profileId: 'work',
+        groupId: 'main',
+        groupGeneration: 7,
+        credentialRevision: 'csr_aaaaaaaaaaaaaaaaaaaaaa',
+        resetsAtMs: null,
+        planType: null,
+        rateLimits: null,
+        source: 'structured_provider_error',
+      },
+      resolveRegisteredRuntimeAuthFailureSource: () => ({
+        serviceId: 'claude-subscription',
+        groupId: 'main',
+        profileId: 'work',
+        generation: 7,
+        credentialRevision: 'csr_bbbbbbbbbbbbbbbbbbbbbb',
+      }),
+      runtimeAuthApply: registryOnlyRuntimeAuthCapability,
+    })).resolves.toMatchObject({
+      status: 'recovery_superseded',
+      reason: 'source_tuple_mismatch',
+    });
+  });
+
   it.each([
     ['profile', 'replacement', 'csr_aaaaaaaaaaaaaaaaaaaaaa'],
     ['credential revision', 'work', 'csr_bbbbbbbbbbbbbbbbbbbbbb'],

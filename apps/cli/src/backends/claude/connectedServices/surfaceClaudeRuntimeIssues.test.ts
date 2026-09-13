@@ -708,6 +708,68 @@ describe('surfaceClaudeRuntimeIssues runtime-auth projection', () => {
     }
   });
 
+  it('reports quota against the latest hot-applied group truth instead of immutable launch selection', async () => {
+    const previousSelectionEnv = installClaudeSelectionEnv();
+    mockNotifyDaemonConnectedServiceRuntimeAuthFailure.mockResolvedValueOnce(createScheduledRuntimeAuthRecoveryReport());
+    try {
+      await surfaceClaudeRateLimitRuntimeIssue({
+        connectedServiceAuthGroupRequestFence: {
+          readCurrentTruth: () => ({
+            kind: 'current_auth_group_available' as const,
+            groupId: 'team-pool',
+            generation: 5,
+            credentialRevision: 'csr_8123456789ABCDEFGHJKMNPQRS' as const,
+          }),
+        },
+        client: {
+          sessionId: 'sess_claude_hot_applied_snapshot',
+          getMetadataSnapshot: () => ({
+            connectedServices: {
+              v: 1,
+              bindingsByServiceId: {
+                'claude-subscription': {
+                  source: 'connected',
+                  selection: 'group',
+                  groupId: 'team-pool',
+                  profileId: 'claude-next',
+                },
+              },
+            },
+          }),
+          sessionTurnLifecycle: { failTurn: vi.fn(async () => {}) },
+        },
+      }, {
+        v: 1,
+        resetAtMs: 1_768_100_000_000,
+        retryAfterMs: null,
+        limitCategory: 'usage_limit',
+        quotaScope: 'account',
+        recoverability: 'switch_account',
+        providerLimitId: 'five_hour',
+        planType: null,
+        utilization: 100,
+        overage: null,
+        action: null,
+        connectedService: null,
+      }, '[claude-test]');
+
+      expect(mockNotifyDaemonConnectedServiceRuntimeAuthFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'sess_claude_hot_applied_snapshot',
+          classification: expect.objectContaining({
+            profileId: 'claude-next',
+            groupId: 'team-pool',
+            groupGeneration: 5,
+            credentialRevision: 'csr_8123456789ABCDEFGHJKMNPQRS',
+          }),
+        }),
+        expect.anything(),
+      );
+    } finally {
+      restoreClaudeSelectionEnv(previousSelectionEnv);
+    }
+  });
+
   it('surfaces temporary provider throttles outside usage-limit issue fields', async () => {
     const previousSelectionEnv = installClaudeSelectionEnv();
     mockNotifyDaemonConnectedServiceRuntimeAuthFailure.mockResolvedValueOnce(createScheduledRuntimeAuthRecoveryReport());

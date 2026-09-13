@@ -2,6 +2,7 @@ import {
     readConnectedServiceLimitCategoryV1,
     type ConnectedServiceQuotaSnapshotV1,
     type ConnectedServiceLimitCategoryV1,
+    type SessionConnectedServiceAuthCurrentGroupTruthV1,
     type SessionRuntimeIssueV1,
 } from '@happier-dev/protocol';
 
@@ -13,7 +14,11 @@ import {
     connectedServiceRuntimeAuthRecoveryWillContinue,
     projectConnectedServiceRuntimeAuthRecoveryReport,
 } from '@/daemon/connectedServices/runtimeAuth/projection/connectedServiceRuntimeAuthRecoverySessionEvent';
-import { findConnectedServiceChildSelection } from '@/daemon/connectedServices/connectedServiceChildEnvironment';
+import {
+    findConnectedServiceBindingSelectionFromSessionMetadata,
+    findConnectedServiceChildSelection,
+    type ConnectedServiceChildSelection,
+} from '@/daemon/connectedServices/connectedServiceChildEnvironment';
 import { buildNativeProviderAccountUsageSourceProfileId } from '@/daemon/connectedServices/accountUsage/nativeSourceIdentity';
 import { createConnectedServiceQuotaSnapshotDeliveryOutbox } from '@/daemon/connectedServices/quotas/connectedServiceQuotaSnapshotDeliveryOutbox';
 import { deliverConnectedServiceQuotaSnapshotToDaemon } from '@/daemon/connectedServices/quotas/deliverConnectedServiceQuotaSnapshotToDaemon';
@@ -26,8 +31,12 @@ import type { NormalizedProviderUsageLimitDetailsV1 } from './mapClaudeRateLimit
 import { resolveClaudeRuntimeProviderAccountIdentity } from './resolveClaudeRuntimeProviderAccountIdentity';
 
 type RuntimeIssueSession = Readonly<{
+    connectedServiceAuthGroupRequestFence?: Readonly<{
+        readCurrentTruth(): SessionConnectedServiceAuthCurrentGroupTruthV1 | null;
+    }>;
     client: {
         sessionId: string;
+        getMetadataSnapshot?: () => unknown;
         sendSessionEvent?: (event: SessionEventMessage) => void;
         updateMetadata?: (updater: (metadata: Metadata) => Metadata) => Promise<void> | void;
         sessionTurnLifecycle?: {
@@ -35,6 +44,38 @@ type RuntimeIssueSession = Readonly<{
         };
     };
 }>;
+
+function resolveClaudeRuntimeIssueSelection(session: RuntimeIssueSession): ConnectedServiceChildSelection | undefined {
+    const launchSelection =
+        findConnectedServiceChildSelection(process.env, 'claude-subscription')
+        ?? findConnectedServiceChildSelection(process.env, 'anthropic')
+        ?? undefined;
+    if (!launchSelection || launchSelection.kind !== 'group') return launchSelection;
+
+    const currentTruth = session.connectedServiceAuthGroupRequestFence?.readCurrentTruth() ?? null;
+    if (
+        currentTruth?.kind !== 'current_auth_group_available'
+        || currentTruth.groupId !== launchSelection.groupId
+    ) return launchSelection;
+
+    const metadataBinding = findConnectedServiceBindingSelectionFromSessionMetadata(
+        session.client,
+        launchSelection.serviceId,
+    );
+    const activeProfileId = metadataBinding?.source === 'connected'
+        && metadataBinding.selection === 'group'
+        && metadataBinding.groupId === launchSelection.groupId
+        && typeof metadataBinding.profileId === 'string'
+        && metadataBinding.profileId.trim().length > 0
+        ? metadataBinding.profileId.trim()
+        : launchSelection.activeProfileId;
+    return {
+        ...launchSelection,
+        activeProfileId,
+        generation: currentTruth.generation,
+        credentialRevision: currentTruth.credentialRevision,
+    };
+}
 
 type RuntimeIssueUsageLimitDetails = NonNullable<SessionRuntimeIssueV1['usageLimit']>;
 type RuntimeIssueConnectedService = NonNullable<RuntimeIssueUsageLimitDetails['connectedService']>;
@@ -286,7 +327,7 @@ function buildClaudeRuntimeQuotaSnapshot(params: Readonly<{
     };
 }
 
-function resolveClaudeQuotaSnapshotTarget(input: Readonly<{
+function resolveClaudeQuotaSnapshotTarget(session: RuntimeIssueSession, input: Readonly<{
     serviceId?: RuntimeIssueConnectedService['serviceId'] | null;
     profileId?: string | null;
     groupId?: string | null;
@@ -296,10 +337,7 @@ function resolveClaudeQuotaSnapshotTarget(input: Readonly<{
     groupId: string | null;
     groupGeneration: number | null;
 }> {
-    const selection =
-        findConnectedServiceChildSelection(process.env, 'claude-subscription')
-        ?? findConnectedServiceChildSelection(process.env, 'anthropic')
-        ?? undefined;
+    const selection = resolveClaudeRuntimeIssueSelection(session);
     const selectedGroup = selection?.kind === 'group' ? selection : null;
     const serviceId = input.serviceId
         ?? (selection?.serviceId === 'anthropic' ? 'anthropic' : 'claude-subscription');
@@ -321,7 +359,7 @@ export async function recordClaudeRateLimitQuotaEvidence(
     logPrefix: string,
 ): Promise<void> {
     void logPrefix;
-    const target = resolveClaudeQuotaSnapshotTarget({});
+    const target = resolveClaudeQuotaSnapshotTarget(session, {});
     if (!target.profileId) return;
     const enrichedDetails = await enrichClaudeUsageDetailsWithRuntimeAccountIdentity(details);
     const observedAt = Date.now();
@@ -418,10 +456,7 @@ export async function surfaceClaudeRateLimitRuntimeIssue(
     details: NormalizedProviderUsageLimitDetailsV1,
     logPrefix: string,
 ): Promise<void> {
-    const selection =
-        findConnectedServiceChildSelection(process.env, 'claude-subscription')
-        ?? findConnectedServiceChildSelection(process.env, 'anthropic')
-        ?? undefined;
+    const selection = resolveClaudeRuntimeIssueSelection(session);
     const enrichedDetailsPromise = enrichClaudeUsageDetailsWithRuntimeAccountIdentity(details);
     const initialClassification = classifyClaudeConnectedServiceRuntimeAuthFailure({
         details,
