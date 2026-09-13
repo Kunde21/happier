@@ -23,7 +23,9 @@ import { resolvePermissionIntentFromMetadataSnapshot } from '@/agent/runtime/per
 import { normalizePermissionModeToIntent } from '@/agent/runtime/permission/permissionModeCanonical';
 import { waitForSessionMetadataRetryBackoff } from '@/agent/runtime/sessionMetadataWaitRetryBackoff';
 import { isDefaultWriteLikeToolName } from '@/agent/permissions/writeLikeToolNameHeuristics';
-import { shouldSuppressProviderPermissionForHappierApproval } from '@/agent/tools/happierTools/resolveHappierActionForMcpToolName';
+import {
+    isSafeFirstPartyHappierActionToolCall,
+} from '@/agent/tools/happierTools/resolveHappierActionForMcpToolName';
 import {
     CLAUDE_LOCAL_PERMISSION_BRIDGE_REQUEST_SOURCE,
     CLAUDE_LOCAL_PERMISSION_BRIDGE_STOPPED_REASON,
@@ -239,13 +241,7 @@ export class ClaudeLocalPermissionBridge {
         const policyDecision = this.computePolicyDecision(toolName);
         if (
             !this.isInteractiveTool(toolName)
-            && policyDecision !== 'deny'
-            && shouldSuppressProviderPermissionForHappierApproval({
-                toolName,
-                input: toolInput,
-                accountSettings: this.session.accountSettings ?? null,
-                surface: 'session_agent',
-            }).suppress
+            && isSafeFirstPartyHappierActionToolCall({ toolName, input: toolInput })
         ) {
             const hookResponse = this.buildAllowHookResponse({ hookEventName, toolInput });
             this.completeRequest({

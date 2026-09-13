@@ -49,7 +49,7 @@ For the full workflow, see [Features → Attach to a running session](/sessions/
 
 Happier uses:
 
-- a **provider-agnostic permission mode** (`default`, `read-only`, `safe-yolo`, `yolo`)
+- a **provider-agnostic permission intent** (`read_only`, `default`, `auto`, `yolo`)
 - a separate Claude **session mode** surface (including **Plan**)
 
 For the full user guide (CLI flags, UI picker, defaults, and apply timing), see:
@@ -94,7 +94,7 @@ Permission mode is stored canonically in **session metadata**, so it follows the
 - open the same session on another device, or
 - switch between **local** and **remote** mode.
 
-Some permission behavior is implemented by Happier (tool approval gating) and can update immediately; other behavior depends on Claude’s own session flags and may only take effect when Claude is launched/resumed. The in-session picker’s “Effective policy” line is the source of truth for what will apply right now.
+Some permission behavior is implemented by Happier (tool approval gating) and can update immediately; other behavior depends on Claude’s own session flags and may only take effect when Claude is launched/resumed.
 
 When local permission bridge is enabled, Claude permission prompts can still be forwarded into Happier while the terminal owns the session. Message sending is separate from permission approval: app messages sent during exclusive local control still go through the pending queue and are delivered only after Happier can safely resume remote processing.
 
