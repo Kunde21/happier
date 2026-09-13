@@ -3,7 +3,12 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { readBackendCliSourcePreference, resolveProviderCliManagedCommandPath } from './resolution';
+import {
+  readBackendCliSourcePreference,
+  resolveProviderCliCommand,
+  resolveProviderCliCommandCandidates,
+  resolveProviderCliManagedCommandPath,
+} from './resolution';
 
 describe('readBackendCliSourcePreference', () => {
   it('prefers target-keyed preferences from the env map', () => {
@@ -46,6 +51,98 @@ describe('resolveProviderCliManagedCommandPath', () => {
       expect(resolveProviderCliManagedCommandPath('codex', { happyHomeDir })).toBe(
         join(installRoot, 'active', 'bin', 'codex'),
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('resolveProviderCliCommandCandidates', () => {
+  it('prefers stable opencode over opencode2 while keeping the explicit override authoritative', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'happier-opencode-v2-resolution-'));
+    const stable = join(root, 'opencode');
+    const beta = join(root, 'opencode2');
+    try {
+      for (const candidate of [stable, beta]) {
+        writeFileSync(candidate, '#!/bin/sh\nexit 0\n', 'utf8');
+        chmodSync(candidate, 0o755);
+      }
+
+      expect(resolveProviderCliCommand('opencode', {
+        processEnv: { PATH: root, HOME: root },
+      })).toEqual({ source: 'system', command: stable });
+      expect(resolveProviderCliCommand('opencode', {
+        processEnv: { PATH: root, HOME: root, HAPPIER_OPENCODE_PATH: beta },
+      })).toEqual({ source: 'override', command: beta });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('enumerates every distinct matching executable on PATH', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'happier-provider-path-candidates-'));
+    const firstDir = join(root, 'first-bin');
+    const secondDir = join(root, 'second-bin');
+    mkdirSync(firstDir, { recursive: true });
+    mkdirSync(secondDir, { recursive: true });
+    const firstKimi = join(firstDir, 'kimi');
+    const secondKimi = join(secondDir, 'kimi');
+    try {
+      for (const candidate of [firstKimi, secondKimi]) {
+        writeFileSync(candidate, '#!/bin/sh\nexit 0\n', 'utf8');
+        chmodSync(candidate, 0o755);
+      }
+
+      expect(resolveProviderCliCommandCandidates('kimi', {
+        processEnv: { PATH: `${firstDir}:${secondDir}`, HOME: root },
+      })).toEqual([
+        { source: 'system', command: firstKimi },
+        { source: 'system', command: secondKimi },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('enumerates distinct PATH and known-location candidates without semver selection', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'happier-provider-candidates-'));
+    const pathDir = join(root, 'path-bin');
+    const homeDir = join(root, 'home');
+    const knownDir = join(homeDir, '.local', 'bin');
+    mkdirSync(pathDir, { recursive: true });
+    mkdirSync(knownDir, { recursive: true });
+    const pathKimi = join(pathDir, 'kimi');
+    const knownKimi = join(knownDir, 'kimi');
+    try {
+      for (const candidate of [pathKimi, knownKimi]) {
+        writeFileSync(candidate, '#!/bin/sh\nexit 0\n', 'utf8');
+        chmodSync(candidate, 0o755);
+      }
+
+      expect(resolveProviderCliCommandCandidates('kimi', {
+        processEnv: { PATH: pathDir, HOME: homeDir },
+      })).toEqual([
+        { source: 'system', command: pathKimi },
+        { source: 'system', command: knownKimi },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies only an explicit path when an override is configured', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'happier-provider-override-candidate-'));
+    const explicit = join(root, 'kimi-explicit');
+    try {
+      writeFileSync(explicit, '#!/bin/sh\nexit 0\n', 'utf8');
+      chmodSync(explicit, 0o755);
+      expect(resolveProviderCliCommandCandidates('kimi', {
+        processEnv: { PATH: '', HOME: root, HAPPIER_KIMI_PATH: explicit },
+      })).toEqual([{ source: 'override', command: explicit }]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

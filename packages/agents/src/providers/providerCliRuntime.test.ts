@@ -52,6 +52,8 @@ describe('PROVIDER_CLI_RUNTIME_SPECS', () => {
 
   it('declares managed package sources for package-backed CLIs', () => {
     expect(getProviderCliRuntimeSpec('opencode')).toMatchObject({
+      binaryName: 'opencode',
+      alternativeBinaryNames: ['opencode2'],
       managedInstall: {
         kind: 'managed_package',
         packageName: 'opencode-ai',

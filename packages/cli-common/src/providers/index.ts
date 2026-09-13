@@ -18,6 +18,7 @@ export {
   readProviderCliOverride,
   resolveHomeDirFromEnvironment,
   resolveProviderCliCommand,
+  resolveProviderCliCommandCandidates,
   resolveProviderCliManagedCommandPath,
 } from './resolution.js';
 export {
