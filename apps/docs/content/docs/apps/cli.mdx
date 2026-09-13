@@ -57,19 +57,27 @@ HAPPIER_CLI_UPDATE_CHECK=0
 
 Full matrix (all apps/assets): [Updates](/releases/updates).
 
+## Set up a coding agent
+
+The upcoming 0.2 setup flow offers installable agents from Happier's catalog
+when none is available. Choose one or **Skip for now**. Skipping completes the
+machine connection, but a computer with no agent is not coding-ready. Installing
+an agent only makes its CLI available; complete that agent's own authentication
+separately before starting a session.
+
 ## Authenticate
 
 ```bash
 happier auth login
 ```
 
-`happier auth login` prints both web and mobile connection options (URLs).
-By default it prints a single QR code for the mobile deep link, plus the web URL as a fallback.
+`happier auth login` asks whether to approve with a web browser or the mobile app.
+The browser path prints its terminal-connect URL; the mobile path prints a QR code and deep link.
 When using self-hosted servers, run login against the correct server profile (see below).
 
 Recommended first-run flow:
 
-- Use the mobile app path first (QR/deep link) to sign in/create account and approve terminal connection.
+- Choose the approval method available on the device where you already use Happier.
 - If you already use Happier on another device, sign in with that same account.
 - If you open a terminal-connect link while logged out, Happier routes you through sign in and then returns you to terminal approval automatically.
 
@@ -447,7 +455,7 @@ happier session set-model <session-id> <model-id>
 happier session set-permission-mode <session-id> <mode>
 ```
 
-`<mode>` accepts common aliases (for example `ask`, `default`, `yolo`). Use `--json` to script and see the normalized `permissionMode` value.
+Prefer `read_only`, `default`, `auto`, or `yolo` for `<mode>`. Older aliases such as `read-only`, `safe-yolo`, `workspace_write`, `acceptEdits`, and `bypassPermissions` remain accepted. Use `--json` to script and see the compatible normalized `permissionMode` value.
 
 ### Session id prefixes
 
@@ -487,10 +495,14 @@ Execution runs are the structured “run” layer for multi-step flows in a sess
 
 ```bash
 happier session run list <session-id>
-happier session run start <session-id> --intent <intent> --backend <backend-target-key>
+happier session run start <session-id> --intent <intent> --backend <backend-target-key> --permission-mode auto
 happier session run send <session-id> <run-id> "message"
 happier session run stop <session-id> <run-id>
 ```
+
+Execution-run permission input uses the same preferred `read_only`, `default`,
+`auto`, and `yolo` vocabulary. Compatible responses and stored run state retain
+the established `read_only` / `workspace_write` wire projection.
 
 ## External MCP control surface
 

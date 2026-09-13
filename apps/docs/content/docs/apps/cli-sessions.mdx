@@ -170,21 +170,26 @@ happier session set-permission-mode <session-id-or-prefix> <mode>
 
 ### Permission intent (`set-permission-mode` and `--permission-mode`)
 
-Happier stores a provider-agnostic **permission intent** string for each session.
+Happier stores a provider-agnostic **permission intent** for each session.
 
-Common intents and aliases:
+Preferred inputs:
 
+- `read_only`
 - `default`
-- `read_only` (also accepts `read-only`, `readonly`, `ro`)
-- `safe-yolo` (also accepts legacy `acceptEdits`)
-- `yolo` (also accepts legacy `bypassPermissions`)
-- `plan`
+- `auto`
+- `yolo`
+
+Older spellings such as `read-only`, `safe-yolo`, `workspace_write`,
+`acceptEdits`, and `bypassPermissions` remain accepted. They normalize into
+compatible session metadata, so JSON output can retain an older wire spelling.
+Legacy `plan` permission input remains available for providers that map it to a
+session mode.
 
 Use it in either place:
 
 ```bash
 happier session set-permission-mode <session-id-or-prefix> read_only
-happier session send <session-id-or-prefix> "ping" --permission-mode safe-yolo
+happier session send <session-id-or-prefix> "ping" --permission-mode auto
 ```
 
 Notes:
@@ -269,13 +274,18 @@ Current JSON envelopes:
 Execution runs are the structured “run” layer for multi-step flows (review / plan / delegate / voice agent):
 
 ```bash
-happier session run start <session-id> --intent <intent> --backend <backend-target-key> --json
+happier session run start <session-id> --intent <intent> --backend <backend-target-key> --permission-mode auto --json
 happier session run list <session-id> --json
 happier session run get <session-id> <run-id> --json
 happier session run send <session-id> <run-id> "message" --json
 happier session run stop <session-id> <run-id> --json
 happier session run wait <session-id> <run-id> --timeout 300 --json
 ```
+
+Execution-run inputs use the same preferred `read_only`, `default`, `auto`, and
+`yolo` vocabulary. Older `workspace_write`, `safe-yolo`, `acceptEdits`, and
+`bypassPermissions` inputs remain accepted; returned run state retains the
+compatible `read_only` / `workspace_write` wire projection.
 
 Advanced run control:
 
