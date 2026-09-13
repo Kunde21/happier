@@ -718,7 +718,11 @@ export function readReducerSidechainMessages(
     return messages;
 }
 
-function convertReducerMessageToMessage(reducerMsg: ReducerMessage, state: ReducerState): Message | null {
+function convertReducerMessageToMessage(
+    reducerMsg: ReducerMessage,
+    state: ReducerState,
+    ancestorMessageIds?: ReadonlySet<string>,
+): Message | null {
     const observationMetadata: TranscriptObservationMetadata = {
         ...(reducerMsg.sourceCreatedAt !== undefined ? { sourceCreatedAt: reducerMsg.sourceCreatedAt } : {}),
         ...(reducerMsg.sourceUpdatedAt !== undefined ? { sourceUpdatedAt: reducerMsg.sourceUpdatedAt } : {}),
@@ -759,6 +763,8 @@ function convertReducerMessageToMessage(reducerMsg: ReducerMessage, state: Reduc
             ...observationMetadata,
         };
     } else if (reducerMsg.role === 'agent' && reducerMsg.tool !== null) {
+        if (ancestorMessageIds?.has(reducerMsg.id)) return null;
+
         // Convert children recursively
         let childMessages: Message[] = [];
         const toolId = typeof reducerMsg.tool.id === 'string' ? reducerMsg.tool.id.trim() : '';
@@ -767,10 +773,14 @@ function convertReducerMessageToMessage(reducerMsg: ReducerMessage, state: Reduc
                 ? (!state.sidechains.has(toolId) && reducerMsg.realID ? reducerMsg.realID : toolId)
                 : reducerMsg.realID ?? null;
         let children = sidechainKey ? state.sidechains.get(sidechainKey) || [] : [];
-        for (let child of children) {
-            let childMessage = convertReducerMessageToMessage(child, state);
-            if (childMessage) {
-                childMessages.push(childMessage);
+        if (children.length > 0) {
+            const childAncestorMessageIds = new Set(ancestorMessageIds);
+            childAncestorMessageIds.add(reducerMsg.id);
+            for (let child of children) {
+                let childMessage = convertReducerMessageToMessage(child, state, childAncestorMessageIds);
+                if (childMessage) {
+                    childMessages.push(childMessage);
+                }
             }
         }
 
