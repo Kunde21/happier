@@ -1901,6 +1901,7 @@ export {
 } from './sessionMetadata/windowsTerminalWindowName.js';
 
 export {
+  SESSION_PERMISSION_INTENT_INPUTS,
   SESSION_PERMISSION_MODES,
   SessionPermissionModeInputSchema,
   SessionPermissionModeSchema,
