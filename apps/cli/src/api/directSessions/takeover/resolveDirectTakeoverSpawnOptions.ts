@@ -42,7 +42,10 @@ export async function resolveDirectTakeoverSpawnOptions(params: Readonly<{
   linked: LoadedLinkedDirectSession;
   sessionId: string;
 }>): Promise<SpawnSessionOptions | null> {
-  const spawnOptions = await (await getDirectSessionProviderOps(params.linked.providerId)).resolveTakeoverSpawnOptions(params);
+  const providerOps = await getDirectSessionProviderOps(params.linked.providerId);
+  // A resume-only source (ACP session/list) owns no provider process to take over.
+  if (!providerOps.resolveTakeoverSpawnOptions) return null;
+  const spawnOptions = await providerOps.resolveTakeoverSpawnOptions(params);
   if (!spawnOptions) return null;
   const snapshot = mergeConnectedServiceRuntimeSnapshots(
     readConnectedServiceRuntimeSnapshot(params.linked.metadata),

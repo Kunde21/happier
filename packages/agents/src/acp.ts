@@ -1,4 +1,5 @@
 import type { AgentId, PermissionMode } from './types.js';
+import { AGENTS_CORE } from './manifest.js';
 import { getProviderCliRuntimeSpec } from './providers/providerCliRuntime.js';
 
 export type BuiltInAcpTransportProfile = 'generic' | 'kiro';
@@ -128,4 +129,15 @@ export function hasBuiltInAcpConfig(agentId: AgentId): boolean {
 
 export function getBuiltInAcpConfig(agentId: AgentId): BuiltInAcpConfig | null {
   return BUILT_IN_ACP_CONFIG[agentId] ?? null;
+}
+
+/**
+ * Static policy for offering ACP `session/list` as a resume source: the agent must run through the
+ * shared built-in ACP path and its manifest must declare session listing. This is the single leaf
+ * declaration; it permits offering the surface and never certifies it. The live ACP handshake stays
+ * the runtime authority and must fail clearly before `session/list` when it disagrees.
+ */
+export function isBuiltInAcpSessionListingDeclared(agentId: AgentId): boolean {
+  if (!hasBuiltInAcpConfig(agentId)) return false;
+  return AGENTS_CORE[agentId].sessionCapabilities?.sessionListing === 'supported';
 }

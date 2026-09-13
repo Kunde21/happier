@@ -5976,6 +5976,7 @@ export const en = {
         browseSourceCodexConnectedServices: ({ service }: { service: string }) => `${service} connected services`,
         browseSourceClaudeDefault: 'Default Claude config',
         browseSourceOpenCodeDefault: 'Default OpenCode server',
+        browseSourceAcpAgentSessions: 'Agent sessions',
         browseSourcePiDefault: 'Default Pi agent directory',
         browseCandidates: 'Available sessions',
         browseNoMachines: 'No machines are available for direct sessions yet.',

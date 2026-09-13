@@ -2542,6 +2542,12 @@ export {
 } from './directSessions/daemonRpcV1.js';
 
 export {
+  AGENT_PROVIDER_IDS_V1,
+  AgentProviderIdV1Schema,
+  type AgentProviderIdV1,
+} from './providers/agentProviderIdsV1.js';
+
+export {
   applyObservedProgressToDirectSessionAttentionV1,
   buildDirectSessionAttentionV1,
   buildDirectSessionFollowPolicyV1,

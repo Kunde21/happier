@@ -6113,6 +6113,7 @@ export const zhHans: TranslationStructure = {
     browseSourceCodexConnectedServices: ({ service }: { service: string }) => `${service} connected services`,
     browseSourceClaudeDefault: "默认 Claude 配置",
     browseSourceOpenCodeDefault: "默认 OpenCode 服务器",
+    browseSourceAcpAgentSessions: '代理会话',
     browseSourcePiDefault: "默认 Pi 代理目录",
     browseCandidates: "可用会话",
     browseNoMachines: "尚无可用于直连会话的机器。",

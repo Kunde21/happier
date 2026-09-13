@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { BUILT_IN_ACP_CONFIG, getBuiltInAcpConfig, hasBuiltInAcpConfig } from './acp.js';
+import { AGENT_PROVIDER_IDS_V1 } from '@happier-dev/protocol';
+
+import {
+  BUILT_IN_ACP_CONFIG,
+  getBuiltInAcpConfig,
+  hasBuiltInAcpConfig,
+  isBuiltInAcpSessionListingDeclared,
+} from './acp.js';
 import { getProviderCliRuntimeSpec } from './providers/providerCliRuntime.js';
+import { getAgentSessionCapability } from './sessionControls/sessionCapabilities.js';
 import { getAgentToolsCapability } from './tools.js';
-import type { AgentId } from './types.js';
+import { AGENT_IDS, type AgentId } from './types.js';
 
 const devinAgentId = 'devin' as AgentId;
 
@@ -136,5 +144,28 @@ describe('built-in ACP config', () => {
   it('keeps Kimi Code on native MCP delivery so its ACP pass-through carries real servers', () => {
     expect(getBuiltInAcpConfig('kimi')?.mcpServers).toBe('pass');
     expect(getAgentToolsCapability('kimi').delivery).toBe('native_mcp');
+  });
+});
+
+describe('ACP session-listing declaration', () => {
+  it('derives the listing declaration from the manifest capability, not a second ACP-local flag', () => {
+    const declared = AGENT_IDS.filter((agentId) => isBuiltInAcpSessionListingDeclared(agentId));
+    expect(declared.sort()).toEqual(['fx', 'kimi']);
+    // Declared by manifest but not a built-in ACP agent, so the ACP source stays unavailable.
+    expect(getAgentSessionCapability('claude', 'sessionListing')).toBe('supported');
+    expect(isBuiltInAcpSessionListingDeclared('claude')).toBe(false);
+    // Built-in ACP agent that does not declare listing.
+    expect(isBuiltInAcpSessionListingDeclared('droid')).toBe(false);
+  });
+
+  /**
+   * The wire enum is transport admission for the direct-sessions RPC family. An agent that declares
+   * ACP listing but is missing from it can never reach the daemon, so the surface would be dead.
+   */
+  it('keeps every ACP-listing agent admitted by the direct-sessions provider id contract', () => {
+    const missing = AGENT_IDS
+      .filter((agentId) => isBuiltInAcpSessionListingDeclared(agentId))
+      .filter((agentId) => !(AGENT_PROVIDER_IDS_V1 as readonly string[]).includes(agentId));
+    expect(missing).toEqual([]);
   });
 });

@@ -6579,6 +6579,7 @@ localTailscale: {
     browseSourceCodexConnectedServices: ({ service }: { service: string }) => `${service} connected services`,
     browseSourceClaudeDefault: "デフォルトの Claude 設定",
     browseSourceOpenCodeDefault: "デフォルトの OpenCode サーバー",
+    browseSourceAcpAgentSessions: 'エージェントのセッション',
     browseSourcePiDefault: "デフォルトの Pi エージェントディレクトリ",
     browseCandidates: "利用可能なセッション",
     browseNoMachines: "直接セッションに利用できるマシンはまだありません。",

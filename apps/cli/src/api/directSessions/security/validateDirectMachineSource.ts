@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
+import { isBuiltInAcpSessionListingDeclared, type AgentId } from '@happier-dev/agents';
 import type { DirectSessionsProviderId, DirectSessionsSource } from '@happier-dev/protocol';
 import { expandHomeDirPath } from '@happier-dev/cli-common/providers';
 
@@ -46,6 +47,22 @@ export function validateDirectMachineSource(params: Readonly<{
   env: NodeJS.ProcessEnv;
 }>): DirectSourceValidationResult {
   const { providerId, source, env } = params;
+
+  // Generic ACP `session/list` source: no provider branch and no daemon-owned filesystem location.
+  // Admission is the leaf capability declaration; the live ACP handshake remains the authority.
+  if (source.kind === 'acpSessionList') {
+    if (!isBuiltInAcpSessionListingDeclared(providerId as AgentId)) {
+      return err('provider/source mismatch');
+    }
+    const requestedCwd = typeof source.cwd === 'string' && source.cwd.trim().length > 0
+      ? canonicalizePath(source.cwd, env)
+      : null;
+    // ACP requires an absolute working directory; a relative filter would silently match nothing.
+    if (requestedCwd && !isAbsolute(requestedCwd)) {
+      return err('source cwd must be absolute');
+    }
+    return { ok: true, source: requestedCwd ? { ...source, cwd: requestedCwd } : source };
+  }
 
   switch (providerId) {
     case 'codex': {

@@ -1614,6 +1614,7 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string }>
                                 agentOptionState,
                                 profile: accountProfile,
                                 settings,
+                                directory: selectedPath,
                             });
                             if (!source) return null;
                             requestClose();
@@ -1644,6 +1645,7 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string }>
         agentType,
         resumeSessionId,
         selectedMachineId,
+        selectedPath,
         settings,
         targetServerId,
     ]);

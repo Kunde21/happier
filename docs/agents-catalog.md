@@ -148,6 +148,15 @@ Kimi Code discovery is a development exception for executable identity: current 
 
 Built-in ACP `supportsModes: 'no'` disables mode projection and both mode mutation paths at the shared backend. Kimi uses that policy until authenticated live mode behavior is verified; model controls remain available.
 
+### ACP session listing (resume-only candidates)
+
+Agents whose ACP server advertises `session/list` expose their own sessions as **resume-only** candidates through the existing direct-sessions RPC family, using the generic `{ kind: 'acpSessionList', cwd? }` source instead of a provider-owned session store.
+
+- Static policy: `isBuiltInAcpSessionListingDeclared(agentId)` in `packages/agents/src/acp.ts` — true only for built-in ACP agents whose manifest declares `sessionCapabilities.sessionListing: 'supported'` (today Kimi and FX). The catalog-defined ACP entry adds `getDirectSessionProviderOps` only for those agents; the UI default behavior adds the browse source under the same declaration. No shared code branches on agent ids.
+- Runtime authority: `AcpBackend.listSessions` checks the negotiated `agentCapabilities.sessionCapabilities.list` from `initialize` and fails with `AcpSessionCapabilityNotNegotiatedError` before dispatching `session/list`; the daemon reports it as `provider_unavailable`.
+- Candidates are opaque provider identifiers preserved byte-exactly after nonblank validation, plus title/cwd/updatedAt. They feed the new-session **resume** picker only. Transcript paging, activity, follow leases, linking and takeover are intentionally absent for this source (optional members on `DirectSessionProviderOps`), and `listDirectBrowseProviderIds()` excludes `resumeOnly` browse sources so the link/open browse list never offers them.
+- `session/close` is dispatched at `AcpBackend.dispose()` for the active session when negotiated, so agents that own session resources beyond the local process release them. `session/delete` has no Happier product surface and is not wired.
+
 ### Dynamic model lists
 
 Whether a provider's model list is resolved at runtime is one catalog fact:

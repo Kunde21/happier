@@ -152,6 +152,7 @@ export {
   BUILT_IN_ACP_CONFIG,
   getBuiltInAcpConfig,
   hasBuiltInAcpConfig,
+  isBuiltInAcpSessionListingDeclared,
   type BuiltInAcpConfig,
   type BuiltInAcpTransportProfile,
   type BuiltInAcpYesNoAuto,

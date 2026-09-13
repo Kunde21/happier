@@ -27,6 +27,7 @@ import {
 import { readCredentials } from '@/persistence';
 import { listSessionMarkers } from '@/daemon/sessionRegistry';
 import { getDirectSessionProviderOps } from '@/backends/catalog';
+import { DirectSessionsProviderUnavailableError } from '@/backends/directSessions/providerOps';
 
 import { importDirectSessionTranscript } from '@/api/directSessions/import/importDirectSessionTranscript';
 import { createManagedDirectSessionFollowLease } from '@/api/directSessions/backgroundFollow/createManagedDirectSessionFollowLease';
@@ -51,6 +52,34 @@ function err(
   error?: string,
 ): { ok: false; errorCode: DirectSessionsErrorCode; error: string } {
   return { ok: false, errorCode, error: typeof error === 'string' && error.trim() ? error : errorCode };
+}
+
+/**
+ * A provider that genuinely cannot perform the operation for this source is reported as
+ * `provider_unavailable`, never as an internal error and never as an empty success.
+ */
+function errFromProviderFailure(error: unknown, fallback: DirectSessionsErrorCode = 'internal_error'): {
+  ok: false;
+  errorCode: DirectSessionsErrorCode;
+  error: string;
+} {
+  if (error instanceof DirectSessionsProviderUnavailableError) {
+    return err('provider_unavailable', error.message);
+  }
+  return err(fallback, error instanceof Error ? error.message : 'Unknown error');
+}
+
+function requireProviderOp<TOp>(
+  op: TOp | undefined,
+  providerId: string,
+  operation: string,
+): TOp {
+  if (!op) {
+    throw new DirectSessionsProviderUnavailableError(
+      `Agent '${providerId}' does not support direct-session ${operation} for this source.`,
+    );
+  }
+  return op;
 }
 
 function resolveDefaultMaxBytes(): number {
@@ -307,8 +336,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
         ...(res.searchIncomplete ? { searchIncomplete: true } : {}),
       } satisfies DirectSessionsCandidatesListResponse;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return err('internal_error', message) satisfies DirectSessionsCandidatesListResponse;
+      return errFromProviderFailure(error) satisfies DirectSessionsCandidatesListResponse;
     }
   });
 
@@ -330,6 +358,10 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
     }
 
     try {
+      // A linked direct session is rendered from the provider's transcript; a resume-only source
+      // (ACP session/list) has none, so linking it would create a session Happier cannot show.
+      const linkOps = await getDirectSessionProviderOps(parsed.data.providerId);
+      requireProviderOp(linkOps.pageTranscript, parsed.data.providerId, 'linking');
       const codexBackendMode = normalizeCodexBackendMode(parsed.data.codexBackendMode) ?? undefined;
       const res = await ensureDirectSessionLink({
         credentials,
@@ -344,8 +376,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
       });
       return { ok: true, sessionId: res.sessionId, created: res.created } satisfies DirectSessionLinkEnsureResponse;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return err('internal_error', message) satisfies DirectSessionLinkEnsureResponse;
+      return errFromProviderFailure(error) satisfies DirectSessionLinkEnsureResponse;
     }
   });
 
@@ -387,7 +418,8 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
     }
 
     try {
-      const res = await (await getDirectSessionProviderOps(parsed.data.providerId)).getActivity({
+      const activityOps = await getDirectSessionProviderOps(parsed.data.providerId);
+      const res = await requireProviderOp(activityOps.getActivity, parsed.data.providerId, 'activity')({
         source: validatedSource.source,
         remoteSessionId: parsed.data.remoteSessionId,
       });
@@ -462,7 +494,8 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
     const maxItems = parsed.data.maxItems ?? resolveDefaultMaxItems();
 
     try {
-      const res = await (await getDirectSessionProviderOps(providerId)).pageTranscript({
+      const pageOps = await getDirectSessionProviderOps(providerId);
+      const res = await requireProviderOp(pageOps.pageTranscript, providerId, 'transcript paging')({
         source,
         remoteSessionId,
         direction,
@@ -479,8 +512,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
         truncated: res.truncated,
       } satisfies DirectTranscriptPageResponse;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return err('internal_error', message) satisfies DirectTranscriptPageResponse;
+      return errFromProviderFailure(error) satisfies DirectTranscriptPageResponse;
     }
   });
 
@@ -502,7 +534,8 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
     const maxItems = parsed.data.maxItems ?? resolveDefaultMaxItems();
 
     try {
-      const res = await (await getDirectSessionProviderOps(providerId)).readAfterTranscript({
+      const readAfterOps = await getDirectSessionProviderOps(providerId);
+      const res = await requireProviderOp(readAfterOps.readAfterTranscript, providerId, 'transcript paging')({
         source,
         remoteSessionId,
         cursor,
@@ -511,8 +544,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
       });
       return { ok: true, items: res.items, nextCursor: res.nextCursor, truncated: res.truncated } satisfies DirectTranscriptReadAfterResponse;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return err('internal_error', message) satisfies DirectTranscriptReadAfterResponse;
+      return errFromProviderFailure(error) satisfies DirectTranscriptReadAfterResponse;
     }
   });
 

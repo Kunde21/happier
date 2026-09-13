@@ -5942,6 +5942,7 @@ export const fr: TranslationStructure = {
         browseSourceCodexConnectedServices: ({ service }: { service: string }) => `${service} services connectés`,
         browseSourceClaudeDefault: 'Config Claude par défaut',
         browseSourceOpenCodeDefault: 'Serveur OpenCode par défaut',
+        browseSourceAcpAgentSessions: 'Sessions de l’agent',
         browseSourcePiDefault: 'Répertoire de l’agent Pi par défaut',
         browseCandidates: 'Sessions disponibles',
         browseNoMachines: 'Aucune machine n’est disponible pour les sessions directes.',

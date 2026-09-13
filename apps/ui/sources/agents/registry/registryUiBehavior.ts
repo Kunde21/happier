@@ -12,7 +12,7 @@ import type { AgentId } from './registryCore';
 import { AGENT_IDS, getAgentCore, resolveAgentIdFromFlavor } from './registryCore';
 import type { CapabilityDetectResult, CapabilityId } from '@/sync/api/capabilities/capabilitiesProtocol';
 import type { ResumeCapabilityOptions } from '@/agents/runtime/resumeCapabilities';
-import type { TranslationKey } from '@/text';
+import { t, type TranslationKey } from '@/text';
 import type { Settings } from '@/sync/domains/settings/settings';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import type { NonSteerablePayloadReason } from '@/sync/domains/session/control/submitMode';
@@ -26,7 +26,7 @@ import { PI_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/pi/uiBehavior';
 import { AGY_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/agy/uiBehavior';
 import { CUSTOM_ACP_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/customAcp/uiBehavior';
 import type { AgentInputExtraActionChip } from '@/components/sessions/agentInput';
-import { resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
+import { isBuiltInAcpSessionListingDeclared, resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
 import type { PendingInputServerWireMode } from '@/sync/engine/pending/pendingInputServerWireContract';
 import { resolveSessionGoalExecutionCapabilities } from '@/sync/domains/session/control/sessionGoalExecutionCapabilities';
 
@@ -154,10 +154,18 @@ export type AgentUiBehavior = Readonly<{
     directSessions?: Readonly<{
         browse?: Readonly<{
             order?: number;
+            /**
+             * The browse sources only produce a vendor resume id for a new Happier session. Linking,
+             * takeover, following and transcript reading are unsupported, so these providers are
+             * offered in the resume-id picker and withheld from the link/open browse list.
+             */
+            resumeOnly?: boolean;
             getSourceOptions?: (ctx: {
                 agentId: AgentId;
                 profile: Pick<AccountProfile, 'connectedServicesV2'> | null | undefined;
                 settings: Settings;
+                /** Directory the new session will run in, when the caller has already chosen one. */
+                directory?: string | null;
             }) => readonly DirectBrowseSourceOption[];
             resolveLockedSourceOption?: (ctx: {
                 agentId: AgentId;
@@ -333,6 +341,25 @@ function buildDefaultAgentUiBehavior(agentId: AgentId): AgentUiBehavior {
         newSession: {
             supportsTranscriptStorageMode: ({ storageMode }) => getAgentCore(agentId).sessionStorage[storageMode] === true,
         },
+        // Agents whose ACP server declares `session/list` expose their own sessions as resume
+        // candidates through the one generic source; no provider-owned module is needed.
+        ...(isBuiltInAcpSessionListingDeclared(agentId)
+            ? {
+                directSessions: {
+                    browse: {
+                        resumeOnly: true,
+                        getSourceOptions: ({ directory }) => [{
+                            key: 'acp:sessionList',
+                            label: t('directSessions.browseSourceAcpAgentSessions'),
+                            source: {
+                                kind: 'acpSessionList',
+                                ...(directory ? { cwd: directory } : {}),
+                            },
+                        }],
+                    },
+                },
+            }
+            : {}),
     };
 }
 

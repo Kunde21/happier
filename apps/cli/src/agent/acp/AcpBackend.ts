@@ -17,6 +17,7 @@ import {
   type InitializeResponse,
   type NewSessionRequest,
   type ForkSessionRequest,
+  type ListSessionsRequest,
   type LoadSessionRequest,
   type PromptRequest,
   type PromptResponse,
@@ -795,6 +796,64 @@ export type AcpPromptUsageAdapter = Readonly<{
 }>;
 
 /**
+ * Session lifecycle methods the live agent advertised during `initialize`. The catalog declaration
+ * only permits Happier to offer a surface; this handshake result is the runtime authority and every
+ * optional session method is checked against it before dispatch.
+ */
+export type NegotiatedAcpSessionCapabilities = Readonly<{
+  list: boolean;
+  close: boolean;
+  delete: boolean;
+}>;
+
+const NO_NEGOTIATED_ACP_SESSION_CAPABILITIES: NegotiatedAcpSessionCapabilities = Object.freeze({
+  list: false,
+  close: false,
+  delete: false,
+});
+
+/** A session method the agent's own handshake did not advertise; never retried against the agent. */
+export class AcpSessionCapabilityNotNegotiatedError extends Error {
+  constructor(readonly agentName: string, readonly acpMethod: string) {
+    super(
+      `ACP agent '${agentName}' is declared to support ${acpMethod} but did not negotiate it during ACP initialize.`,
+    );
+    this.name = 'AcpSessionCapabilityNotNegotiatedError';
+  }
+}
+
+export type AcpListedSession = Readonly<{
+  /** Provider-owned opaque identifier, preserved byte-for-byte after nonblank validation. */
+  sessionId: string;
+  cwd: string | null;
+  title: string | null;
+  updatedAtMs: number | null;
+}>;
+
+export type AcpSessionListPage = Readonly<{
+  sessions: readonly AcpListedSession[];
+  nextCursor: string | null;
+}>;
+
+function readAcpNegotiatedSessionCapabilities(agentCapabilities: unknown): NegotiatedAcpSessionCapabilities {
+  const sessionCapabilities = asRecord(asRecord(agentCapabilities)?.sessionCapabilities);
+  if (!sessionCapabilities) return NO_NEGOTIATED_ACP_SESSION_CAPABILITIES;
+  // ACP advertises each session method as an object; omitted and null both mean unsupported.
+  const advertises = (key: string): boolean => asRecord(sessionCapabilities[key]) !== null;
+  return Object.freeze({
+    list: advertises('list'),
+    close: advertises('close'),
+    delete: advertises('delete'),
+  });
+}
+
+function readAcpListedSessionUpdatedAtMs(value: unknown): number | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
  * ACP backend using the official @agentclientprotocol/sdk
  */
 export class AcpBackend implements AgentBackend {
@@ -808,6 +867,7 @@ export class AcpBackend implements AgentBackend {
   private readonly sessionUpdateShapeLogger = createEventShapeLoggerForLog({ logger, scope: 'acp-backend' });
   private connection: AcpClientConnection | null = null;
   private acpSessionId: string | null = null;
+  private negotiatedSessionCapabilities: NegotiatedAcpSessionCapabilities = NO_NEGOTIATED_ACP_SESSION_CAPABILITIES;
   private disposed = false;
   private replayCapture: AcpReplayCapture | null = null;
   /** Sole tool lifecycle/merge/timeout/finalization owner. */
@@ -998,6 +1058,7 @@ export class AcpBackend implements AgentBackend {
     this.process = null;
     this.connection = null;
     this.acpSessionId = null;
+    this.negotiatedSessionCapabilities = NO_NEGOTIATED_ACP_SESSION_CAPABILITIES;
 
     connection?.close();
 
@@ -1091,6 +1152,7 @@ export class AcpBackend implements AgentBackend {
   private async createConnectionAndInitialize(params: { operationId: string }): Promise<{
     initTimeout: number;
     negotiatedSessionLoadSupport: boolean;
+    negotiatedSessionCapabilities: NegotiatedAcpSessionCapabilities;
   }> {
     logger.debug(`[AcpBackend] Starting process + initializing connection (op=${params.operationId})`);
 
@@ -1639,6 +1701,8 @@ export class AcpBackend implements AgentBackend {
     const initResponseRecord = asRecord(initResponse);
     const agentCapabilities = asRecord(initResponseRecord?.agentCapabilities);
     const negotiatedSessionLoadSupport = agentCapabilities?.loadSession === true;
+    const negotiatedSessionCapabilities = readAcpNegotiatedSessionCapabilities(agentCapabilities);
+    this.negotiatedSessionCapabilities = negotiatedSessionCapabilities;
 
     if (this.options.authentication) {
       const advertisedMethodIds = new Set<string>();
@@ -1697,7 +1761,7 @@ export class AcpBackend implements AgentBackend {
       logger.debug(`[AcpBackend] Authenticate completed`);
     }
 
-    return { initTimeout, negotiatedSessionLoadSupport };
+    return { initTimeout, negotiatedSessionLoadSupport, negotiatedSessionCapabilities };
   } catch (error) {
     logger.debug(
       '[AcpBackend] Initialization failed; cleaning up process/connection',
@@ -1969,6 +2033,56 @@ export class AcpBackend implements AgentBackend {
       });
       throw error;
     }
+  }
+
+  /**
+   * List the agent's own sessions through ACP `session/list`.
+   *
+   * The returned identifiers are opaque provider bytes and are only valid as resume input for a new
+   * Happier-owned ACP session. Listing implies nothing about takeover, following, writer safety,
+   * terminal attachment, or transcript availability.
+   */
+  async listSessions(params: Readonly<{ cwd?: string | null; cursor?: string | null }> = {}): Promise<AcpSessionListPage> {
+    if (this.disposed) {
+      throw new Error('Backend has been disposed');
+    }
+
+    const negotiated = this.connection
+      ? this.negotiatedSessionCapabilities
+      : (await this.createConnectionAndInitialize({ operationId: randomUUID() })).negotiatedSessionCapabilities;
+    if (!negotiated.list) {
+      throw new AcpSessionCapabilityNotNegotiatedError(this.transport.agentName, 'session/list');
+    }
+
+    const cwd = typeof params.cwd === 'string' && params.cwd.trim().length > 0 ? params.cwd : null;
+    const cursor = readNonBlankOpaqueIdentifier(params.cursor);
+    const request: ListSessionsRequest = {
+      ...(cwd ? { cwd } : {}),
+      ...(cursor ? { cursor } : {}),
+    };
+
+    const response = await this.connection!.peer.listSessions(request);
+    const listed = Array.isArray(response?.sessions) ? response.sessions : [];
+    const sessions: AcpListedSession[] = [];
+    for (const entry of listed) {
+      const record = asRecord(entry);
+      // A blank identifier cannot be resumed; surfacing it would offer a broken candidate.
+      const sessionId = readNonBlankOpaqueIdentifier(record?.sessionId);
+      if (!sessionId) continue;
+      const title = typeof record?.title === 'string' && record.title.trim().length > 0 ? record.title : null;
+      const listedCwd = typeof record?.cwd === 'string' && record.cwd.trim().length > 0 ? record.cwd : null;
+      sessions.push({
+        sessionId,
+        cwd: listedCwd,
+        title,
+        updatedAtMs: readAcpListedSessionUpdatedAtMs(record?.updatedAt),
+      });
+    }
+
+    return {
+      sessions,
+      nextCursor: readNonBlankOpaqueIdentifier(response?.nextCursor),
+    };
   }
 
   /**
@@ -3844,6 +3958,19 @@ export class AcpBackend implements AgentBackend {
       } catch (error) {
         logger.debug('[AcpBackend] Error during graceful shutdown:', error);
       }
+      // Killing the local process only releases local resources. An agent that advertises
+      // `session/close` owns session resources beyond this process (a remote/cloud session, a
+      // shared worker), so release them explicitly before the transport goes away.
+      if (this.negotiatedSessionCapabilities.close) {
+        try {
+          await Promise.race([
+            this.connection.peer.closeSession({ sessionId: this.acpSessionId }),
+            new Promise((resolve) => setTimeout(resolve, 2000)),
+          ]);
+        } catch (error) {
+          logger.debug('[AcpBackend] Error closing ACP session during shutdown:', error);
+        }
+      }
     }
 
     const connection = this.connection;
@@ -3879,6 +4006,7 @@ export class AcpBackend implements AgentBackend {
     this.listeners = [];
     this.connection = null;
     this.acpSessionId = null;
+    this.negotiatedSessionCapabilities = NO_NEGOTIATED_ACP_SESSION_CAPABILITIES;
     this.toolCalls.dispose();
     await this.plans.reset();
     this.planStatePublisher = null;

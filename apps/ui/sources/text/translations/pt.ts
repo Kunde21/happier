@@ -6434,6 +6434,7 @@ export const pt: TranslationStructure = {
     browseSourceCodexConnectedServices: ({ service }: { service: string }) => `${service} connected services`,
     browseSourceClaudeDefault: "Configuração padrão do Claude",
     browseSourceOpenCodeDefault: "Servidor padrão do OpenCode",
+    browseSourceAcpAgentSessions: 'Sessões do agente',
     browseSourcePiDefault: "Diretório padrão do agente Pi",
     browseCandidates: "Sessões disponíveis",
     browseNoMachines: "Ainda não há máquinas disponíveis para sessões diretas.",

@@ -5333,6 +5333,7 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
         browseSourceCodexConnectedServices: ({ service }: { service: string }) => `${service} connected services`,
         browseSourceClaudeDefault: "預設 Claude 設定",
         browseSourceOpenCodeDefault: "預設 OpenCode 伺服器",
+        browseSourceAcpAgentSessions: '代理工作階段',
         browseSourcePiDefault: "預設 Pi 代理目錄",
         browseCandidates: "可用工作階段",
         browseNoMachines: "目前尚無可用於直接工作階段的機器。",

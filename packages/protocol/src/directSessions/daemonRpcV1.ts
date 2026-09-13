@@ -60,11 +60,24 @@ const DirectSessionsPiAgentDirSourceSchema = z
   })
   .passthrough();
 
+/**
+ * Generic source for agents whose ACP server advertises `session/list`. It carries no provider
+ * identity and no filesystem location: candidates are produced by the agent itself over ACP and are
+ * resume-only. `cwd` is the optional ACP working-directory filter and must be absolute.
+ */
+const DirectSessionsAcpSessionListSourceSchema = z
+  .object({
+    kind: z.literal('acpSessionList'),
+    cwd: z.string().min(1).max(10_000).nullish(),
+  })
+  .passthrough();
+
 export const DirectSessionsSourceSchema = z.discriminatedUnion('kind', [
   DirectSessionsCodexHomeSourceSchema,
   DirectSessionsClaudeConfigSourceSchema,
   DirectSessionsOpenCodeServerSourceSchema,
   DirectSessionsPiAgentDirSourceSchema,
+  DirectSessionsAcpSessionListSourceSchema,
 ]);
 export type DirectSessionsSource = z.infer<typeof DirectSessionsSourceSchema>;
 

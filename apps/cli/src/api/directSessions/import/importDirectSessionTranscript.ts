@@ -13,6 +13,7 @@ import {
 import type { LoadedLinkedDirectSession } from '@/api/directSessions/takeover/loadLinkedDirectSession';
 import type { DirectTranscriptRawMessageV1 } from '@happier-dev/protocol';
 import { getDirectSessionProviderOps } from '@/backends/catalog';
+import { DirectSessionsProviderUnavailableError } from '@/backends/directSessions/providerOps';
 import { adoptDirectSessionMediaForImport } from './adoptDirectSessionMediaForImport';
 import {
   loadDirectSessionTranscriptItems,
@@ -50,7 +51,13 @@ async function loadDirectTranscriptPage(params: Readonly<{
   maxBytes: number;
   maxItems: number;
 }>): Promise<DirectTranscriptImportPage> {
-  return await (await getDirectSessionProviderOps(params.linked.providerId)).pageTranscript({
+  const providerOps = await getDirectSessionProviderOps(params.linked.providerId);
+  if (!providerOps.pageTranscript) {
+    throw new DirectSessionsProviderUnavailableError(
+      `Agent '${params.linked.providerId}' does not expose a readable transcript for this source.`,
+    );
+  }
+  return await providerOps.pageTranscript({
     source: params.linked.source,
     remoteSessionId: params.linked.remoteSessionId,
     direction: 'older',

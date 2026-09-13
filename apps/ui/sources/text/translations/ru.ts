@@ -5294,6 +5294,7 @@ export const ru: TranslationStructure = {
     browseSourceCodexConnectedServices: ({ service }: { service: string }) => `${service} connected services`,
     browseSourceClaudeDefault: "Стандартная конфигурация Claude",
     browseSourceOpenCodeDefault: "Стандартный сервер OpenCode",
+    browseSourceAcpAgentSessions: 'Сессии агента',
     browseSourcePiDefault: "Каталог агента Pi по умолчанию",
     browseCandidates: "Доступные сессии",
     browseNoMachines: "Для прямых сессий пока нет доступных машин.",
