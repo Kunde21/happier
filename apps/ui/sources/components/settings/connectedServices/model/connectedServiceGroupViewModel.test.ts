@@ -5,6 +5,7 @@ import { t } from '@/text';
 import {
     formatConnectedServiceGroupMemberSubtitle,
     formatConnectedServiceGroupSubtitle,
+    normalizeConnectedServiceGroupPolicy,
     normalizeConnectedServiceGroupMember,
     parseConnectedServiceGroupViewModels,
     resolveConnectedServiceGroupMemberIdentity,
@@ -12,6 +13,19 @@ import {
 } from './connectedServiceGroupViewModel';
 
 describe('connectedServiceGroupViewModel', () => {
+    it('preserves allowance selection while sanitizing unrelated legacy policy fields', () => {
+        expect(normalizeConnectedServiceGroupPolicy({
+            strategy: 'least_limited',
+            autoSwitch: true,
+            quotaLimitSelection: { mode: 'selected', providerLimitIds: ['spark'] },
+            legacyUnknownField: true,
+        })).toMatchObject({
+            strategy: 'least_limited',
+            autoSwitch: true,
+            quotaLimitSelection: { mode: 'selected', providerLimitIds: ['spark'] },
+        });
+    });
+
     it('surfaces the automatic model-entitlement disable reason instead of a generic plan failure', () => {
         const member = normalizeConnectedServiceGroupMember({
             profileId: 'free-account',

@@ -1,7 +1,7 @@
 import type {
   ConnectedServiceAuthGroupQuotaLimitSelectionV1,
-  ConnectedServiceQuotaMeterV1,
 } from '@happier-dev/protocol';
+import { selectConnectedServiceQuotaMetersForLimitSelection } from '@happier-dev/protocol';
 
 function readIdentity(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -27,13 +27,4 @@ export function shouldHandleConnectedServiceProviderLimitFailure(input: Readonly
   return includesConnectedServiceProviderLimit(input.selection, input.providerLimitId);
 }
 
-export function selectConnectedServiceAuthGroupQuotaMeters(
-  meters: readonly ConnectedServiceQuotaMeterV1[],
-  selection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1,
-): readonly ConnectedServiceQuotaMeterV1[] {
-  if (!selection || selection.mode === 'all') return meters;
-  const selectedIds = new Set(selection.providerLimitIds);
-  // `meterId` remains the compatibility identity for released providers that predate
-  // providerLimitId. New multi-allowance adapters always preserve providerLimitId.
-  return meters.filter((meter) => selectedIds.has(readIdentity(meter.providerLimitId) ?? meter.meterId));
-}
+export const selectConnectedServiceAuthGroupQuotaMeters = selectConnectedServiceQuotaMetersForLimitSelection;

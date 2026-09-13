@@ -74,19 +74,14 @@ import { commitPoolMembershipBatch } from './commitPoolMembershipBatch';
 import { PoolMembersDropOverlay } from './PoolMembersDropOverlay';
 import { Icon } from '@/components/ui/icons/Icon';
 import { useConnectedServiceQuotaSnapshots } from '@/hooks/server/connectedServices/useConnectedServiceQuotaSnapshots';
+import { useConnectedServiceAuthGroupsQuery } from '@/hooks/server/connectedServices/useConnectedServiceAuthGroupsQuery';
 import { connectedServiceProfileKey } from '@/sync/domains/connectedServices/connectedServiceProfilePreferences';
+import { resolveConnectedServiceProjectionSignature } from '@/sync/domains/connectedServices/resolveConnectedServiceProjectionSignature';
+import { invalidateConnectedServiceGroupsRefreshSignal } from '@/sync/domains/connectedServices/connectedServiceGroupsRefreshSignal';
 
 type GroupStrategy = ConnectedServiceAuthGroupPolicyV1['strategy'];
 type GroupRecoveryMode = ConnectedServiceAuthGroupPolicyV1['recoveryMode'];
 type SwitchOnKey = keyof ConnectedServiceAuthGroupPolicyV1['switchOn'];
-type PoolDetailGroupsLoadStatus = 'idle' | 'loading' | 'refreshing' | 'loaded' | 'error';
-
-type PoolDetailGroupsState = Readonly<{
-    groups: ReadonlyArray<ConnectedServiceAuthGroupV1>;
-    loadStatus: PoolDetailGroupsLoadStatus;
-    hasLoaded: boolean;
-}>;
-
 const SWITCH_ON_KEYS: ReadonlyArray<SwitchOnKey> = ['usageLimit', 'authExpired', 'accountChanged', 'refreshFailure'];
 
 /**
@@ -97,12 +92,6 @@ const SWITCH_ON_KEYS: ReadonlyArray<SwitchOnKey> = ['usageLimit', 'authExpired',
 // `overflow: 'visible'` so the lifted/scaled dragged row is never clipped by this
 // reorder container while it floats above its siblings.
 const MEMBERS_REORDER_CONTAINER_STYLE = { position: 'relative', overflow: 'visible' } as const;
-
-const EMPTY_GROUPS_STATE: PoolDetailGroupsState = {
-    groups: [],
-    loadStatus: 'idle',
-    hasLoaded: false,
-};
 
 function asStringParam(value: unknown): string {
     if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0] : '';
@@ -225,7 +214,6 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
     const autoQuotaResetEnabled = useFeatureEnabled('connectedServices.autoQuotaReset');
     const autoDisablePlanInvalidEnabled = useFeatureEnabled('connectedServices.autoDisablePlanInvalid');
     const poolQuotaLimitSelectionEnabled = useFeatureEnabled('connectedServices.poolQuotaLimitSelection');
-    const [groupsState, setGroupsState] = React.useState<PoolDetailGroupsState>(EMPTY_GROUPS_STATE);
     const [strategyOpen, setStrategyOpen] = React.useState(false);
     const [recoveryModeOpen, setRecoveryModeOpen] = React.useState(false);
     const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
@@ -240,22 +228,36 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
     const serviceLabel = serviceId ? resolveConnectedServiceDisplayName(serviceId, t) : t('connectedServices.fallbackName');
     const svc = serviceId ? (profile.connectedServicesV2.find((candidate) => candidate.serviceId === serviceId) ?? null) : null;
     const profiles = (svc?.profiles ?? []) as ReadonlyArray<ConnectedServiceGroupProfileLike>;
-    const groups = groupsState.groups;
-    const groupsLoadStatus = groupsState.loadStatus;
+    const authGroups = useConnectedServiceAuthGroupsQuery({
+        serviceId,
+        enabled: connectedServicesEnabled && accountGroupsEnabled,
+        serviceProjectionSignature: resolveConnectedServiceProjectionSignature(svc),
+    });
+    const groups = authGroups.groups;
+    const groupsLoadStatus = authGroups.loadStatus;
     const group = groups.find((candidate) => candidate.serviceId === serviceId && candidate.groupId === groupId) ?? null;
     const quotaProfileRefs = React.useMemo(() => {
         if (!serviceId || !group) return [];
         const profileById = new Map(profiles.map((candidate) => [readProfileId(candidate), candidate]));
-        return group.members.map((member) => ({
-            serviceId,
-            profileId: member.profileId,
-            credentialHealthStatus: (profileById.get(member.profileId) as { status?: unknown } | undefined)?.status,
-        }));
+        return group.members
+            .filter((member) => member.enabled)
+            .map((member) => ({
+                serviceId,
+                profileId: member.profileId,
+                credentialHealthStatus: (profileById.get(member.profileId) as { status?: unknown } | undefined)?.status,
+            }));
     }, [group, profiles, serviceId]);
     const quotaSnapshots = useConnectedServiceQuotaSnapshots(quotaProfileRefs);
     const poolQuotaSnapshotList = React.useMemo(
         () => quotaProfileRefs.map((entry) => quotaSnapshots.snapshotsByKey[connectedServiceProfileKey(entry)] ?? null),
         [quotaProfileRefs, quotaSnapshots.snapshotsByKey],
+    );
+    const poolQuotaLoadingProfileCount = React.useMemo(
+        () => quotaProfileRefs.reduce(
+            (count, entry) => count + (quotaSnapshots.loadingByKey[connectedServiceProfileKey(entry)] ? 1 : 0),
+            0,
+        ),
+        [quotaProfileRefs, quotaSnapshots.loadingByKey],
     );
 
     const runtimeGroupCapability = React.useMemo(
@@ -302,87 +304,8 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
         return auth.credentials;
     };
 
-    const fetchGroups = React.useCallback(async () => {
-        if (!serviceId || !credentials || !connectedServicesEnabled || !accountGroupsEnabled) return [];
-        return await listConnectedServiceAuthGroupsV3(credentials, { serviceId });
-    }, [accountGroupsEnabled, connectedServicesEnabled, credentials, serviceId]);
-
-    const loadGroups = React.useCallback(async () => {
-        if (!serviceId || !credentials || !connectedServicesEnabled || !accountGroupsEnabled) {
-            setGroupsState(EMPTY_GROUPS_STATE);
-            return [];
-        }
-        setGroupsState((prev) => ({
-            ...prev,
-            loadStatus: prev.hasLoaded || prev.groups.length > 0 ? 'refreshing' : 'loading',
-        }));
-        try {
-            const nextGroups = await fetchGroups();
-            setGroupsState({ groups: nextGroups, loadStatus: 'loaded', hasLoaded: true });
-            return nextGroups;
-        } catch (error) {
-            setGroupsState((prev) => ({
-                groups: prev.hasLoaded ? prev.groups : [],
-                loadStatus: 'error',
-                hasLoaded: prev.hasLoaded,
-            }));
-            throw error;
-        }
-    }, [accountGroupsEnabled, connectedServicesEnabled, credentials, fetchGroups, serviceId]);
-
-    React.useEffect(() => {
-        let cancelled = false;
-
-        if (!serviceId || !credentials || !connectedServicesEnabled || !accountGroupsEnabled) {
-            setGroupsState(EMPTY_GROUPS_STATE);
-            return () => {
-                cancelled = true;
-            };
-        }
-
-        setGroupsState((prev) => ({
-            ...prev,
-            loadStatus: prev.hasLoaded || prev.groups.length > 0 ? 'refreshing' : 'loading',
-        }));
-        void (async () => {
-            try {
-                const nextGroups = await fetchGroups();
-                if (!cancelled) setGroupsState({ groups: nextGroups, loadStatus: 'loaded', hasLoaded: true });
-            } catch {
-                if (!cancelled) {
-                    setGroupsState((prev) => ({
-                        groups: prev.hasLoaded ? prev.groups : [],
-                        loadStatus: 'error',
-                        hasLoaded: prev.hasLoaded,
-                    }));
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [accountGroupsEnabled, connectedServicesEnabled, credentials, fetchGroups, serviceId]);
-
-    const upsertGroup = React.useCallback((nextGroup: ConnectedServiceAuthGroupV1) => {
-        setGroupsState((prevState) => {
-            const prev = prevState.groups;
-            const index = prev.findIndex((candidate) => candidate.groupId === nextGroup.groupId);
-            if (index === -1) {
-                return {
-                    groups: [...prev, nextGroup],
-                    loadStatus: 'loaded',
-                    hasLoaded: true,
-                };
-            }
-            const next = [...prev];
-            next[index] = nextGroup;
-            return {
-                groups: next,
-                loadStatus: 'loaded',
-                hasLoaded: true,
-            };
-        });
-    }, []);
+    const loadGroups = authGroups.refresh;
+    const upsertGroup = authGroups.upsertGroup;
 
     const runGroupMutation = React.useCallback(async (
         mutation: () => Promise<ConnectedServiceAuthGroupV1>,
@@ -391,13 +314,13 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
         try {
             const nextGroup = await mutation();
             upsertGroup(nextGroup);
+            invalidateConnectedServiceGroupsRefreshSignal();
             await sync.refreshProfile().catch(() => undefined);
-            await loadGroups().catch(() => undefined);
         } catch (e: unknown) {
             if (await opts?.onError?.(e)) return;
             await Modal.alert(t('common.error'), resolveConnectedServiceSettingsErrorMessage(e));
         }
-    }, [loadGroups, upsertGroup]);
+    }, [upsertGroup]);
 
     const patchPolicy = React.useCallback(async (policy: ConnectedServiceAuthGroupPolicyPatchV1) => {
         if (!serviceId || !group || !fallbackControlsEnabled) return;
@@ -996,6 +919,7 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
                                     actions={memberActions}
                                     reorderGesture={reorderGesture}
                                     showDivider={index < memberCount - 1}
+                                    quotaLimitSelection={group.policy.quotaLimitSelection}
                                 />
                             </ExpandableItemReorderRow>
                                 );
@@ -1082,6 +1006,7 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
                         snapshots={poolQuotaSnapshotList}
                         selection={group.policy.quotaLimitSelection}
                         onChange={handleSetQuotaLimitSelection}
+                        loadingProfileCount={poolQuotaLoadingProfileCount}
                         disabled={!fallbackControlsEnabled}
                     />
                 ) : null}

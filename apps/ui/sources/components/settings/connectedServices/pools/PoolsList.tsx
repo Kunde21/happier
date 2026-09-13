@@ -16,7 +16,11 @@ import {
 } from '@/sync/domains/connectedServices/connectedServiceQuotaGauge';
 import { deriveAccountCapacityPct } from '@/sync/domains/connectedServices/deriveAccountCapacityPct';
 import { deriveAccountHealth, type AccountHealth } from '@/sync/domains/connectedServices/deriveAccountHealth';
-import type { ConnectedServiceId } from '@happier-dev/protocol';
+import { projectConnectedServiceQuotaSnapshotForLimitSelection } from '@/sync/domains/connectedServices/projectConnectedServiceQuotaSnapshotForLimitSelection';
+import type {
+    ConnectedServiceAuthGroupQuotaLimitSelectionV1,
+    ConnectedServiceId,
+} from '@happier-dev/protocol';
 import { t } from '@/text';
 
 import { ConnectedServiceCapacityAvatar, CONNECTED_SERVICE_GAUGE_BOX } from '../ConnectedServiceCapacityAvatar';
@@ -134,6 +138,7 @@ const PoolMemberProbe = React.memo(function PoolMemberProbe(props: Readonly<{
     serviceId: ConnectedServiceId;
     member: ConnectedServiceGroupMemberViewModel;
     profiles: ReadonlyArray<ConnectedServiceGroupProfileLike>;
+    quotaLimitSelection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1;
     onResolve: (profileId: string, resolution: PoolMemberResolution) => void;
 }>) {
     const { serviceId, member, onResolve } = props;
@@ -147,7 +152,11 @@ const PoolMemberProbe = React.memo(function PoolMemberProbe(props: Readonly<{
         credentialHealthStatus: memberHealthStatus,
     });
 
-    const gauge = React.useMemo(() => deriveSnapshotGauge(snapshot), [snapshot]);
+    const displaySnapshot = React.useMemo(
+        () => projectConnectedServiceQuotaSnapshotForLimitSelection(snapshot, props.quotaLimitSelection),
+        [props.quotaLimitSelection, snapshot],
+    );
+    const gauge = React.useMemo(() => deriveSnapshotGauge(displaySnapshot), [displaySnapshot]);
     const { capacityPct, rings } = gauge;
     const health = deriveAccountHealth({
         status: memberHealthStatus,
@@ -299,6 +308,7 @@ const PoolRow = React.memo(function PoolRow(props: Readonly<{
                         serviceId={serviceId}
                         member={member}
                         profiles={props.profiles}
+                        quotaLimitSelection={group.policy.quotaLimitSelection}
                         onResolve={onResolve}
                     />
                 ))

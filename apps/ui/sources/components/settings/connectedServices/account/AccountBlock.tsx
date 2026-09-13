@@ -15,9 +15,11 @@ import {
 import { deriveAccountCapacityPct } from '@/sync/domains/connectedServices/deriveAccountCapacityPct';
 import { type ResetCountdownDaysFormatter } from '@/sync/domains/connectedServices/formatResetCountdown';
 import { shouldHideQuotaForCredentialStatus } from '@/sync/domains/connectedServices/shouldHideQuotaForCredentialStatus';
+import { projectConnectedServiceQuotaSnapshotForLimitSelection } from '@/sync/domains/connectedServices/projectConnectedServiceQuotaSnapshotForLimitSelection';
 import {
     ConnectedServiceCredentialHealthStatusV1Schema,
     type ConnectedServiceCredentialHealthStatusV1,
+    type ConnectedServiceAuthGroupQuotaLimitSelectionV1,
     type ConnectedServiceId,
 } from '@happier-dev/protocol';
 import { t } from '@/text';
@@ -77,6 +79,8 @@ export interface AccountBlockProps {
     reorderGesture?: GestureType | ComposedGesture;
     showDivider?: boolean;
     testID?: string;
+    /** Pool-owned allowance policy. Omitted on direct account surfaces. */
+    quotaLimitSelection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1;
 }
 
 /**
@@ -125,12 +129,16 @@ function parseRecognizedCredentialStatus(status: unknown): ConnectedServiceCrede
  * USAGE/RESETS body, capacity, and health dot. All quota facts flow through ONE
  * gauge view-model + ONE recovery-credit summary so they can never disagree.
  */
-function buildQuotaView(hook: UseConnectedServiceQuotaSnapshotResult): AccountBlockQuotaView {
+function buildQuotaView(
+    hook: UseConnectedServiceQuotaSnapshotResult,
+    quotaLimitSelection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1,
+): AccountBlockQuotaView {
     const { snapshot, nowMs } = hook;
+    const displaySnapshot = projectConnectedServiceQuotaSnapshotForLimitSelection(snapshot, quotaLimitSelection);
 
-    const gauge = snapshot
+    const gauge = displaySnapshot
         ? computeConnectedServiceQuotaGaugeViewModel({
-            snapshot,
+            snapshot: displaySnapshot,
             windowMode: 'most_constrained',
             nowMs,
             formatter: GAUGE_LABEL_FORMATTER,
@@ -177,9 +185,14 @@ function buildQuotaView(hook: UseConnectedServiceQuotaSnapshotResult): AccountBl
  * never invoked behind a closed gate (fail-closed).
  */
 const QuotaConnectedAccountBlock = React.memo(function QuotaConnectedAccountBlock(
-    props: Readonly<SharedViewProps & { serviceId: ConnectedServiceId; profileId: string; rawCredentialStatus: unknown }>,
+    props: Readonly<SharedViewProps & {
+        serviceId: ConnectedServiceId;
+        profileId: string;
+        rawCredentialStatus: unknown;
+        quotaLimitSelection?: ConnectedServiceAuthGroupQuotaLimitSelectionV1;
+    }>,
 ) {
-    const { rawCredentialStatus, ...viewProps } = props;
+    const { rawCredentialStatus, quotaLimitSelection, ...viewProps } = props;
     const hook = useConnectedServiceQuotaSnapshot({
         serviceId: props.serviceId,
         profileId: props.profileId,
@@ -187,7 +200,7 @@ const QuotaConnectedAccountBlock = React.memo(function QuotaConnectedAccountBloc
         // see the RAW status, not the normalized pill value in `props.status`.
         credentialHealthStatus: rawCredentialStatus,
     });
-    const quota = buildQuotaView(hook);
+    const quota = buildQuotaView(hook, quotaLimitSelection);
     return <AccountBlockView {...viewProps} quota={quota} />;
 });
 
@@ -240,6 +253,7 @@ export const AccountBlock = React.memo(function AccountBlock(props: AccountBlock
             serviceId={props.serviceId}
             profileId={props.profileId}
             rawCredentialStatus={props.status}
+            quotaLimitSelection={props.quotaLimitSelection}
         />
     );
 });

@@ -43,6 +43,8 @@ const syncSpies = vi.hoisted(() => ({
 
 const quotaSnapshotsState = vi.hoisted(() => ({
     snapshotsByKey: {} as Record<string, unknown>,
+    loadingByKey: {} as Record<string, boolean>,
+    requestedProfiles: [] as ReadonlyArray<Readonly<{ serviceId: string; profileId: string }>>,
 }));
 
 const authState = vi.hoisted(() => ({
@@ -242,11 +244,15 @@ vi.mock('@/sync/sync', () => ({
 }));
 
 vi.mock('@/hooks/server/connectedServices/useConnectedServiceQuotaSnapshots', () => ({
-    useConnectedServiceQuotaSnapshots: () => ({
-        snapshotsByKey: quotaSnapshotsState.snapshotsByKey,
-        refreshAll: vi.fn(),
-        isRefreshing: false,
-    }),
+    useConnectedServiceQuotaSnapshots: (profiles: ReadonlyArray<Readonly<{ serviceId: string; profileId: string }>>) => {
+        quotaSnapshotsState.requestedProfiles = profiles;
+        return {
+            snapshotsByKey: quotaSnapshotsState.snapshotsByKey,
+            loadingByKey: quotaSnapshotsState.loadingByKey,
+            refreshAll: vi.fn(),
+            isRefreshing: false,
+        };
+    },
 }));
 
 vi.mock('@/sync/api/account/apiConnectedServiceAuthGroupsV3', () => authGroupApiSpies);
@@ -481,6 +487,8 @@ beforeEach(() => {
             ],
         },
     };
+    quotaSnapshotsState.loadingByKey = {};
+    quotaSnapshotsState.requestedProfiles = [];
     authoritativeGroupState.groups = [createAuthoritativeGroup()];
     authGroupApiSpies.listConnectedServiceAuthGroupsV3.mockReset();
     authGroupApiSpies.listConnectedServiceAuthGroupsV3.mockImplementation(async () => authoritativeGroupState.groups);
@@ -1215,6 +1223,38 @@ describe('PoolDetailView', () => {
                 },
             },
         );
+    });
+
+    it('marks all-limit evidence as partial while pool account quotas are still loading', async () => {
+        featureEnabledById.set('connectedServices.poolQuotaLimitSelection', true);
+        quotaSnapshotsState.loadingByKey = { 'openai-codex/backup': true };
+
+        const screen = await renderPoolDetail();
+
+        expect(textSpies.translate).toHaveBeenCalledWith(
+            'connectedServices.pools.detail.quotaLimitsRefreshing',
+            { count: 1 },
+        );
+        expect(findQuotaLimitsDropdown(screen)?.props.items[0]).toEqual(expect.objectContaining({
+            id: ' ',
+            subtitle: expect.any(String),
+        }));
+    });
+
+    it('builds quota-limit choices only from enabled pool members', async () => {
+        const base = createAuthoritativeGroup();
+        authoritativeGroupState.groups = [createAuthoritativeGroup({
+            members: base.members.map((member) => member.profileId === 'backup'
+                ? { ...member, enabled: false }
+                : member),
+        })];
+
+        await renderPoolDetail();
+
+        expect(quotaSnapshotsState.requestedProfiles).toEqual([expect.objectContaining({
+            serviceId: 'openai-codex',
+            profileId: 'work',
+        })]);
     });
 
     it('hides provider allowance selection against an older server', async () => {

@@ -287,11 +287,21 @@ Reorder members to set the fallback order, and enable or disable individual
 accounts without removing them.
 
 If a provider reports more than one independent allowance, the pool's
-**Usage limits** row can either track all of them (the default) or a selected
-set. For example, a separate Spark or Fable allowance can have its own pool
-without changing the model of any running session. Limits that an account is
-not currently reporting stay visible in the selection and are treated as
+**Usage limits** row can either track every allowance reported by enabled pool
+accounts now or later (the default) or a selected set. While enabled-account
+usage is refreshing, the selector
+marks the reported-limit list as potentially incomplete. For example, a
+separate Spark or Fable allowance can have its own pool
+without changing the model of any running session. Limits that an enabled
+account is not currently reporting stay visible in the selection and are treated as
 unknown, rather than silently falling back to every allowance.
+
+Pool member capacity, usage rows, and session usage badges use the pool's selected
+allowances. Account-wide facts such as the plan, subscription identity, and reset
+credits remain visible because selecting limits does not change the account itself.
+When the provider reports a window duration, the selector shows that duration (for
+example, `5h + 7d`) instead of a generic window count; a single window with no
+reported duration is left unlabeled rather than shown as “1 window”.
 
 ### When it switches
 
