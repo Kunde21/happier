@@ -102,8 +102,7 @@ export const AGENT_LOCAL_CLI_CONFIG: Readonly<Record<AgentId, AgentLocalCliConfi
     authSupport: 'login_terminal',
     authLaunches: [{
       kind: 'primary',
-      args: [],
-      initialInput: '/setup\r',
+      args: ['login'],
     }],
   }),
   kilo: createAgentLocalCliConfig('kilo', {
@@ -164,6 +163,24 @@ export const AGENT_LOCAL_CLI_CONFIG: Readonly<Record<AgentId, AgentLocalCliConfi
       { kind: 'primary', args: ['login'] },
       { kind: 'device_code', args: ['login', '--device-auth'] },
     ],
+  }),
+  agy: createAgentLocalCliConfig('agy', {
+    machineLoginKey: 'antigravity-cli',
+    authSupport: 'login_terminal',
+    authLaunches: [{
+      kind: 'primary',
+      args: [],
+    }],
+  }),
+  fx: createAgentLocalCliConfig('fx', {
+    machineLoginKey: 'fx',
+    authSupport: 'login_terminal',
+    authLaunches: [{ kind: 'primary', args: ['login'] }],
+  }),
+  droid: createAgentLocalCliConfig('droid', {
+    machineLoginKey: 'droid',
+    authSupport: 'login_terminal',
+    authLaunches: [{ kind: 'primary', args: [] }],
   }),
 });
 

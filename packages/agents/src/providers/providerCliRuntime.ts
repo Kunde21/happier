@@ -268,20 +268,20 @@ export const PROVIDER_CLI_RUNTIME_SPECS: Readonly<Record<AgentId, ProviderCliRun
   },
   kimi: {
     id: 'kimi',
-    title: 'Kimi CLI',
+    title: 'Kimi Code CLI',
     binaryName: 'kimi',
     knownCommandCandidates: [{ kind: 'homeBinDir', relativeDir: '.local/bin' }],
     sourcePreferenceDefault: 'system-first',
     managedInstall: null,
     manualInstallKind: 'vendor_recipe',
     manualInstallRecipes: {
-      darwin: [bashCurlPipe('https://code.kimi.com/install.sh')],
-      linux: [bashCurlPipe('https://code.kimi.com/install.sh')],
-      win32: [powershellInstall('Invoke-RestMethod https://code.kimi.com/install.ps1 | Invoke-Expression')],
+      darwin: [bashCurlPipe('https://code.kimi.com/kimi-code/install.sh')],
+      linux: [bashCurlPipe('https://code.kimi.com/kimi-code/install.sh')],
+      win32: [powershellInstall('Invoke-RestMethod https://code.kimi.com/kimi-code/install.ps1 | Invoke-Expression')],
     },
     acceptsJavaScriptFileOverride: false,
-    installGuideUrl: 'https://kimi.moonshot.cn/docs/cli',
-    docsUrl: 'https://code.kimi.com',
+    installGuideUrl: 'https://moonshotai.github.io/kimi-code/en/guides/getting-started',
+    docsUrl: 'https://moonshotai.github.io/kimi-code/en/',
   },
   kiro: {
     id: 'kiro',
@@ -419,6 +419,63 @@ export const PROVIDER_CLI_RUNTIME_SPECS: Readonly<Record<AgentId, ProviderCliRun
     acceptsJavaScriptFileOverride: false,
     installGuideUrl: 'https://x.ai/cli',
     docsUrl: 'https://x.ai',
+  },
+  agy: {
+    id: 'agy',
+    title: 'Agy CLI',
+    binaryName: 'agy',
+    knownCommandCandidates: [{ kind: 'homeBinDir', relativeDir: '.local/bin' }],
+    sourcePreferenceDefault: 'system-first',
+    // Interactive `agy` stays system/vendor installed. The managed `agy_acp_server`
+    // ACP transport is owned by the runtime-installables seam, not this CLI spec.
+    managedInstall: null,
+    manualInstallKind: 'vendor_recipe',
+    manualInstallRecipes: {
+      darwin: [bashCurlPipe('https://antigravity.google/cli/install.sh')],
+      linux: [bashCurlPipe('https://antigravity.google/cli/install.sh')],
+      win32: [powershellInstall('irm https://antigravity.google/cli/install.ps1 | iex')],
+    },
+    acceptsJavaScriptFileOverride: false,
+    installGuideUrl: 'https://antigravity.google/docs/cli/install',
+    docsUrl: 'https://antigravity.google/docs/cli/install',
+  },
+  fx: {
+    id: 'fx',
+    title: 'FX CLI',
+    binaryName: 'fx',
+    knownCommandCandidates: [{ kind: 'homeBinDir', relativeDir: '.local/bin' }],
+    sourcePreferenceDefault: 'system-first',
+    managedInstall: null,
+    manualInstallKind: 'vendor_recipe',
+    manualInstallRecipes: {
+      darwin: [bashCurlPipe('https://fx.sh/setup.sh')],
+      linux: [bashCurlPipe('https://fx.sh/setup.sh')],
+    },
+    acceptsJavaScriptFileOverride: false,
+    installGuideUrl: 'https://fx.sh/docs/getting-started/installation',
+    docsUrl: 'https://fx.sh/docs',
+  },
+  droid: {
+    id: 'droid',
+    title: 'Factory Droid CLI',
+    binaryName: 'droid',
+    knownCommandCandidates: [
+      { kind: 'homeBinDir', relativeDir: '.local/bin' },
+      // Factory's Windows installer copies `droid.exe` into `%USERPROFILE%\bin` for every
+      // published architecture (x64, x64-baseline, arm64) and appends that directory to PATH.
+      { kind: 'homePath', relativePath: 'bin/droid.exe' },
+    ],
+    sourcePreferenceDefault: 'system-first',
+    managedInstall: null,
+    manualInstallKind: 'vendor_recipe',
+    manualInstallRecipes: {
+      darwin: [bashCurlPipe('https://app.factory.ai/cli')],
+      linux: [bashCurlPipe('https://app.factory.ai/cli')],
+      win32: [powershellInstall('Invoke-RestMethod https://app.factory.ai/cli/windows | Invoke-Expression')],
+    },
+    acceptsJavaScriptFileOverride: false,
+    installGuideUrl: 'https://docs.factory.ai/cli/getting-started/quickstart',
+    docsUrl: 'https://docs.factory.ai/ide-integrations',
   },
 } as const;
 

@@ -49,6 +49,17 @@ describe('AGENT_LOCAL_CLI_CONFIG', () => {
     });
   });
 
+  it('uses the current Kimi Code login command', () => {
+    expect(getAgentLocalCliConfig('kimi')).toMatchObject({
+      authLaunches: [{ kind: 'primary', command: 'kimi', args: ['login'] }],
+    });
+  });
+
+  it('keeps FX and Droid interactive terminal authentication separate from their ACP launch commands', () => {
+    expect(getAgentLocalCliConfig('fx')).toMatchObject({ authLaunches: [{ command: 'fx', args: ['login'] }] });
+    expect(getAgentLocalCliConfig('droid')).toMatchObject({ authLaunches: [{ command: 'droid', args: [] }] });
+  });
+
   it('keeps Claude login launch metadata centralized', () => {
     expect(getAgentLocalCliConfig('claude')).toMatchObject({
       detectKey: 'claude',
