@@ -162,6 +162,12 @@ describe('executionRunsGuidanceV1', () => {
     expect(result.text).toContain('action_spec_get');
     expect(result.text).toContain('action_options_resolve');
     expect(result.text).toContain('action_execute');
+    expect(result.text).toContain('execution_run_wait');
+    expect(result.text).toContain('execution_run_get');
+    expect(result.text).toContain('execution_run_list');
+    expect(result.text).toContain('at most 3600 seconds');
+    expect(result.text).toContain('repeat the event wait');
+    expect(result.text).toContain('Do not poll');
     expect(result.text).toContain('provider/backend');
     expect(result.text).toContain('not parallelism slots');
     expect(result.text).not.toContain('execution_run_start');

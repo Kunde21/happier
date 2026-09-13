@@ -2426,6 +2426,8 @@ export {
   type ExecutionRunStatus,
 } from './executionRuns.js';
 
+export { MAX_EXECUTION_RUN_OBSERVATION_TIMEOUT_SECONDS } from './executionRunObservationTimeout.js';
+
 export {
   DaemonExecutionRunMarkerSchema,
   DaemonExecutionRunProcessInfoSchema,
