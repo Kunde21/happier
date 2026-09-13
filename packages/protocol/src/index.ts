@@ -708,6 +708,11 @@ export {
 } from './connect/connectedServiceAuthGroupMemberRuntimeStatePolicy.js';
 
 export {
+  resolveConnectedServiceQuotaMeterLimitIdentity,
+  selectConnectedServiceQuotaMetersForLimitSelection,
+} from './connect/connectedServiceQuotaLimitSelection.js';
+
+export {
   openConnectedServiceCredentialCiphertext,
   openConnectedServiceQuotaSnapshotCiphertext,
   sealConnectedServiceCredentialCiphertext,
