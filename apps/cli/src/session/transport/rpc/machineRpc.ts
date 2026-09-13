@@ -10,6 +10,11 @@ import { createRpcCallError, isRpcMethodNotAvailableError } from '@happier-dev/p
 import { resolveCanonicalMachineId } from '@happier-dev/protocol';
 import type { SocketRpcAuthorizationContext } from '@happier-dev/protocol/rpc';
 import { randomUUID } from 'node:crypto';
+import {
+  createSocketRpcDisconnectGuard,
+  SocketRpcDisconnectBeforeAcknowledgementError,
+} from './socketRpcDisconnectGuard';
+import { markRpcRequestDisposition } from './rpcRequestDisposition';
 
 /**
  * Calls exactly one account-scoped machine RPC against exactly the machine id it
@@ -32,6 +37,23 @@ async function callExactMachineRpc(params: Readonly<{
     ? timeoutMs
     : resolveSessionControlSocketConnectTimeoutMs();
   const machineEncryption = resolveMachineEncryptionContext(params.credentials);
+  const requestId = randomUUID();
+  let requestEmitted = false;
+  let responseTimer: ReturnType<typeof setTimeout> | null = null;
+  const cancelRequest = () => {
+    if (!requestEmitted) return;
+    try {
+      socket.emit(SOCKET_RPC_EVENTS.CANCEL, { requestId });
+    } catch {
+      // The caller outcome remains the disconnect/timeout; server-side
+      // caller-disconnect cleanup is the cancellation backstop.
+    }
+  };
+  const disconnectGuard = createSocketRpcDisconnectGuard({
+    socket: socket as unknown as import('socket.io-client').Socket,
+    createError: () => new SocketRpcDisconnectBeforeAcknowledgementError(),
+    onDisconnect: cancelRequest,
+  });
   let cleanedUp = false;
   const cleanup = () => {
     if (cleanedUp) return;
@@ -42,46 +64,23 @@ async function callExactMachineRpc(params: Readonly<{
 
   try {
     const connectPromise = waitForSocketConnect(socket as unknown as import('socket.io-client').Socket, connectTimeoutMs);
+    const connectedOrDisconnected = Promise.race([connectPromise, disconnectGuard.disconnected]);
     socket.connect();
-    await connectPromise;
+    await connectedOrDisconnected;
+    disconnectGuard.throwIfDisconnected();
 
     const encryptedRequest = encodeBase64(encrypt(
       machineEncryption.encryptionKey,
       machineEncryption.encryptionVariant,
       params.request,
     ));
-    const requestId = randomUUID();
-    const response = await new Promise<{ ok: boolean; result?: unknown; error?: string; errorCode?: string }>((resolve, reject) => {
-      let settled = false;
-      let requestEmitted = false;
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const cancelRequest = () => {
-        if (!requestEmitted) return;
-        try {
-          socket.emit(SOCKET_RPC_EVENTS.CANCEL, { requestId });
-        } catch {
-          // The caller outcome remains the disconnect/timeout; server-side
-          // caller-disconnect cleanup is the cancellation backstop.
-        }
-      };
-      const finish = (callback: () => void) => {
-        if (settled) return;
-        settled = true;
-        if (timer) clearTimeout(timer);
-        socket.off('disconnect', onDisconnect);
-        callback();
-      };
-      const onDisconnect = () => finish(() => {
-        cancelRequest();
-        reject(new Error('RPC socket disconnected before acknowledgement'));
-      });
-      socket.on('disconnect', onDisconnect);
-      timer = setTimeout(() => finish(() => {
+    const responsePromise = new Promise<{ ok: boolean; result?: unknown; error?: string; errorCode?: string }>((resolve, reject) => {
+      responseTimer = setTimeout(() => {
         cancelRequest();
         reject(Object.assign(new Error('Machine RPC call timeout'), {
           code: 'MACHINE_RPC_TIMEOUT',
         }));
-      }), timeoutMs);
+      }, timeoutMs);
       try {
         requestEmitted = true;
         socket.emit(
@@ -93,12 +92,13 @@ async function callExactMachineRpc(params: Readonly<{
             timeoutMs,
             ...(params.authorization ? { authorization: params.authorization } : {}),
           },
-          (payload: { ok: boolean; result?: unknown; error?: string; errorCode?: string }) => finish(() => resolve(payload)),
+          (payload: { ok: boolean; result?: unknown; error?: string; errorCode?: string }) => resolve(payload),
         );
       } catch (error) {
-        finish(() => reject(error));
+        reject(error);
       }
     });
+    const response = await Promise.race([responsePromise, disconnectGuard.disconnected]);
 
     if (!response.ok) {
       throw createRpcCallError({
@@ -113,7 +113,11 @@ async function callExactMachineRpc(params: Readonly<{
       machineEncryption.encryptionVariant,
       decodeBase64(encryptedResult, 'base64'),
     );
+  } catch (error) {
+    throw markRpcRequestDisposition(error, requestEmitted ? 'outcomeUnknown' : 'notSent');
   } finally {
+    if (responseTimer) clearTimeout(responseTimer);
+    disconnectGuard.dispose();
     cleanup();
   }
 }

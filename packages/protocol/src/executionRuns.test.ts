@@ -497,6 +497,7 @@ describe('executionRuns protocol', () => {
     expect(ExecutionRunTransportErrorCodeSchema.parse('execution_run_stream_not_found')).toBe('execution_run_stream_not_found');
     expect(ExecutionRunTransportErrorCodeSchema.parse('execution_run_busy')).toBe('execution_run_busy');
     expect(ExecutionRunTransportErrorCodeSchema.parse('execution_run_failed')).toBe('execution_run_failed');
+    expect(ExecutionRunTransportErrorCodeSchema.parse('execution_run_send_outcome_unknown')).toBe('execution_run_send_outcome_unknown');
     expect(ExecutionRunTransportErrorCodeSchema.parse('execution_run_budget_exceeded')).toBe('execution_run_budget_exceeded');
     expect(ExecutionRunTransportErrorCodeSchema.parse('execution_run_protocol_unsupported')).toBe('execution_run_protocol_unsupported');
     expect(ExecutionRunTransportErrorCodeSchema.parse('execution_run_target_unavailable')).toBe('execution_run_target_unavailable');

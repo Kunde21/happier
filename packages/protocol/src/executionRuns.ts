@@ -89,6 +89,7 @@ export const ExecutionRunTransportErrorCodeSchema = z.enum([
   'execution_run_stream_not_found',
   'execution_run_busy',
   'execution_run_failed',
+  'execution_run_send_outcome_unknown',
   'execution_run_budget_exceeded',
   'execution_run_protocol_unsupported',
   'execution_run_target_unavailable',

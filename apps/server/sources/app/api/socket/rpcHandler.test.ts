@@ -1,4 +1,4 @@
-import { RPC_ERROR_CODES, RPC_METHODS } from "@happier-dev/protocol/rpc";
+import { RPC_ERROR_CODES, RPC_METHODS, SESSION_RPC_METHODS } from "@happier-dev/protocol/rpc";
 import { SOCKET_RPC_EVENTS } from "@happier-dev/protocol/socketRpc";
 import type { Server, Socket } from "socket.io";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,7 @@ const resolveRpcMethodAvailabilityGraceMsMock = vi.fn<(method: string) => number
 const resolveRpcMethodAvailabilityPollMsMock = vi.fn<() => number>(() => 1);
 const checkSessionAccessMock = vi.hoisted(() => vi.fn());
 const requireAccessLevelMock = vi.hoisted(() => vi.fn());
+const resolveRpcForwardTimeoutMsMock = vi.hoisted(() => vi.fn(() => 50));
 const dbMockFns = vi.hoisted(() => ({
     machineFindFirst: vi.fn(async (): Promise<{ revokedAt: Date | null; replacedByMachineId: string | null }> => ({
         revokedAt: null,
@@ -23,7 +24,7 @@ vi.mock("@/utils/logging/log", () => ({
 }));
 
 vi.mock("./rpcForwardTimeout", () => ({
-    resolveRpcForwardTimeoutMs: vi.fn(() => 50),
+    resolveRpcForwardTimeoutMs: (...args: unknown[]) => resolveRpcForwardTimeoutMsMock(...args),
 }));
 
 vi.mock("./rpcMethodAvailabilityGrace", () => ({
@@ -89,6 +90,8 @@ describe("rpcHandler", () => {
         checkSessionAccessMock.mockReset();
         requireAccessLevelMock.mockReset();
         requireAccessLevelMock.mockReturnValue(true);
+        resolveRpcForwardTimeoutMsMock.mockReset();
+        resolveRpcForwardTimeoutMsMock.mockReturnValue(50);
         dbMockFns.machineFindFirst.mockReset();
         dbMockFns.machineFindFirst.mockResolvedValue({ revokedAt: null, replacedByMachineId: null });
         dbMockFns.sessionFindUnique.mockReset();
@@ -745,6 +748,90 @@ describe("rpcHandler", () => {
             error: "RPC request cancelled by caller",
         });
         resolveTarget({ ok: true });
+    });
+
+    it("forwards an explicit caller cancellation and releases its correlation for reuse", async () => {
+        const redisCoordinator = createRedisCoordinator();
+        createRpcRedisRegistryCoordinatorMock.mockReturnValue(redisCoordinator);
+        const pendingTargetResolvers: Array<(value: unknown) => void> = [];
+        const targetEmitWithAck = vi.fn((_event: string, _request: { requestId?: string }) => new Promise<unknown>((resolve) => {
+            pendingTargetResolvers.push(resolve);
+        }));
+        const targetSocket = createSocket({ id: "target-socket", emitWithAck: targetEmitWithAck });
+        const callerSocket = createSocket({ id: "caller-socket" });
+        const targetCancelEmit = vi.fn();
+        const io = {
+            to: vi.fn(() => ({ emit: targetCancelEmit })),
+        };
+        const firstCallback = vi.fn();
+        const secondCallback = vi.fn();
+        resolveRpcCallTargetMock.mockResolvedValue({
+            targetUserId: "user-1",
+            targetSocket,
+        });
+
+        rpcHandler("user-1", callerSocket as unknown as Socket, new Map(), new Map(), {
+            io: io as unknown as Server,
+            redisRegistry: { enabled: false },
+        });
+
+        const firstCall = triggerSocketHandler(callerSocket, SOCKET_RPC_EVENTS.CALL, {
+            method: "machine-1:spawn-happy-session",
+            params: "encrypted-request",
+            requestId: "caller-request-1",
+        }, firstCallback);
+        await vi.waitFor(() => expect(targetEmitWithAck).toHaveBeenCalledTimes(1));
+        const firstTargetRequestId = targetEmitWithAck.mock.calls[0]?.[1]?.requestId;
+
+        await triggerSocketHandler(callerSocket, SOCKET_RPC_EVENTS.CANCEL, {
+            requestId: "caller-request-1",
+        });
+
+        expect(targetCancelEmit).toHaveBeenCalledWith(SOCKET_RPC_EVENTS.CANCEL, {
+            requestId: firstTargetRequestId,
+        });
+        await expect(firstCall).resolves.toBeUndefined();
+        expect(firstCallback).toHaveBeenCalledWith({
+            ok: false,
+            error: "RPC request cancelled by caller",
+        });
+
+        const secondCall = triggerSocketHandler(callerSocket, SOCKET_RPC_EVENTS.CALL, {
+            method: "machine-1:spawn-happy-session",
+            params: "encrypted-request",
+            requestId: "caller-request-1",
+        }, secondCallback);
+        await vi.waitFor(() => expect(targetEmitWithAck).toHaveBeenCalledTimes(2));
+        pendingTargetResolvers[1]?.({ ok: true });
+        await expect(secondCall).resolves.toBeUndefined();
+        expect(secondCallback).toHaveBeenCalledWith({ ok: true, result: { ok: true } });
+
+        pendingTargetResolvers[0]?.({ ok: true });
+    });
+
+    it("forwards the resolver-selected caller-lifecycle timeout without another relay deadline", async () => {
+        createRpcRedisRegistryCoordinatorMock.mockReturnValue(createRedisCoordinator());
+        const relayTimeoutMs = 2_147_483_647;
+        resolveRpcForwardTimeoutMsMock.mockReturnValue(relayTimeoutMs);
+        const method = "agent.run";
+        const targetEmitWithAck = vi.fn().mockResolvedValue({ ok: true });
+        const targetSocket = createSocket({ id: "target-socket", emitWithAck: targetEmitWithAck });
+        const callerSocket = createSocket({ id: "caller-socket" });
+        const callback = vi.fn();
+        resolveRpcCallTargetMock.mockResolvedValue({ targetUserId: "user-1", targetSocket });
+        rpcHandler("user-1", callerSocket as unknown as Socket, new Map(), new Map(), {
+            io: {} as Server,
+            redisRegistry: { enabled: false },
+        });
+        await triggerSocketHandler(callerSocket, SOCKET_RPC_EVENTS.CALL, {
+            method,
+            params: {},
+        }, callback);
+
+        expect(resolveRpcForwardTimeoutMsMock).toHaveBeenCalledWith(method, undefined);
+        expect(targetSocket.timeout).toHaveBeenCalledWith(relayTimeoutMs);
+        expect(targetEmitWithAck).toHaveBeenCalledWith(SOCKET_RPC_EVENTS.REQUEST, expect.objectContaining({ method }));
+        expect(callback).toHaveBeenCalledWith({ ok: true, result: { ok: true } });
     });
 
     it.each([false, true])("surfaces public delegated target failures on the outer response (redis=%s)", async (redisEnabled) => {

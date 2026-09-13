@@ -25,12 +25,27 @@ const RPC_FORWARD_MAX_TIMEOUT_MS = parsePositiveIntOrDefault(
     300_000,
 );
 const RPC_FORWARD_CALLER_LIFECYCLE_TIMEOUT_MS = 2_147_483_647;
+const RPC_FORWARD_CALLER_LIFECYCLE_METHODS = new Set<string>([
+    SESSION_RPC_METHODS.EXECUTION_RUN_START,
+    SESSION_RPC_METHODS.EXECUTION_RUN_ENSURE,
+    SESSION_RPC_METHODS.EXECUTION_RUN_ENSURE_OR_START,
+    SESSION_RPC_METHODS.EXECUTION_RUN_SEND,
+    SESSION_RPC_METHODS.EXECUTION_RUN_ACTION,
+    SESSION_RPC_METHODS.EXECUTION_RUN_STREAM_START,
+    SESSION_RPC_METHODS.EXECUTION_RUN_STREAM_START_V2,
+    SESSION_RPC_METHODS.EXECUTION_RUN_STREAM_CANCEL,
+    SESSION_RPC_METHODS.EXECUTION_RUN_STOP,
+    SESSION_RPC_METHODS.EXECUTION_RUN_WAIT,
+]);
+
+function isCallerLifecycleMethod(method: string): boolean {
+    const scopeSeparatorIndex = method.indexOf(':');
+    const normalizedMethod = scopeSeparatorIndex >= 0 ? method.slice(scopeSeparatorIndex + 1) : method;
+    return RPC_FORWARD_CALLER_LIFECYCLE_METHODS.has(normalizedMethod);
+}
 
 function resolveRpcDefaultForwardTimeoutMs(method: string): number {
-    if (
-        method.endsWith(`:${SESSION_RPC_METHODS.EXECUTION_RUN_START}`)
-        || method.endsWith(`:${SESSION_RPC_METHODS.EXECUTION_RUN_WAIT}`)
-    ) {
+    if (isCallerLifecycleMethod(method)) {
         return RPC_FORWARD_CALLER_LIFECYCLE_TIMEOUT_MS;
     }
     return method.endsWith(':capabilities.invoke') || method.endsWith(':capabilities.detect') || method.endsWith(':capabilities.describe')
@@ -44,10 +59,7 @@ export function resolveRpcForwardTimeoutMs(method: string, requestedTimeoutMs?: 
     if (parsedRequestedTimeoutMs === null) {
         return baseTimeoutMs;
     }
-    if (
-        method.endsWith(`:${SESSION_RPC_METHODS.EXECUTION_RUN_START}`)
-        || method.endsWith(`:${SESSION_RPC_METHODS.EXECUTION_RUN_WAIT}`)
-    ) {
+    if (baseTimeoutMs === RPC_FORWARD_CALLER_LIFECYCLE_TIMEOUT_MS) {
         return RPC_FORWARD_CALLER_LIFECYCLE_TIMEOUT_MS;
     }
     return Math.min(RPC_FORWARD_MAX_TIMEOUT_MS, Math.max(baseTimeoutMs, parsedRequestedTimeoutMs));

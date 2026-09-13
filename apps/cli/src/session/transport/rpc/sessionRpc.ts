@@ -6,6 +6,11 @@ import { decodeBase64, decrypt, encodeBase64, encrypt } from '@/api/encryption';
 import type { SessionEncryptionContext, SessionStoredContentEncryptionMode } from '@/session/transport/encryption/sessionEncryptionContext';
 import { waitForSocketConnect } from '@/session/transport/socket/waitForSocketConnect';
 import { resolveSessionControlSocketConnectTimeoutMs } from '@/session/transport/shared/sessionTimeouts';
+import {
+  createSocketRpcDisconnectGuard,
+  SocketRpcDisconnectBeforeAcknowledgementError,
+} from './socketRpcDisconnectGuard';
+import { markRpcRequestDisposition } from './rpcRequestDisposition';
 
 export async function callSessionRpc(params: Readonly<{
   token: string;
@@ -25,7 +30,13 @@ export async function callSessionRpc(params: Readonly<{
   const connectTimeoutMs = typeof params.timeoutMs === 'number' && params.timeoutMs > 0
     ? params.timeoutMs
     : resolveSessionControlSocketConnectTimeoutMs();
+  const disconnectGuard = createSocketRpcDisconnectGuard({
+    socket: socket as unknown as import('socket.io-client').Socket,
+    createError: () => new SocketRpcDisconnectBeforeAcknowledgementError(),
+  });
   let cleanedUp = false;
+  let requestEmitted = false;
+  let responseTimer: ReturnType<typeof setTimeout> | null = null;
 
   const cleanupSocket = () => {
     if (cleanedUp) return;
@@ -44,30 +55,22 @@ export async function callSessionRpc(params: Readonly<{
 
   try {
     const connectPromise = waitForSocketConnect(socket as unknown as import('socket.io-client').Socket, connectTimeoutMs);
+    const connectedOrDisconnected = Promise.race([connectPromise, disconnectGuard.disconnected]);
     socket.connect();
-    await connectPromise;
+    await connectedOrDisconnected;
+    disconnectGuard.throwIfDisconnected();
 
     const mode: SessionStoredContentEncryptionMode = params.mode ?? 'e2ee';
     const rpcParams = mode === 'plain'
       ? params.request
       : encodeBase64(encrypt(params.ctx.encryptionKey, params.ctx.encryptionVariant, params.request), 'base64');
 
-    const response = await new Promise<{ ok: boolean; result?: unknown; error?: string; errorCode?: string }>((resolve, reject) => {
-      let settled = false;
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const finish = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        if (timer) clearTimeout(timer);
-        socket.off('disconnect', onDisconnect);
-        fn();
-      };
-      const onDisconnect = () => finish(() => reject(new Error('RPC socket disconnected before acknowledgement')));
-      socket.on('disconnect', onDisconnect);
+    const responsePromise = new Promise<{ ok: boolean; result?: unknown; error?: string; errorCode?: string }>((resolve, reject) => {
       if (timeoutMs !== null) {
-        timer = setTimeout(() => finish(() => reject(new Error('RPC call timeout'))), timeoutMs);
+        responseTimer = setTimeout(() => reject(new Error('RPC call timeout')), timeoutMs);
       }
       try {
+        requestEmitted = true;
         socket.emit(
           SOCKET_RPC_EVENTS.CALL,
           {
@@ -77,13 +80,14 @@ export async function callSessionRpc(params: Readonly<{
             ...(typeof params.timeoutMs === 'number' ? { timeoutMs: params.timeoutMs } : {}),
           },
           (payload: { ok: boolean; result?: unknown; error?: string; errorCode?: string }) => {
-            finish(() => resolve(payload));
+            resolve(payload);
           },
         );
       } catch (error) {
-        finish(() => reject(error));
+        reject(error);
       }
     });
+    const response = await Promise.race([responsePromise, disconnectGuard.disconnected]);
 
     if (!response.ok) {
       throw createRpcCallError({
@@ -99,7 +103,11 @@ export async function callSessionRpc(params: Readonly<{
     const encryptedResult = typeof response.result === 'string' ? response.result.trim() : '';
     if (!encryptedResult) return null;
     return decrypt(params.ctx.encryptionKey, params.ctx.encryptionVariant, decodeBase64(encryptedResult, 'base64'));
+  } catch (error) {
+    throw markRpcRequestDisposition(error, requestEmitted ? 'outcomeUnknown' : 'notSent');
   } finally {
+    if (responseTimer) clearTimeout(responseTimer);
+    disconnectGuard.dispose();
     cleanupSocket();
   }
 }

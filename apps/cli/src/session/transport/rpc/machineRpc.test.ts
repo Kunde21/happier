@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from '@/api/encryption';
 
 const socketHandlers = new Map<string, Array<(...args: unknown[]) => void>>();
@@ -17,6 +17,7 @@ const socket = {
   }),
 };
 const axiosGet = vi.hoisted(() => vi.fn());
+let disconnectWhenConnectWaitSettles = false;
 
 function triggerSocketEvent(event: string, ...args: unknown[]): void {
   for (const handler of socketHandlers.get(event) ?? []) handler(...args);
@@ -26,7 +27,12 @@ vi.mock('@/api/session/sockets', () => ({
   createUserScopedSocket: vi.fn(() => socket),
 }));
 vi.mock('@/session/transport/socket/waitForSocketConnect', () => ({
-  waitForSocketConnect: vi.fn(async () => undefined),
+  waitForSocketConnect: vi.fn(async () => {
+    await Promise.resolve();
+    if (disconnectWhenConnectWaitSettles) {
+      triggerSocketEvent('disconnect', 'transport close');
+    }
+  }),
 }));
 vi.mock('axios', () => ({
   default: {
@@ -42,6 +48,7 @@ vi.mock('@/configuration', () => ({
 
 import { RPC_ERROR_CODES, RPC_ERROR_MESSAGES } from '@happier-dev/protocol/rpc';
 import { SOCKET_RPC_EVENTS } from '@happier-dev/protocol/socketRpc';
+import { readRpcRequestDisposition } from './rpcRequestDisposition';
 
 import { callMachineRpc } from './machineRpc';
 
@@ -49,6 +56,11 @@ describe('callMachineRpc', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     socketHandlers.clear();
+    disconnectWhenConnectWaitSettles = false;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('encrypts and sends exactly one account-scoped call to the requested machine', async () => {
@@ -80,6 +92,7 @@ describe('callMachineRpc', () => {
     expect(socket.emit).toHaveBeenCalledTimes(1);
     expect(socket.connect).toHaveBeenCalledTimes(1);
     expect(socket.disconnect).toHaveBeenCalledTimes(1);
+    expect(socketHandlers.get('disconnect')).toHaveLength(0);
     // A reached machine never pays for the replacement chain.
     expect(axiosGet).not.toHaveBeenCalled();
   });
@@ -101,11 +114,13 @@ describe('callMachineRpc', () => {
     });
 
     await vi.waitFor(() => {
-      expect(socketHandlers.get('disconnect')).toHaveLength(1);
+      expect(socket.emit.mock.calls[0]?.[0]).toBe(SOCKET_RPC_EVENTS.CALL);
     });
     triggerSocketEvent('disconnect', 'transport close');
 
-    await expect(result).rejects.toThrow('RPC socket disconnected before acknowledgement');
+    const error = await result.catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ message: 'RPC socket disconnected before acknowledgement' });
+    expect(readRpcRequestDisposition(error)).toBe('outcomeUnknown');
     const requestId = socket.emit.mock.calls[0]?.[1]?.requestId;
     expect(requestId).toEqual(expect.any(String));
     expect(socket.emit.mock.calls[0]?.[0]).toBe(SOCKET_RPC_EVENTS.CALL);
@@ -113,6 +128,38 @@ describe('callMachineRpc', () => {
       SOCKET_RPC_EVENTS.CANCEL,
       { requestId },
     ]);
+    expect(socket.disconnect).toHaveBeenCalledTimes(1);
+    expect(socket.close).toHaveBeenCalledTimes(1);
+    expect(socketHandlers.get('disconnect')).toHaveLength(0);
+  });
+
+  it('does not miss a disconnect that settles with the connection wait', async () => {
+    vi.useFakeTimers();
+    disconnectWhenConnectWaitSettles = true;
+    socket.emit.mockImplementation(() => undefined);
+    const machineKey = new Uint8Array(32).fill(3);
+    const notSettled = Symbol('not settled');
+    let outcome: unknown = notSettled;
+    const result = callMachineRpc({
+      credentials: {
+        token: 'account-token',
+        encryption: { type: 'dataKey' as const, publicKey: machineKey, machineKey },
+      },
+      machineId: 'machine-session',
+      method: 'spawn-happy-session',
+      request: { sessionId: 'session-1' },
+      timeoutMs: 10_000,
+    });
+    void result.then(
+      (value) => { outcome = value; },
+      (error: unknown) => { outcome = error; },
+    );
+
+    for (let index = 0; index < 12; index += 1) await Promise.resolve();
+
+    expect(outcome).toMatchObject({ message: 'RPC socket disconnected before acknowledgement' });
+    expect(readRpcRequestDisposition(outcome)).toBe('notSent');
+    expect(socket.emit).not.toHaveBeenCalled();
     expect(socket.disconnect).toHaveBeenCalledTimes(1);
     expect(socket.close).toHaveBeenCalledTimes(1);
     expect(socketHandlers.get('disconnect')).toHaveLength(0);
@@ -239,13 +286,15 @@ describe('callMachineRpc', () => {
       ]);
       socket.emit.mockImplementation(() => undefined);
 
-      await expect(callMachineRpc({
+      const error = await callMachineRpc({
         credentials,
         machineId: 'machine-old',
         method: 'status',
         request: { ping: true },
         timeoutMs: 10,
-      })).rejects.toMatchObject({ code: 'MACHINE_RPC_TIMEOUT' });
+      }).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ code: 'MACHINE_RPC_TIMEOUT' });
+      expect(readRpcRequestDisposition(error)).toBe('outcomeUnknown');
 
       const requestId = socket.emit.mock.calls[0]?.[1]?.requestId;
       expect(requestId).toEqual(expect.any(String));
