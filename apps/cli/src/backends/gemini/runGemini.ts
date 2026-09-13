@@ -112,7 +112,6 @@ import type { ProviderEnforcedPermissionHandler } from '@/agent/permissions/Prov
 import { createProviderEnforcedPermissionHandler } from '@/agent/permissions/createProviderEnforcedPermissionHandler';
 import { parseSpecialCommand } from '@/cli/parsers/specialCommands';
 import { resolveGeminiQueuedPromptWithReplaySeed } from '@/backends/gemini/runtime/resolveGeminiQueuedPromptWithReplaySeed';
-import { formatGeminiPromptDebugSummary } from '@/backends/gemini/runtime/formatGeminiPromptDebugSummary';
 import { buildGeminiPromptForMessage } from '@/backends/gemini/utils/buildGeminiPromptForMessage';
 import { resolveGeminiSystemPromptText } from '@/backends/gemini/prompting/resolveGeminiSystemPromptText';
 import { resolveCliFeatureDecision } from '@/features/featureDecisionService';
@@ -1093,8 +1092,6 @@ export async function runGemini(opts: {
           shouldPrependAppendSystemPromptOnNextFreshSessionPrompt = builtPrompt.nextIsFirstMessage;
         }
 
-        logger.debug(formatGeminiPromptDebugSummary(promptToSend));
-
         const dispatchOutcome = await inputConsumer.runProviderInputDispatch({
           abortSignal: abortController.signal,
           dispatch: async () => {
@@ -1108,7 +1105,13 @@ export async function runGemini(opts: {
               prompt: promptToSend,
               messageBuffer,
               session,
-              onDebug: (msg) => logger.debug(msg),
+              onDebug: (msg, diagnostic) => {
+                if (diagnostic) {
+                  logger.debug(msg, diagnostic);
+                  return;
+                }
+                logger.debug(msg);
+              },
               maxRetries: 3,
               retryDelayMs: 2_000,
               onProviderPromptAccepted: confirmProviderAccepted,

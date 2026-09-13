@@ -383,10 +383,6 @@ vi.mock('@/backends/gemini/runtime/resolveGeminiQueuedPromptWithReplaySeed', () 
   resolveGeminiQueuedPromptWithReplaySeed: resolveGeminiQueuedPromptWithReplaySeedMock,
 }));
 
-vi.mock('@/backends/gemini/runtime/formatGeminiPromptDebugSummary', () => ({
-  formatGeminiPromptDebugSummary: vi.fn(() => 'Gemini prompt summary'),
-}));
-
 vi.mock('@/backends/gemini/prompting/resolveGeminiSystemPromptText', () => ({
   resolveGeminiSystemPromptText: resolveGeminiSystemPromptTextMock,
 }));
@@ -626,6 +622,9 @@ describe('runGemini input consumer migration', () => {
     const { runGemini } = await import('./runGemini');
 
     await expect(runGemini({ credentials })).resolves.toBeUndefined();
+
+    const { logger } = await import('@/ui/logger');
+    expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain('queued prompt text');
 
     expect(createSessionProviderInputConsumerMock).toHaveBeenCalledTimes(1);
 
