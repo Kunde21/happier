@@ -394,6 +394,40 @@ describe('CodexLikePermissionHandler', () => {
     );
   });
 
+  it('auto-approves safe first-party Action transport calls in default mode', async () => {
+    const session = new FakeSession();
+    const handler = new CodexLikePermissionHandler({ session: session as any, logPrefix: '[Test]' });
+
+    await expect(handler.handleToolCall(
+      'observe-direct',
+      'mcp__happier__execution_run_wait',
+      { runId: 'run-1' },
+    )).resolves.toEqual({ decision: 'approved' });
+    await expect(handler.handleToolCall(
+      'observe-dynamic',
+      'mcp__happier__action_execute',
+      { actionId: 'execution.run.get', input: { runId: 'run-1' } },
+    )).resolves.toEqual({ decision: 'approved' });
+    await expect(handler.handleToolCall(
+      'write-dynamic',
+      'mcp__happier__action_execute',
+      { actionId: 'execution.run.start', input: {} },
+    )).resolves.toEqual({ decision: 'approved' });
+
+    const unknown = handler.handleToolCall(
+      'unknown-dynamic',
+      'mcp__happier__action_execute',
+      { actionId: 'not.a.known.action', input: {} },
+    );
+    expect(session.agentState.requests['unknown-dynamic']).toBeDefined();
+    await session.rpcHandlerManager.handlers.get('permission')?.({
+      id: 'unknown-dynamic',
+      approved: false,
+      decision: 'denied',
+    });
+    await expect(unknown).resolves.toEqual({ decision: 'denied' });
+  });
+
   it('does not use the tool call id or a tool-name substring as authority', async () => {
     const session = new FakeSession();
     const handler = new CodexLikePermissionHandler({ session: session as any, logPrefix: '[Test]' });
