@@ -307,8 +307,8 @@ const PI_RPC_FAILURE_TRACE_SAFE_SCALAR_FIELDS = [
 ] as const;
 
 // Always-on provider-failure logs must never copy arbitrary provider text: SDK error bodies can
-// contain request payloads and therefore prompt content. The separately normalized
-// `sanitizedPreview` carries the useful error diagnosis; this projection is structural context.
+// contain request payloads and therefore prompt content. This allowlist retains only structural
+// boundary/retry evidence; the richer normalized preview is surfaced to the owning session only.
 const PI_PROVIDER_FAILURE_LOG_SAFE_SCALAR_FIELDS = [
   'type',
   'command',
@@ -680,6 +680,8 @@ export class PiRpcBackend implements AgentBackend {
   private toolsBridgeConfigArtifact: ProtectedTempTextArtifact | null = null;
   private readonly availableCommandNames = new Set<string>();
   private readonly availableExtensionCommandNames = new Set<string>();
+  private availableCommandsRefresh: Promise<void> | null = null;
+  private availableCommandsKnownForCurrentPublication = false;
   private stdoutLineReader: PiRpcJsonlLineReader | null = null;
   private stderrLineReader: PiRpcJsonlLineReader | null = null;
   private readonly messageHandlers = new Set<AgentMessageHandler>();
@@ -1103,12 +1105,25 @@ export class PiRpcBackend implements AgentBackend {
 
   isProviderNativeCommand(prompt: string): boolean {
     const name = this.readProviderNativeCommandName(prompt);
-    return name.length > 0 && this.availableCommandNames.has(name);
+    return (
+      name.length > 0
+      && this.availableCommandsKnownForCurrentPublication
+      && this.availableCommandNames.has(name)
+    );
   }
 
-  private isProviderExtensionCommand(prompt: string): boolean {
+  private async isProviderExtensionCommand(prompt: string): Promise<boolean> {
     const name = this.readProviderNativeCommandName(prompt);
-    return name.length > 0 && this.availableExtensionCommandNames.has(name);
+    if (!name) return false;
+
+    // Runtime catalog discovery is intentionally excluded from session-start admission. Reuse its
+    // in-flight request only when slash-command completion semantics actually need the result;
+    // ordinary prompts remain independent of optional introspection.
+    await this.availableCommandsRefresh;
+    return (
+      this.availableCommandsKnownForCurrentPublication
+      && this.availableExtensionCommandNames.has(name)
+    );
   }
 
   private readProviderNativeCommandName(prompt: string): string {
@@ -1247,8 +1262,15 @@ export class PiRpcBackend implements AgentBackend {
         throw promptError;
       }
       settleAdmission({ status: 'accepted' });
+      const providerExtensionCommandKnownBeforeTurnSettled = await Promise.race([
+        providerExtensionCommand,
+        turn.then(
+          () => false,
+          () => false,
+        ),
+      ]);
       if (
-        providerExtensionCommand
+        providerExtensionCommandKnownBeforeTurnSettled
         && pendingTurn
         && this.isCurrentPendingTurn(pendingTurn)
         && !pendingTurn.agentStartObserved
@@ -2550,7 +2572,6 @@ export class PiRpcBackend implements AgentBackend {
     logger.warn('[pi] Provider turn failed', {
       classification: failure.classification,
       providerCode: failure.code,
-      sanitizedPreview: failure.sanitizedPreview,
       runtimeProvider: this.currentModelProvider,
       runtimeModelId: this.sessionModelState?.currentModelId ?? null,
       ...(failureRecord ? { failureRecord: buildPiProviderFailureLogRecord(failureRecord) } : {}),
@@ -3241,7 +3262,8 @@ export class PiRpcBackend implements AgentBackend {
       // Best-effort: model introspection must not block or fail session lifecycle.
     });
 
-    void this.getCommands({ processAlreadyEnsured: true }).then((commands) => {
+    this.availableCommandsKnownForCurrentPublication = false;
+    const availableCommandsRefresh = this.getCommands({ processAlreadyEnsured: true }).then((commands) => {
       if (!isCurrentPublication()) return;
       const commandList = Array.isArray(commands.commands) ? commands.commands : [];
       const nextCommandNames = new Set<string>();
@@ -3273,6 +3295,7 @@ export class PiRpcBackend implements AgentBackend {
       for (const name of nextCommandNames) this.availableCommandNames.add(name);
       this.availableExtensionCommandNames.clear();
       for (const name of nextExtensionCommandNames) this.availableExtensionCommandNames.add(name);
+      this.availableCommandsKnownForCurrentPublication = true;
 
       this.emitMessage({
         type: 'event',
@@ -3283,6 +3306,12 @@ export class PiRpcBackend implements AgentBackend {
       });
     }).catch(() => {
       // Best-effort: commands introspection must not block or fail session lifecycle.
+    });
+    this.availableCommandsRefresh = availableCommandsRefresh;
+    void availableCommandsRefresh.finally(() => {
+      if (this.availableCommandsRefresh === availableCommandsRefresh) {
+        this.availableCommandsRefresh = null;
+      }
     });
   }
 
