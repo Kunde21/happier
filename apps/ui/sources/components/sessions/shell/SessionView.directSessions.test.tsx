@@ -151,6 +151,7 @@ const featureEnabledState = vi.hoisted(() => ({
   'files.reviewComments': false,
   'sessions.usageLimitRecovery': false,
   'connectedServices.quotas': false,
+  'connectedServices.poolQuotaLimitSelection': false,
 }));
 const keyboardAvoidanceState = vi.hoisted(() => ({
   availablePanelHeight: undefined as number | undefined,
@@ -167,6 +168,10 @@ const draftHookState = vi.hoisted(() => ({
 const quotaSnapshotsState = vi.hoisted(() => ({
   current: {} as Record<string, any>,
   requestedProfiles: [] as ReadonlyArray<Readonly<{ serviceId: string; profileId: string }>>,
+}));
+const connectedServiceAuthGroupsState = vi.hoisted(() => ({
+  groups: [] as any[],
+  requestedServiceIds: [] as string[],
 }));
 const providerAccountUsageSnapshotsState = vi.hoisted(() => ({
   current: {} as Record<string, ProviderAccountUsageSnapshotV1 | null>,
@@ -393,8 +398,12 @@ vi.mock('@react-navigation/native', () => ({
   useIsFocused: () => true,
 }));
 
+const authContextState = vi.hoisted(() => ({
+  value: { credentials: { token: 't', secret: 's' } },
+}));
+
 vi.mock('@/auth/context/AuthContext', () => ({
-  useAuth: () => ({ credentials: { token: 't', secret: 's' } }),
+  useAuth: () => authContextState.value,
 }));
 
 vi.mock('@/hooks/server/connectedServices/useConnectedServiceQuotaSnapshots', () => ({
@@ -404,6 +413,13 @@ vi.mock('@/hooks/server/connectedServices/useConnectedServiceQuotaSnapshots', ()
       snapshotsByKey: quotaSnapshotsState.current,
       loadingByKey: {},
     };
+  },
+}));
+
+vi.mock('@/sync/api/account/apiConnectedServiceAuthGroupsV3', () => ({
+  listConnectedServiceAuthGroupsV3: async (_credentials: unknown, params: { serviceId: string }) => {
+    connectedServiceAuthGroupsState.requestedServiceIds.push(params.serviceId);
+    return connectedServiceAuthGroupsState.groups;
   },
 }));
 
@@ -1064,6 +1080,7 @@ describe('SessionView (direct sessions)', () => {
     featureEnabledState['files.reviewComments'] = false;
     featureEnabledState['sessions.usageLimitRecovery'] = false;
     featureEnabledState['connectedServices.quotas'] = false;
+    featureEnabledState['connectedServices.poolQuotaLimitSelection'] = false;
     keyboardAvoidanceState.availablePanelHeight = undefined;
     keyboardAvoidanceState.keyboardHeight = 0;
     settingsState.current = {};
@@ -1114,6 +1131,8 @@ describe('SessionView (direct sessions)', () => {
     draftHookState.valuesBySessionId.clear();
     quotaSnapshotsState.current = {};
     quotaSnapshotsState.requestedProfiles = [];
+    connectedServiceAuthGroupsState.groups = [];
+    connectedServiceAuthGroupsState.requestedServiceIds = [];
     providerAccountUsageSnapshotsState.current = {};
     providerAccountUsageSnapshotsState.requestedRecordIds = [];
     storageState.sessions.s1 = {
@@ -2528,6 +2547,63 @@ describe('SessionView (direct sessions)', () => {
       serviceId: 'openai-codex',
       activeAccountDisplayLabel: 'Active Codex account',
       ringValueLabel: '65',
+    }));
+  });
+
+  it('uses only the group-selected allowance in the session usage badge', async () => {
+    featureEnabledState['connectedServices.quotas'] = true;
+    featureEnabledState['connectedServices.poolQuotaLimitSelection'] = true;
+    storageState.profile = {
+      connectedServicesV2: [{
+        serviceId: 'openai-codex',
+        profiles: [{ profileId: 'active-profile', status: 'connected', kind: 'oauth' }],
+        groups: [{
+          groupId: 'happier',
+          activeProfileId: 'active-profile',
+          generation: 7,
+          memberProfileIds: ['active-profile'],
+        }],
+      }],
+    };
+    connectedServiceAuthGroupsState.groups = [{
+      groupId: 'happier',
+      activeProfileId: 'active-profile',
+      generation: 7,
+      members: [],
+      policy: { quotaLimitSelection: { mode: 'selected', providerLimitIds: ['standard'] } },
+    }];
+    storageState.sessions.s1 = {
+      ...storageState.sessions.s1,
+      metadata: {
+        ...storageState.sessions.s1.metadata,
+        connectedServices: {
+          bindingsByServiceId: {
+            'openai-codex': { source: 'connected', selection: 'group', groupId: 'happier' },
+          },
+        },
+      },
+    };
+    quotaSnapshotsState.current = {
+      'openai-codex/active-profile': {
+        v: 1,
+        serviceId: 'openai-codex',
+        profileId: 'active-profile',
+        fetchedAt: Date.now(),
+        staleAfterMs: 60_000,
+        planLabel: null,
+        accountLabel: 'Active Codex account',
+        meters: [
+          { meterId: 'standard:primary', providerLimitId: 'standard', label: 'Session', used: 20, limit: 100, unit: 'count', utilizationPct: null, resetsAt: null, status: 'ok', details: {} },
+          { meterId: 'spark:primary', providerLimitId: 'spark', label: 'Spark', used: 95, limit: 100, unit: 'count', utilizationPct: null, resetsAt: null, status: 'ok', details: {} },
+        ],
+      },
+    };
+
+    const screen = await renderSessionViewAndSettle();
+
+    expect(connectedServiceAuthGroupsState.requestedServiceIds).toContain('openai-codex');
+    expect(findAgentInput(screen).props.providerUsageGauge).toEqual(expect.objectContaining({
+      ringValueLabel: '80',
     }));
   });
 

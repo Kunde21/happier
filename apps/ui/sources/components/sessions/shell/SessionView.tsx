@@ -225,6 +225,7 @@ import {
 } from '@/sync/domains/connectedServices/connectedServiceQuotaGauge';
 import { resolveConnectedServiceQuotaRecoveryCreditReceiptNoticeKey } from '@/sync/domains/connectedServices/connectedServiceQuotaRecoveryCreditReceiptPresentation';
 import { useConnectedServiceQuotaSnapshots } from '@/hooks/server/connectedServices/useConnectedServiceQuotaSnapshots';
+import { useConnectedServiceAuthGroupsQuery } from '@/hooks/server/connectedServices/useConnectedServiceAuthGroupsQuery';
 import { useProviderAccountUsageSnapshots } from '@/hooks/server/connectedServices/useProviderAccountUsageSnapshots';
 import {
     selectProviderUsageDisplaySnapshot,
@@ -235,6 +236,8 @@ import {
     resolveConnectedServiceProfileLabel,
 } from '@/sync/domains/connectedServices/connectedServiceProfilePreferences';
 import { resolveConnectedServiceCredentialHealthStatus } from '@/sync/domains/connectedServices/resolveConnectedServiceCredentialHealthStatus';
+import { projectConnectedServiceQuotaSnapshotForLimitSelection } from '@/sync/domains/connectedServices/projectConnectedServiceQuotaSnapshotForLimitSelection';
+import { resolveConnectedServiceProjectionSignature } from '@/sync/domains/connectedServices/resolveConnectedServiceProjectionSignature';
 import { resolveConnectedServiceQuotaProfileRefForSession } from './resolveConnectedServiceQuotaProfileRefForSession';
 import { usePathname, useRouter } from 'expo-router';
 import * as React from 'react';
@@ -3813,6 +3816,10 @@ function SessionViewLoaded({
     const voiceEnabled = useFeatureEnabled('voice');
     const reviewCommentsEnabled = useFeatureEnabled('files.reviewComments');
     const connectedServiceQuotasEnabled = useFeatureEnabled('connectedServices.quotas');
+    const poolQuotaLimitSelectionEnabled = useFeatureEnabled('connectedServices.poolQuotaLimitSelection', {
+        scopeKind: 'spawn',
+        serverId: capabilityServerId,
+    });
     const attachmentsUploadsFeatureEnabled = useFeatureEnabled('attachments.uploads', {
         scopeKind: 'spawn',
         serverId: capabilityServerId,
@@ -3832,10 +3839,33 @@ function SessionViewLoaded({
     const connectedServiceQuotaProfileRef = React.useMemo(() => (
         resolveConnectedServiceQuotaProfileRefForSession({
             metadata: session.metadata,
-            agentId: liveComposerState.agentId,
+            agentId,
             accountProfileConnectedServicesV2: accountProfile?.connectedServicesV2 ?? [],
         })
-    ), [accountProfile?.connectedServicesV2, liveComposerState.agentId, session.metadata]);
+    ), [accountProfile?.connectedServicesV2, agentId, session.metadata]);
+    const connectedServiceQuotaGroupService = React.useMemo(() => (
+        connectedServiceQuotaProfileRef?.groupId
+            ? accountProfile?.connectedServicesV2.find((service) => (
+                service.serviceId === connectedServiceQuotaProfileRef.serviceId
+            )) ?? null
+            : null
+    ), [accountProfile?.connectedServicesV2, connectedServiceQuotaProfileRef]);
+    const connectedServiceQuotaGroupServiceId = React.useMemo(() => {
+        if (!poolQuotaLimitSelectionEnabled || !connectedServiceQuotaProfileRef?.groupId) return null;
+        const parsed = ConnectedServiceIdSchema.safeParse(connectedServiceQuotaProfileRef.serviceId);
+        return parsed.success ? parsed.data : null;
+    }, [connectedServiceQuotaProfileRef, poolQuotaLimitSelectionEnabled]);
+    const connectedServiceQuotaAuthGroups = useConnectedServiceAuthGroupsQuery({
+        serviceId: connectedServiceQuotaGroupServiceId,
+        enabled: connectedServiceQuotaGroupServiceId !== null,
+        serviceProjectionSignature: resolveConnectedServiceProjectionSignature(connectedServiceQuotaGroupService),
+    });
+    const connectedServiceQuotaLimitSelection = React.useMemo(() => {
+        if (!connectedServiceQuotaProfileRef?.groupId) return undefined;
+        return connectedServiceQuotaAuthGroups.groups.find((group) => (
+            group.groupId === connectedServiceQuotaProfileRef.groupId
+        ))?.policy.quotaLimitSelection;
+    }, [connectedServiceQuotaAuthGroups.groups, connectedServiceQuotaProfileRef?.groupId]);
     const sessionAgentCatalogEntries = React.useMemo(() => getResolvedBackendCatalogEntries({
         enabledAgentIds,
         acpCatalogSettingsV1: settings.acpCatalogSettingsV1,
@@ -4013,21 +4043,28 @@ function SessionViewLoaded({
     const connectedServiceQuotaSnapshot = connectedServiceQuotaProfileKey
         ? connectedServiceQuotaSnapshots.snapshotsByKey[connectedServiceQuotaProfileKey] ?? null
         : null;
+    const connectedServiceQuotaDisplaySnapshot = React.useMemo(
+        () => projectConnectedServiceQuotaSnapshotForLimitSelection(
+            connectedServiceQuotaSnapshot,
+            connectedServiceQuotaLimitSelection,
+        ),
+        [connectedServiceQuotaLimitSelection, connectedServiceQuotaSnapshot],
+    );
     const providerAccountUsageRecordIds = React.useMemo(
         () => readProviderAccountUsageRecordIdsFromMetadata(session.metadata),
         [session.metadata],
     );
     const providerAccountUsageSnapshotsByRecordId = useProviderAccountUsageSnapshots(providerAccountUsageRecordIds);
     const connectedServiceQuotaActiveAccountLabel = React.useMemo(() => {
-        if (!connectedServiceQuotaProfileRef) return connectedServiceQuotaSnapshot?.accountLabel ?? null;
+        if (!connectedServiceQuotaProfileRef) return connectedServiceQuotaDisplaySnapshot?.accountLabel ?? null;
         return resolveConnectedServiceProfileLabel({
             labelsByKey: settings.connectedServicesProfileLabelByKey,
             serviceId: connectedServiceQuotaProfileRef.serviceId,
             profileId: connectedServiceQuotaProfileRef.profileId,
-        }) ?? connectedServiceQuotaSnapshot?.accountLabel ?? connectedServiceQuotaProfileRef.profileId;
+        }) ?? connectedServiceQuotaDisplaySnapshot?.accountLabel ?? connectedServiceQuotaProfileRef.profileId;
     }, [
         connectedServiceQuotaProfileRef,
-        connectedServiceQuotaSnapshot?.accountLabel,
+        connectedServiceQuotaDisplaySnapshot?.accountLabel,
         settings.connectedServicesProfileLabelByKey,
     ]);
     const providerUsageDisplaySnapshotSource = React.useMemo(() => (
@@ -4036,11 +4073,11 @@ function SessionViewLoaded({
             metadataRecordIds: providerAccountUsageRecordIds,
             accountUsageSnapshotsByRecordId: providerAccountUsageSnapshotsByRecordId,
             connectedServiceProfileRef: connectedServiceQuotaProfileRef,
-            connectedServiceQuotaView: connectedServiceQuotaSnapshot,
+            connectedServiceQuotaView: connectedServiceQuotaDisplaySnapshot,
         })
     ), [
         connectedServiceQuotaProfileRef,
-        connectedServiceQuotaSnapshot,
+        connectedServiceQuotaDisplaySnapshot,
         liveComposerState.agentId,
         providerAccountUsageRecordIds,
         providerAccountUsageSnapshotsByRecordId,
@@ -4076,13 +4113,13 @@ function SessionViewLoaded({
             formatter: connectedServiceQuotaGaugeFormatter,
             providerDisplayName: resolveConnectedServiceProviderDisplayName(gaugeSource.snapshot.serviceId),
             activeAccountDisplayLabel: providerUsageDisplaySnapshotSource?.kind === 'connected_service_quota_view'
-                && gaugeSource.snapshot === connectedServiceQuotaSnapshot
+                && gaugeSource.snapshot === connectedServiceQuotaDisplaySnapshot
                 ? connectedServiceQuotaActiveAccountLabel
                 : gaugeSource.snapshot.accountLabel ?? null,
         });
     }, [
         connectedServiceQuotaActiveAccountLabel,
-        connectedServiceQuotaSnapshot,
+        connectedServiceQuotaDisplaySnapshot,
         providerUsageDisplaySnapshotSource?.kind,
         providerUsageGaugeSource,
         sessionProviderUsageGaugeWindowMode,
