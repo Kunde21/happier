@@ -9,7 +9,6 @@ import {
 
 describe('sessionDraftStatusPresentation', () => {
     it.each([
-        ['pending', 'sessionDrafts.status.syncing', 'active'],
         ['offline', 'sessionDrafts.status.offline', 'paused'],
         ['error', 'common.error', 'danger'],
     ] as const)('projects %s from the repository status into the composer badge', (status, labelKey, tone) => {
@@ -23,7 +22,8 @@ describe('sessionDraftStatusPresentation', () => {
         }));
     });
 
-    it('leaves clean and interactive conflict states to their existing owners', () => {
+    it('keeps transient synchronization and interactive conflict states out of the composer status row', () => {
+        expect(buildSessionDraftSyncStatusBadge('pending')).toBeNull();
         expect(buildSessionDraftSyncStatusBadge('clean')).toBeNull();
         expect(buildSessionDraftSyncStatusBadge('conflict')).toBeNull();
         expect(resolveSessionDraftStatusKey('conflict')).toBe('sessionDrafts.status.conflict');

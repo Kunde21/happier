@@ -15,7 +15,7 @@ export function resolveSessionDraftStatusKey(status: SessionDraftStatus): Transl
 }
 
 export function buildSessionDraftSyncStatusBadge(status: SessionDraftStatus): AgentInputStatusBadge | null {
-    if (status === 'clean' || status === 'conflict') return null;
+    if (status === 'clean' || status === 'pending' || status === 'conflict') return null;
     const statusKey = resolveSessionDraftStatusKey(status);
     if (!statusKey) return null;
     const label = t(statusKey);
@@ -24,11 +24,11 @@ export function buildSessionDraftSyncStatusBadge(status: SessionDraftStatus): Ag
         label,
         accessibilityLabel: label,
         testID: 'session-draft-sync-status-badge',
-        tone: status === 'pending' ? 'active' : status === 'offline' ? 'paused' : 'danger',
+        tone: status === 'offline' ? 'paused' : 'danger',
         emphasis: status === 'error' ? 'prominent' : 'quiet',
         icon: (tint: string) => (
             <Icon
-                name={status === 'pending' ? 'arrows-clockwise' : status === 'offline' ? 'cloud' : 'warning-circle'}
+                name={status === 'offline' ? 'cloud' : 'warning-circle'}
                 size={14}
                 color={tint}
             />
