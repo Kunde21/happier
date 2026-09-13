@@ -5,9 +5,7 @@ const connectedServiceGroupsRefreshListeners = new Set<() => void>();
 
 function subscribe(listener: () => void): () => void {
     connectedServiceGroupsRefreshListeners.add(listener);
-    return () => {
-        connectedServiceGroupsRefreshListeners.delete(listener);
-    };
+    return () => connectedServiceGroupsRefreshListeners.delete(listener);
 }
 
 function getSnapshot(): number {
@@ -16,9 +14,7 @@ function getSnapshot(): number {
 
 export function invalidateConnectedServiceGroupsRefreshSignal(): void {
     connectedServiceGroupsRefreshVersion += 1;
-    for (const listener of connectedServiceGroupsRefreshListeners) {
-        listener();
-    }
+    for (const listener of connectedServiceGroupsRefreshListeners) listener();
 }
 
 export function useConnectedServiceGroupsRefreshSignal(): number {
