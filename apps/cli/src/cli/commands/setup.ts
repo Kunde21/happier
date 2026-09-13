@@ -11,7 +11,13 @@
 
 import { hostname } from 'node:os';
 
-import { AGENT_IDS, type AgentId } from '@happier-dev/agents';
+import {
+    AGENT_IDS,
+    AGENTS_CORE,
+    DEFAULT_AGENT_ID,
+    getProviderCliRuntimeSpec,
+    type AgentId,
+} from '@happier-dev/agents';
 import { createSetupChoicePrompt, renderSetupWelcome } from '@happier-dev/cli-common/output';
 import {
     resolveTailscaleInstallStrategy,
@@ -22,11 +28,13 @@ import { resolveActiveServerAuthReadiness } from '@/auth/resolveActiveServerAuth
 import type { CommandContext } from '@/cli/commandRegistry';
 import { readTailscaleStatusSnapshot } from '@/integrations/tailscale/tailscaleStatus';
 import { resolveProviderCliCommand } from '@/runtime/managedTools/providerCliResolution';
+import { invokeProviderCliInstall } from '@/runtime/managedTools/invokeProviderCliInstall';
 import { getActiveServerProfile } from '@/server/serverProfiles';
 import { isLoopbackServerHost } from '@/server/serverUrlClassification';
 import { promptConfirmYesNo } from '@/terminal/prompts/promptConfirmYesNo';
 import { isInteractiveTerminal, promptInput } from '@/terminal/prompts/promptInput';
 import { promptMultipleChoice } from '@/terminal/prompts/promptMultipleChoice';
+import { promptMultipleSelection } from '@/terminal/prompts/promptMultipleChoice';
 import { openBrowser } from '@/ui/openBrowser';
 import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 
@@ -97,45 +105,12 @@ async function readActiveRelayUrl(): Promise<string | null> {
     return url || null;
 }
 
-function describeTailscaleState(reachability: SetupRelayReachability): string {
-    if (reachability.kind === 'tailnet') {
-        return reachability.tailnetName
-            ? `Tailscale is running on this computer (tailnet: ${reachability.tailnetName}).`
-            : 'Tailscale is running on this computer.';
-    }
-    if (reachability.kind === 'tailscaleNotRunning') {
-        return 'Tailscale is installed on this computer but is not running.';
-    }
-    return 'Tailscale is not installed on this computer.';
-}
-
-function printRelayReachabilityIntro(reachability: SetupRelayReachability): void {
-    console.log('');
-    console.log('This installs an additional Happier server on this actual computer or VM.');
-    console.log('`localhost` means this machine; inside a VM, it means the VM, not its host.');
-    console.log('Your phone needs a real route: Tailscale on both devices with Tailscale Serve,');
-    console.log('a server bound to a reachable LAN interface with the firewall permitting it, or HTTPS.');
-    console.log('On a headless VM, a browser on your laptop is not a same-machine browser.');
-    console.log('Your coding agents still run on this computer; only the server placement changes.');
-    console.log('');
-    console.log(describeTailscaleState(reachability));
-    if (reachability.kind === 'tailnet') {
-        console.log('Once it is installed, one command publishes it on your tailnet.');
-    } else if (reachability.kind === 'tailscaleNotRunning') {
-        console.log('Nothing is behind your tailnet addresses until it is running.');
-    } else {
-        console.log('Without it, the server stays local unless you configure a reachable LAN listener');
-        console.log('and firewall or give it an HTTPS address.');
-    }
-    console.log('');
-}
-
 /**
  * What is left to do, stated per Tailscale state.
  *
  * `relay host install` already settles which address the relay profile uses and
  * warns when that address is local-only. What it never says is anything about
- * Tailscale itself — above all that an installed-but-stopped Tailscale is why no
+ * Tailscale itself — especially that an installed-but-stopped Tailscale is why no
  * tailnet address was on offer. That is the gap this fills, so nothing here
  * restates or second-guesses the address the install chose.
  */
@@ -227,7 +202,7 @@ const AUTH_WAIT_TIMEOUT_SECONDS = 300;
  * request or merely repairs machine registration from an existing credential.
  */
 function resolveAuthLoginArgv(): readonly string[] {
-    return ['auth', 'login', '--wait-timeout', String(AUTH_WAIT_TIMEOUT_SECONDS)];
+    return ['auth', 'login', '--wait-timeout', String(AUTH_WAIT_TIMEOUT_SECONDS), '--no-daemon-start'];
 }
 
 async function runCliStep(
@@ -283,6 +258,81 @@ async function askWhereTheRelayLives(): Promise<SetupRelaySelection> {
     return { kind: 'existing', url };
 }
 
+function listInstallableAgentIds(): AgentId[] {
+    return AGENT_IDS.filter((agentId) => getProviderCliRuntimeSpec(agentId).manualInstallKind !== 'none');
+}
+
+async function offerCodingAgentSetup(installedAgentIds: readonly string[]): Promise<boolean> {
+    const installed = new Set(installedAgentIds);
+    const missing = listInstallableAgentIds().filter((agentId) => !installed.has(agentId));
+    if (missing.length === 0) return true;
+    const selected = await promptMultipleSelection<AgentId>(
+        'Choose coding agents to install.',
+        [
+            ...missing.map((agentId) => {
+                const runtimeSpec = getProviderCliRuntimeSpec(agentId);
+                return {
+                    id: agentId,
+                    label: `${runtimeSpec.title} (${agentId})`,
+                    description: runtimeSpec.managedInstall
+                        ? 'Happier-managed install'
+                        : runtimeSpec.manualInstallKind === 'vendor_recipe'
+                            ? 'Runs the agent vendor installer'
+                            : 'Uses the catalog install command',
+                    selected: agentId === DEFAULT_AGENT_ID,
+                };
+            }),
+            { id: 'skip', label: 'Skip for now', kind: 'skip' as const },
+        ],
+    );
+    if (selected.length === 0) return true;
+
+    let allOk = true;
+    for (const agentId of selected) {
+        const spec = getProviderCliRuntimeSpec(agentId);
+        const result = await invokeProviderCliInstall({ agentId });
+        if (!result.ok) {
+            allOk = false;
+            console.error(`Could not install ${spec.title}: ${result.errorMessage}`);
+            if (result.logPath) console.error(`Install log: ${result.logPath}`);
+            continue;
+        }
+        const resolved = (() => {
+            try {
+                return resolveProviderCliCommand(agentId, {}) !== null;
+            } catch {
+                return false;
+            }
+        })();
+        if (!resolved) {
+            allOk = false;
+            console.error(`Installed ${spec.title}, but it is not resolvable yet. Open a new shell or run \`happier status\`, then retry.`);
+            continue;
+        }
+        const installMode = result.plan.installMode === 'vendor_recipe' ? 'vendor installer' : 'managed package';
+        console.log(`Installed ${spec.title} with its catalog ${installMode}.`);
+    }
+    return allOk;
+}
+
+function printSetupAgentReadiness(installedAgentIds: readonly AgentId[]): void {
+    if (installedAgentIds.length === 0) {
+        console.log('');
+        console.log('This computer is connected, but you still need a coding agent before starting a session.');
+        console.log('Install one in the app: Settings → Agents → CLI & Authentication.');
+        console.log('Or run `happier setup` again from this terminal.');
+        return;
+    }
+    const cliSubcommand = AGENTS_CORE[installedAgentIds[0]!].cliSubcommand;
+    console.log('');
+    console.log('Computer connected. Coding agent installed.');
+    console.log('Start your first session:');
+    console.log('  App: New session → this computer → choose a project');
+    console.log(`  CLI: happier ${cliSubcommand}`);
+    console.log('Agent installation and sign-in are separate. Manage both in the app:');
+    console.log('  Settings → Agents → CLI & Authentication');
+}
+
 /**
  * `server add` asks for a relay profile name whenever it can, and refuses to run
  * without `--name` the moment it cannot. Either way an unattended run has to
@@ -295,11 +345,7 @@ function serverAddArgs(relayUrl: string): readonly string[] {
 async function runStep(step: SetupStep, unattended: boolean): Promise<boolean> {
     switch (step.kind) {
         case 'alreadyConfigured':
-            console.log(`This computer is already set up (relay: ${step.relayUrl}).`);
-            console.log('Run `happier status` to check everything, or `happier` to start a session.');
-            return true;
-        case 'explainRelayReachability':
-            printRelayReachabilityIntro(step.reachability);
+            console.log(`This computer is already connected (relay: ${step.relayUrl}).`);
             return true;
         case 'installLocalRelay':
             return (await runCliStep(['relay', 'host', 'install'], {
@@ -325,6 +371,8 @@ async function runStep(step: SetupStep, unattended: boolean): Promise<boolean> {
             })) === 0;
         case 'authLogin':
             return (await runCliStep(resolveAuthLoginArgv(), { unattended })) === 0;
+        case 'setupAgents':
+            return await offerCodingAgentSetup(step.installedAgentIds);
         case 'warnNoAgent':
             console.log('');
             console.log('No coding agent found on this computer.');
@@ -332,11 +380,13 @@ async function runStep(step: SetupStep, unattended: boolean): Promise<boolean> {
             console.log("Happier drives your coding agent; it does not ship one. Install at least");
             console.log('one, then run `happier` again:');
             console.log('');
-            console.log('  Claude Code   curl -fsSL https://claude.ai/install.sh | bash');
-            console.log('  Codex         happier install provider codex');
-            console.log('  OpenCode      happier install provider opencode');
+            for (const agentId of listInstallableAgentIds().slice(0, 3)) {
+                const spec = getProviderCliRuntimeSpec(agentId);
+                console.log(`  ${spec.title}   happier install provider ${agentId}`);
+            }
             console.log('');
-            console.log('  See them all: happier install provider --help');
+            console.log('  App: Settings → Agents → CLI & Authentication');
+            console.log('  CLI: happier install provider --help');
             return true;
         default:
             return true;
@@ -443,5 +493,8 @@ export async function handleSetupCliCommand(context: CommandContext): Promise<vo
         // that finishes it still has to be approved by a person. The installer
         // reads a zero exit as "you're ready".
         process.exitCode = 1;
+        return;
     }
+
+    printSetupAgentReadiness(await listInstalledAgentIds());
 }
