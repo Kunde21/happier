@@ -103,6 +103,7 @@ import {
     isCodexAppServerInvalidRequestMapExpectedStringError,
     isCodexAppServerInvalidParamsForFieldError,
     isCodexAppServerInvalidParamsError,
+    isCodexAppServerDefinitiveMethodNotFoundError,
     isCodexAppServerMethodNotFoundError,
     isCodexAppServerNoActiveTurnToSteerError,
 } from './appServerCompatibility';
@@ -2146,6 +2147,25 @@ export function createCodexAppServerRuntime(params: Readonly<{
         return await next;
     };
 
+    const startDetachedProviderProjection = (
+        method: string,
+        work: () => void | Promise<void>,
+    ): void => {
+        try {
+            void Promise.resolve(work()).catch((error) => {
+                logger.debug('[codex-app-server] Detached provider projection failed (non-fatal)', {
+                    method,
+                    errorName: error instanceof Error ? error.name : typeof error,
+                });
+            });
+        } catch (error) {
+            logger.debug('[codex-app-server] Detached provider projection failed (non-fatal)', {
+                method,
+                errorName: error instanceof Error ? error.name : typeof error,
+            });
+        }
+    };
+
     const appendStreamDelta = (itemKey: string, text: string, values: Map<string, string>, append: (deltaText: string) => void): void => {
         if (!text) return;
         append(text);
@@ -2240,7 +2260,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
 
     const flushItemTranscriptBoundary = async (sidechainId: string | null): Promise<void> => {
         commitPendingRawAssistantFinals({ includeFallbackRawFinals: false, sidechainId });
-        await itemTranscriptBridge.flushStreamsMatching({
+        await itemTranscriptBridge.flushStreamsMatchingThroughDurableAdmission({
             reason: 'tool-call-boundary',
             matches: (stream) => stream.sidechainId === sidechainId,
         });
@@ -2288,9 +2308,9 @@ export function createCodexAppServerRuntime(params: Readonly<{
         activeTurnHasMeaningfulContextWindowRecoveryActivity = true;
     };
 
-    const commitInlineReviewFindings = async (
+    const commitInlineReviewFindings = (
         update: Extract<CodexAppServerStreamUpdate, { type: 'review-mode-completed' }>,
-    ): Promise<void> => {
+    ): void => {
         const reviewText = update.review.trim();
         if (!reviewText) return;
 
@@ -2307,20 +2327,24 @@ export function createCodexAppServerRuntime(params: Readonly<{
         if (!payload) return;
 
         const commitSession = params.transcriptSession ?? params.session;
-        if (typeof commitSession.sendAgentMessageCommitted !== 'function') return;
-        await commitSession.sendAgentMessageCommitted(
-            'codex',
-            { type: 'message', message: reviewText },
-            {
-                localId: `codex-inline-review:${reviewTurnId}:${update.itemId}`,
-                meta: {
-                    happier: {
-                        kind: 'review_findings.v2',
-                        payload,
+        const sendAgentMessageCommitted = commitSession.sendAgentMessageCommitted;
+        if (typeof sendAgentMessageCommitted !== 'function') return;
+        startDetachedProviderProjection('review-mode-completed:transcript-ack', () => (
+            sendAgentMessageCommitted.call(
+                commitSession,
+                'codex',
+                { type: 'message', message: reviewText },
+                {
+                    localId: `codex-inline-review:${reviewTurnId}:${update.itemId}`,
+                    meta: {
+                        happier: {
+                            kind: 'review_findings.v2',
+                            payload,
+                        },
                     },
                 },
-            },
-        );
+            )
+        ));
     };
 
     const applyStreamUpdate = async (update: CodexAppServerStreamUpdate, context: StreamUpdateContext): Promise<void> => {
@@ -2404,7 +2428,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
             deletePendingRawAssistantFinalForNormalizedItem(context.streamScopeId, update.itemId);
             nativeReviewCompletionTextByStreamScope.set(context.streamScopeId, update.review);
             if (activeInlineReview && !context.sidechainId) {
-                await commitInlineReviewFindings(update);
+                commitInlineReviewFindings(update);
                 return;
             }
             appendStreamFinal(itemKey, update.review, assistantTextByItemId, (deltaText) => {
@@ -3729,7 +3753,9 @@ export function createCodexAppServerRuntime(params: Readonly<{
                                     threadId = nextThreadId;
                                     publishThreadId();
                                 }
-                                await publishRuntimeContextWindow(readCodexRuntimeContextWindowTokens(notificationParams));
+                                startDetachedProviderProjection('turn/started:context-window', () => (
+                                    publishRuntimeContextWindow(readCodexRuntimeContextWindowTokens(notificationParams))
+                                ));
                                 turnInFlight = true;
                                 setThinking(true);
                             }),
@@ -3738,10 +3764,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                         });
                     });
                     client.registerNotificationHandler('thread/tokenUsage/updated', (notificationParams) => {
-                        void runBridgeWork({
-                            operation: 'provider-notification',
-                            details: { method: 'thread/tokenUsage/updated' },
-                        }, async () => {
+                        startDetachedProviderProjection('thread/tokenUsage/updated', () => {
                             if (attachedClientGeneration !== clientLifecycleGeneration) return;
                             const notificationThreadId = readThreadId(notificationParams);
                             if (notificationThreadId && threadId && notificationThreadId !== threadId) {
@@ -3754,7 +3777,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                             const lastBreakdown = readCodexTokenUsageBreakdown(tokenUsage?.last);
                             const contextWindowTokens = readCodexRuntimeContextWindowTokens(tokenUsage);
 
-                            await publishRuntimeContextWindow(contextWindowTokens);
+                            void publishRuntimeContextWindow(contextWindowTokens);
 
                             if (!totalBreakdown) return;
 
@@ -3770,39 +3793,30 @@ export function createCodexAppServerRuntime(params: Readonly<{
                         });
                     });
                     client.registerNotificationHandler('account/rateLimits/updated', (notificationParams) => {
-                        void runBridgeWork({
-                            operation: 'provider-notification',
-                            details: { method: 'account/rateLimits/updated' },
-                        }, async () => {
+                        startDetachedProviderProjection('account/rateLimits/updated', () => {
                             if (attachedClientGeneration !== clientLifecycleGeneration) return;
-                            await publishRateLimitSnapshot(notificationParams, { mergeWithLast: true });
+                            return publishRateLimitSnapshot(notificationParams, { mergeWithLast: true });
                         });
                     });
                     client.registerNotificationHandler('thread/goal/updated', (notificationParams) => {
-                        void runBridgeWork({
-                            operation: 'provider-notification',
-                            details: { method: 'thread/goal/updated' },
-                        }, async () => {
+                        startDetachedProviderProjection('thread/goal/updated', () => {
                             if (attachedClientGeneration !== clientLifecycleGeneration) return;
                             const notificationThreadId = readThreadId(notificationParams);
                             if (notificationThreadId && threadId && notificationThreadId !== threadId) {
                                 return;
                             }
                             const record = readRecord(notificationParams);
-                            await publishGoalWorkState(record?.goal ?? notificationParams);
+                            return publishGoalWorkState(record?.goal ?? notificationParams);
                         });
                     });
                     client.registerNotificationHandler('thread/goal/cleared', (notificationParams) => {
-                        void runBridgeWork({
-                            operation: 'provider-notification',
-                            details: { method: 'thread/goal/cleared' },
-                        }, async () => {
+                        startDetachedProviderProjection('thread/goal/cleared', () => {
                             if (attachedClientGeneration !== clientLifecycleGeneration) return;
                             const notificationThreadId = readThreadId(notificationParams);
                             if (notificationThreadId && threadId && notificationThreadId !== threadId) {
                                 return;
                             }
-                            await clearGoalWorkState();
+                            return clearGoalWorkState();
                         });
                     });
                     client.registerNotificationHandler('error', (notificationParams) => {
@@ -4160,7 +4174,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
         client: DisposableCodexAppServerClient,
         nextThreadId: string,
         startOrLoadResponse: unknown,
-        options: Readonly<{ publishThreadIdImmediately?: boolean }> = {},
+        options: Readonly<{ publishThreadIdImmediately?: boolean; hydrateRollbackTurns?: boolean }> = {},
     ): Promise<void> => {
         const activeProviderTurn = pendingTurn;
         threadId = nextThreadId;
@@ -4175,6 +4189,14 @@ export function createCodexAppServerRuntime(params: Readonly<{
         }
         if (!activeProviderTurn || activeProviderTurn.threadId !== nextThreadId) {
             turnBoundaryTracker.initializeFromCurrentMetadata();
+            if (options.hydrateRollbackTurns) {
+                try {
+                    const persistedTurns = await params.session.readSessionTurnsProjection?.();
+                    if (persistedTurns) turnBoundaryTracker.hydrateFromSessionTurns(persistedTurns);
+                } catch (error) {
+                    logger.warn('[codex-app-server] Failed to hydrate persisted rollback turns; rollback remains unavailable until a new turn completes', error);
+                }
+            }
             await finishPendingTurn({ flushReason: 'abort' });
         }
         if (options.publishThreadIdImmediately !== false) {
@@ -4297,7 +4319,10 @@ export function createCodexAppServerRuntime(params: Readonly<{
             client,
             startOrLoadResult.nextThreadId,
             startOrLoadResult.response,
-            { publishThreadIdImmediately: Boolean(resumeId || existingSessionId) },
+            {
+                publishThreadIdImmediately: Boolean(resumeId || existingSessionId),
+                hydrateRollbackTurns: Boolean(resumeId || existingSessionId),
+            },
         );
         const initialGoal = options.initialGoal;
         if (initialGoal?.objective) {
@@ -5521,7 +5546,25 @@ export function createCodexAppServerRuntime(params: Readonly<{
 
             const client = await ensureClient();
             try {
-                await client.request('thread/rollback', { threadId: activeThreadId, numTurns: rollbackPlan.numTurns });
+                if (rollbackPlan.beforeTurnId) {
+                    try {
+                        await client.request('thread/revert', {
+                            threadId: activeThreadId,
+                            beforeTurnId: rollbackPlan.beforeTurnId,
+                        });
+                    } catch (error) {
+                        if (!isCodexAppServerDefinitiveMethodNotFoundError(error, 'thread/revert')) throw error;
+                        await client.request('thread/rollback', {
+                            threadId: activeThreadId,
+                            numTurns: rollbackPlan.numTurns,
+                        });
+                    }
+                } else {
+                    await client.request('thread/rollback', {
+                        threadId: activeThreadId,
+                        numTurns: rollbackPlan.numTurns,
+                    });
+                }
             } catch (error) {
                 const unsupportedMessage = readRollbackUnsupportedErrorMessage(error);
                 if (unsupportedMessage) {
