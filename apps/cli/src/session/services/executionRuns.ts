@@ -4,6 +4,7 @@ import {
     ExecutionRunGetResponseSchema,
     ExecutionRunListResponseSchema,
     ExecutionRunPublicStateSchema,
+    ExecutionRunStartRequestSchema,
     type ExecutionRunListRequest,
     type ExecutionRunPublicState,
 } from '@happier-dev/protocol';
@@ -15,11 +16,18 @@ import {
 
 import { configuration } from '@/configuration';
 import { listExecutionRunMarkers } from '@/daemon/executionRunRegistry';
+import { fingerprintExecutionRunStartRequest } from '@/agent/executionRuns/executionRunStartFingerprint';
+import {
+    EXECUTION_RUN_SEND_OUTCOME_UNKNOWN_CODE,
+    EXECUTION_RUN_SEND_OUTCOME_UNKNOWN_MESSAGE,
+} from '@/agent/executionRuns/runtime/executionRunErrors';
 import type {
     SessionEncryptionContext,
     SessionStoredContentEncryptionMode,
 } from '@/session/transport/encryption/sessionEncryptionContext';
 import { callSessionRpc } from '@/session/transport/rpc/sessionRpc';
+import { readRpcRequestDisposition } from '@/session/transport/rpc/rpcRequestDisposition';
+import { isSocketRpcDisconnectBeforeAcknowledgementError } from '@/session/transport/rpc/socketRpcDisconnectGuard';
 import { applyExecutionRunListRequest } from './applyExecutionRunListRequest';
 import {
     findExecutionRunPublicStateInHistoryRows,
@@ -83,6 +91,12 @@ function classifyExecutionRunRpcFallback(error: unknown): ExecutionRunFallbackEx
 
     const normalizedMessage = errorMessage.toLowerCase();
     if (
+        isSocketRpcDisconnectBeforeAcknowledgementError(error)
+        && readRpcRequestDisposition(error) === 'notSent'
+    ) {
+        return 'execution_run_target_unavailable';
+    }
+    if (
         normalizedMessage.includes('connect_error')
         || normalizedMessage.includes('socket connect timeout')
         || normalizedMessage.includes('rpc call timeout')
@@ -93,9 +107,12 @@ function classifyExecutionRunRpcFallback(error: unknown): ExecutionRunFallbackEx
     return null;
 }
 
-function isExecutionRunStartObservationTimeout(error: unknown): boolean {
+function isExecutionRunStartObservationUnknown(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error ?? '');
-    return message.toLowerCase().includes('rpc call timeout');
+    return message.toLowerCase().includes('rpc call timeout') || (
+        isSocketRpcDisconnectBeforeAcknowledgementError(error)
+        && readRpcRequestDisposition(error) === 'outcomeUnknown'
+    );
 }
 
 async function recoverCorrelatedExecutionRunStart(params: Readonly<{
@@ -107,6 +124,9 @@ async function recoverCorrelatedExecutionRunStart(params: Readonly<{
         ? params.request.startRequestId.trim()
         : '';
     if (!startRequestId) return null;
+    const parsedRequest = ExecutionRunStartRequestSchema.safeParse(params.request);
+    if (!parsedRequest.success) return null;
+    const startRequestFingerprint = fingerprintExecutionRunStartRequest(parsedRequest.data);
 
     let markers;
     try {
@@ -117,6 +137,7 @@ async function recoverCorrelatedExecutionRunStart(params: Readonly<{
     const matches = markers.filter((marker) => (
         marker.happySessionId === params.sessionId
         && (marker as ExecutionRunMarkerRecord).startRequestId === startRequestId
+        && (marker as ExecutionRunMarkerRecord).startRequestFingerprint === startRequestFingerprint
     ));
     if (matches.length !== 1) return null;
     const marker = matches[0] as ExecutionRunMarkerRecord;
@@ -137,6 +158,9 @@ async function recoverCorrelatedExecutionRunStart(params: Readonly<{
             retentionPolicy: marker.retentionPolicy,
             runClass: marker.runClass,
             ioMode: marker.ioMode,
+            ...(marker.requestedConfiguration !== undefined
+                ? { requestedConfiguration: marker.requestedConfiguration }
+                : {}),
             startDisposition: 'recovered_after_observation_timeout',
         },
     };
@@ -178,6 +202,9 @@ function toExecutionRunPublicState(marker: ExecutionRunMarkerRecord): ExecutionR
         backendTarget: marker.backendTarget,
         ...(marker.display !== undefined ? { display: marker.display } : {}),
         ...(marker.launchOrigin !== undefined ? { launchOrigin: marker.launchOrigin } : {}),
+        ...(marker.requestedConfiguration !== undefined
+            ? { requestedConfiguration: marker.requestedConfiguration }
+            : {}),
         permissionMode,
         retentionPolicy: marker.retentionPolicy,
         runClass: marker.runClass,
@@ -428,7 +455,7 @@ export async function startExecutionRun(
         }
         return result;
     } catch (error) {
-        if (isExecutionRunStartObservationTimeout(error)) {
+        if (isExecutionRunStartObservationUnknown(error)) {
             const recovered = await recoverCorrelatedExecutionRunStart({
                 sessionId: params.sessionId,
                 request: params.request,
@@ -600,10 +627,28 @@ export async function getExecutionRun(
 export async function sendExecutionRunMessage(
     params: ExecutionRunRpcContext & Readonly<{ request: unknown }>,
 ): Promise<ExecutionRunServiceResult<unknown>> {
-    return await callExecutionRunRpc({
-        ...params,
-        methodSuffix: SESSION_RPC_METHODS.EXECUTION_RUN_SEND,
-    });
+    try {
+        return await callExecutionRunRpc({
+            ...params,
+            methodSuffix: SESSION_RPC_METHODS.EXECUTION_RUN_SEND,
+            // Once the daemon adopts this side-effecting input, provider admission owns its lifetime.
+            // A caller deadline cannot prove the effect did not occur and would make retry unsafe.
+            timeoutMs: null,
+        });
+    } catch (error) {
+        const disposition = readRpcRequestDisposition(error);
+        if (disposition === 'outcomeUnknown') {
+            return {
+                ok: false,
+                code: EXECUTION_RUN_SEND_OUTCOME_UNKNOWN_CODE,
+                message: EXECUTION_RUN_SEND_OUTCOME_UNKNOWN_MESSAGE,
+            };
+        }
+        if (disposition === 'notSent') {
+            return toExecutionRunFallbackExhaustedError(error, 'execution_run_target_unavailable');
+        }
+        throw error;
+    }
 }
 
 export async function stopExecutionRun(
@@ -612,6 +657,7 @@ export async function stopExecutionRun(
     return await callExecutionRunRpc({
         ...params,
         methodSuffix: SESSION_RPC_METHODS.EXECUTION_RUN_STOP,
+        timeoutMs: null,
     });
 }
 
@@ -621,6 +667,7 @@ export async function executeExecutionRunAction(
     return await callExecutionRunRpc({
         ...params,
         methodSuffix: SESSION_RPC_METHODS.EXECUTION_RUN_ACTION,
+        timeoutMs: null,
     });
 }
 
@@ -630,6 +677,7 @@ export async function startExecutionRunStream(
     return await callExecutionRunRpc({
         ...params,
         methodSuffix: SESSION_RPC_METHODS.EXECUTION_RUN_STREAM_START,
+        timeoutMs: null,
     });
 }
 
@@ -648,6 +696,7 @@ export async function cancelExecutionRunStream(
     return await callExecutionRunRpc({
         ...params,
         methodSuffix: SESSION_RPC_METHODS.EXECUTION_RUN_STREAM_CANCEL,
+        timeoutMs: null,
     });
 }
 

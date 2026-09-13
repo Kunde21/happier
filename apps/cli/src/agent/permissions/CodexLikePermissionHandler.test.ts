@@ -233,6 +233,38 @@ describe('CodexLikePermissionHandler', () => {
     owner.reset();
   });
 
+  it('does not replay a retired execution-run occurrence approval into its replacement', async () => {
+    const session = new FakeSession();
+    const owner = new CodexLikePermissionHandler({ session: session as any, logPrefix: '[ExecutionRun]' });
+    const retired = createRunScopedExecutionPermissionHandler({ runId: 'run-resumed', handler: owner });
+
+    const retiredApproval = retired.handler.handleToolCall('call_reused', 'Write', { path: '/tmp/same' });
+    const retiredRequestId = Object.keys(session.agentState.requests)[0];
+    const rpc = session.rpcHandlerManager.handlers.get('permission');
+    expect(retiredRequestId).toBeDefined();
+    expect(rpc).toBeDefined();
+    await rpc!({ id: retiredRequestId, approved: true, decision: 'approved' });
+    await expect(retiredApproval).resolves.toEqual({ decision: 'approved' });
+    retired.dispose('Execution run occurrence retired');
+
+    const replacement = createRunScopedExecutionPermissionHandler({ runId: 'run-resumed', handler: owner });
+    const replacementApproval = replacement.handler.handleToolCall('call_reused', 'Write', { path: '/tmp/same' });
+    const replacementRequestId = Object.keys(session.agentState.requests)[0];
+
+    expect(replacementRequestId).toBeDefined();
+    expect(replacementRequestId).not.toBe(retiredRequestId);
+    expect(await settledState(replacementApproval)).toBe('pending');
+
+    await rpc!({ id: retiredRequestId, approved: true, decision: 'approved' });
+    expect(await settledState(replacementApproval)).toBe('pending');
+
+    await rpc!({ id: replacementRequestId, approved: true, decision: 'approved' });
+    await expect(replacementApproval).resolves.toEqual({ decision: 'approved' });
+
+    replacement.dispose('Test cleanup');
+    owner.reset();
+  });
+
   it('uses each admitted execution-run policy instead of the parent session mode', async () => {
     const session = new FakeSession();
     const owner = new CodexLikePermissionHandler({ session: session as any, logPrefix: '[ExecutionRun]' });

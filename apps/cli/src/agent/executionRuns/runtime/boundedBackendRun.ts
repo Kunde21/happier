@@ -7,6 +7,7 @@ import type { FinishExecutionRun } from '@/agent/executionRuns/runtime/execution
 import { isAbortLikeError, normalizeExecutionRunSendDelivery, resolveInFlightDeliveryAction } from '@/agent/executionRuns/runtime/turnDelivery';
 import { resolveExecutionRunRuntimeBackendId } from '@/agent/executionRuns/runtime/backendTargets';
 import {
+  createExecutionRunSendOutcomeUnknownError,
   createExecutionRunTimeoutError,
   isExecutionRunTimeoutError,
   readExecutionRunErrorCode,
@@ -113,6 +114,13 @@ export async function executeBoundedBackendRun(args: Readonly<{
     async function runTurnWithExternalMessages(turnPrompt: string): Promise<void> {
       backendCtrl.turnCancelReason = null;
       backendCtrl.turnCancelEpoch = null;
+      // Provider completion and external-send admission mutate this state across awaited
+      // boundaries. Read it through one live accessor so neither the compiler nor this loop treats
+      // a pre-await narrowing as current evidence.
+      const readTurnCancellation = () => ({
+        reason: backendCtrl.turnCancelReason,
+        epoch: backendCtrl.turnCancelEpoch,
+      });
       const sendPromptPromise = sendTurnPrompt(turnPrompt);
       let activeEpoch = backendCtrl.turnEpoch;
       let completionPromise: Promise<void> = waitForTurnComplete(sendPromptPromise);
@@ -127,9 +135,10 @@ export async function executeBoundedBackendRun(args: Readonly<{
         if (raced.t === 'complete') break;
         if (raced.t === 'error') {
           const e = raced.e;
+          const cancellation = readTurnCancellation();
           if (
-            backendCtrl.turnCancelReason === 'steer'
-            && backendCtrl.turnCancelEpoch === activeEpoch
+            cancellation.reason === 'steer'
+            && cancellation.epoch === activeEpoch
             && isAbortLikeError(e)
           ) {
             backendCtrl.turnCancelReason = null;
@@ -156,8 +165,14 @@ export async function executeBoundedBackendRun(args: Readonly<{
           try {
             await backendCtrl.backend.sendSteerPrompt!(backendCtrl.childSessionId!, next.message);
             next.resolve();
-          } catch (e: any) {
-            next.reject(e instanceof Error ? e : new Error('Steer failed'));
+          } catch {
+            // The provider operation was invoked, so a rejection alone cannot prove the steer was
+            // refused before effect. Preserve exclusive custody and tell the caller not to retry.
+            if (backendCtrl.turnEpoch === activeEpoch) {
+              backendCtrl.turnCancelReason = 'outcome_unknown';
+              backendCtrl.turnCancelEpoch = activeEpoch;
+            }
+            next.reject(createExecutionRunSendOutcomeUnknownError());
           }
           continue;
         }

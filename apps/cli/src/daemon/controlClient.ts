@@ -167,7 +167,10 @@ function resolvePositiveIntValue(
 function resolveDaemonControlTimeoutMs(path: string, options: DaemonControlRequestOptions): number | null {
   if (options.timeoutMs === null) return null;
   if (options.timeoutMs !== undefined) {
-    return resolvePositiveIntValue(options.timeoutMs, DEFAULT_DAEMON_HTTP_TIMEOUT_MS, { min: 100, max: 300_000 });
+    return resolvePositiveIntValue(options.timeoutMs, DEFAULT_DAEMON_HTTP_TIMEOUT_MS, {
+      min: 100,
+      max: path === EXECUTION_RUN_CONNECTED_SERVICE_MATERIALIZE_PATH ? 600_000 : 300_000,
+    });
   }
 
   if (path === '/spawn-session') {

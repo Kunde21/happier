@@ -335,6 +335,35 @@ function createCancelRaceBackend(params: Readonly<{
 }
 
 describe('executionRuns session RPC handlers', () => {
+  it('returns the accepted requested configuration from execution.run.start', async () => {
+    const client = createEncryptedRpcTestClient({
+      scopePrefix: 'sess_1',
+      registerHandlers: (rpc) => {
+        registerExecutionRunHandlers(rpc, {
+          sessionId: 'sess_1',
+          cwd: process.cwd(),
+          parentProvider: 'claude',
+          createBackend: () => createDelayedBackend('done', 60_000),
+          sendAcp: () => {},
+        });
+      },
+    });
+
+    const started = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_START, {
+      intent: 'delegate',
+      backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
+      instructions: 'Delegate.',
+      permissionMode: 'read_only',
+      retentionPolicy: 'ephemeral',
+      runClass: 'bounded',
+      ioMode: 'request_response',
+      modelId: 'gpt-test',
+    });
+
+    expect(started.requestedConfiguration).toEqual({ modelId: 'gpt-test' });
+    await client.call(SESSION_RPC_METHODS.EXECUTION_RUN_STOP, { runId: started.runId });
+  });
+
   it('waits on the manager lifecycle without polling get', async () => {
     const client = createEncryptedRpcTestClient({
       scopePrefix: 'sess_1',
@@ -867,7 +896,9 @@ describe('executionRuns session RPC handlers', () => {
       ioMode: 'request_response',
     });
 
-    expect(sent.filter((m: any) => m?.body?.type === 'message').length).toBe(1);
+    await expect
+      .poll(() => sent.filter((m: any) => m?.body?.type === 'message').length, { timeout: 1_000 })
+      .toBe(1);
 
     const sentReply = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_SEND, {
       runId: started.runId,
@@ -1136,8 +1167,8 @@ describe('executionRuns session RPC handlers', () => {
     await p1;
   });
 
-	  it('retries cancel+send when the backend transiently rejects the next prompt after cancel', async () => {
-	    const { backend, events } = createCancelRaceBackend({ longDelayMs: 200 });
+  it('does not replay cancel+send when provider admission fails ambiguously after invocation', async () => {
+    const { backend, events } = createCancelRaceBackend({ longDelayMs: 200 });
 
     const client = createEncryptedRpcTestClient({
       scopePrefix: 'sess_1',
@@ -1152,41 +1183,47 @@ describe('executionRuns session RPC handlers', () => {
       },
     });
 
-	    const started = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_START, {
-	      intent: 'delegate',
-	      backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
-	      instructions: 'Start.',
+    const started = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_START, {
+      intent: 'delegate',
+      backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
+      instructions: 'Start.',
       permissionMode: 'read_only',
       retentionPolicy: 'ephemeral',
       runClass: 'long_lived',
-	      ioMode: 'request_response',
-	    });
+      ioMode: 'request_response',
+    });
 
-	    // Wait until the initial prompt is actually in-flight before issuing an interrupt.
-	    // Under high CI load, a fixed sleep can race and cause the interrupt path to be exercised without a cancel.
-	    for (let attempt = 0; attempt < 200; attempt += 1) {
-	      if (events.sendPrompts.length > 0) break;
-	      await new Promise((r) => setTimeout(r, 5));
-	    }
-	    expect(events.sendPrompts.length).toBeGreaterThan(0);
+    // Wait until the initial prompt is actually in-flight before issuing an interrupt.
+    // Under high CI load, a fixed sleep can race and miss the cancel-and-send path.
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (events.sendPrompts.length > 0) break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(events.sendPrompts.length).toBeGreaterThan(0);
 
-	    const interrupted = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_SEND, {
-	      runId: started.runId,
-	      message: 'second',
+    const interrupted = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_SEND, {
+      runId: started.runId,
+      message: 'second',
       delivery: 'interrupt',
     });
-	    expect(interrupted.ok).toBe(true);
-	    expect(events.cancelCount).toBe(1);
+    expect(interrupted).toMatchObject({
+      ok: false,
+      errorCode: 'execution_run_send_outcome_unknown',
+    });
+    expect(events.cancelCount).toBe(1);
+    expect(events.sendPrompts.filter((prompt) => prompt === 'second')).toHaveLength(1);
 
-	    for (let attempt = 0; attempt < 200; attempt += 1) {
-	      if (events.sendPrompts.some((p) => p === 'second')) break;
-	      await new Promise((r) => setTimeout(r, 5));
-	    }
+    const duplicate = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_SEND, {
+      runId: started.runId,
+      message: 'must not overlap',
+      delivery: 'steer_if_supported',
+    });
+    expect(duplicate).toMatchObject({ ok: false, errorCode: 'execution_run_busy' });
 
-	    const got = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_GET, { runId: started.runId });
-	    expect(got.run?.status).toBe('running');
-	    expect(events.sendPrompts.some((p) => p === 'second')).toBe(true);
-	  });
+    const got = await client.call<any, any>(SESSION_RPC_METHODS.EXECUTION_RUN_GET, { runId: started.runId });
+    expect(got.run?.status).toBe('running');
+    expect(events.sendPrompts.filter((prompt) => prompt === 'second')).toHaveLength(1);
+  });
 
   it('does not terminalize long-lived runs when multiple in-flight turns are cancelled for steering', async () => {
     const { backend } = createSequencedBackend({
@@ -2591,7 +2628,7 @@ describe('executionRuns session RPC handlers', () => {
     expect(acted.errorCode).toBe('execution_run_invalid_action_input');
   });
 
-  it('returns canonical execution_run_failed when execution.run.send fails mid-run', async () => {
+  it('returns canonical outcome-unknown when execution.run.send throws after provider invocation', async () => {
     const client = createEncryptedRpcTestClient({
       scopePrefix: 'sess_1',
       registerHandlers: (rpc) => {
@@ -2620,7 +2657,7 @@ describe('executionRuns session RPC handlers', () => {
       message: 'next',
     });
     expect(res.ok).toBe(false);
-    expect(res.errorCode).toBe('execution_run_failed');
+    expect(res.errorCode).toBe('execution_run_send_outcome_unknown');
   });
 
   it('returns permission_denied when starting a review run with an unsafe permissionMode', async () => {

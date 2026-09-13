@@ -1,5 +1,4 @@
 import type { RpcHandlerContext, RpcHandlerRegistrar } from '@/api/rpc/types';
-import { createHash } from 'node:crypto';
 import type { ACPMessageData, ACPProvider } from '@/api/session/sessionMessageTypes';
 import type { AcpSendFn } from '@/agent/acp/bridge/acpSessionForwarding';
 import type { AgentBackend } from '@/agent/core/AgentBackend';
@@ -23,6 +22,7 @@ import {
 } from '@happier-dev/protocol';
 
 import { ExecutionRunManager } from '@/agent/executionRuns/runtime/ExecutionRunManager';
+import type { ExecutionRunStartResult } from '@/agent/executionRuns/runtime/executionRunTypes';
 import type { SessionRuntimeActivityContributionHandle } from '@/session/runtimeActivity/types';
 import {
   ExecutionRunConnectedServicesUnavailableError,
@@ -45,6 +45,7 @@ import { readCodeRabbitReviewConfigFromEnv } from '@/agent/reviews/engines/coder
 import { readCredentials } from '@/persistence';
 import { configuration } from '@/configuration';
 import { resolveReplaySeedDraft, type ReplaySeedDraftResolution } from '@/session/replay/resolveReplaySeedDraft';
+import { fingerprintExecutionRunStartRequest } from '@/agent/executionRuns/executionRunStartFingerprint';
 
 function invalidParams(): { ok: false; error: string; errorCode: string } {
   return { ok: false, error: 'Invalid params', errorCode: 'execution_run_invalid_action_input' };
@@ -60,21 +61,6 @@ function executionRunNotAllowedError(error: unknown): { ok: false; error: string
     error: error instanceof Error ? error.message : 'Execution run not allowed',
     errorCode: 'execution_run_not_allowed',
   };
-}
-
-function stableJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableJsonValue);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => key !== 'startRequestId' && key !== 'startRequestFingerprint')
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, stableJsonValue(entry)]),
-  );
-}
-
-function fingerprintExecutionRunStartRequest(request: unknown): string {
-  return createHash('sha256').update(JSON.stringify(stableJsonValue(request))).digest('hex');
 }
 
 export function registerExecutionRunHandlers(
@@ -190,7 +176,7 @@ export function registerExecutionRunHandlers(
   }
 
   async function startRun(raw: unknown): Promise<
-    | { ok: true; runId: string; callId: string; sidechainId: string }
+    | ({ ok: true } & ExecutionRunStartResult)
     | { ok: false; error: string; errorCode: string }
   > {
     if (!isExecutionRunsEnabled()) return executionRunsDisabled();
@@ -430,7 +416,12 @@ export function registerExecutionRunHandlers(
   rpc.registerHandler(SESSION_RPC_METHODS.EXECUTION_RUN_START, async (raw: unknown) => {
     const started = await startRun(raw);
     if (!started.ok) return started;
-    return { runId: started.runId, callId: started.callId, sidechainId: started.sidechainId };
+    return {
+      runId: started.runId,
+      callId: started.callId,
+      sidechainId: started.sidechainId,
+      ...(started.requestedConfiguration ? { requestedConfiguration: started.requestedConfiguration } : {}),
+    };
   });
 
   rpc.registerHandler(SESSION_RPC_METHODS.EXECUTION_RUN_LIST, async (raw: unknown) => {
@@ -474,16 +465,17 @@ export function registerExecutionRunHandlers(
     context?.signal.throwIfAborted();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let removeAbortListener = () => {};
+    const waitObserverAbort = new AbortController();
     const deadlineAtMs = timeoutMs === null ? null : Date.now() + timeoutMs;
     const observationTimedOut = Symbol('execution-run-observation-timeout');
     const outcomes: Array<Promise<null | typeof observationTimedOut>> = [
-      manager.waitForTerminal(runId).then(() => null),
+      manager.waitForTerminal(runId, { signal: waitObserverAbort.signal }).then(() => null),
     ];
     if (timeoutMs !== null) {
       outcomes.push(
-          new Promise<typeof observationTimedOut>((resolve) => {
-            timer = setTimeout(() => resolve(observationTimedOut), timeoutMs);
-          }),
+        new Promise<typeof observationTimedOut>((resolve) => {
+          timer = setTimeout(() => resolve(observationTimedOut), timeoutMs);
+        }),
       );
     }
     if (context?.signal) {
@@ -500,6 +492,7 @@ export function registerExecutionRunHandlers(
     try {
       outcome = await Promise.race(outcomes);
     } finally {
+      waitObserverAbort.abort(new Error('Execution run wait observation ended'));
       if (timer) clearTimeout(timer);
       removeAbortListener();
     }

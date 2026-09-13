@@ -23,12 +23,17 @@ export type ExecutionRunBackendController = {
   turnCount: number;
   turnEpoch: number;
   turnInFlight: boolean;
-  turnCancelReason: 'steer' | 'stop' | 'timeout' | null;
+  turnCancelReason: 'steer' | 'stop' | 'timeout' | 'outcome_unknown' | null;
   turnCancelEpoch: number | null;
   pendingExternalMessages: ExecutionRunExternalMessage[];
   pendingExternalMessagesSignal: { promise: Promise<void>; resolve: () => void } | null;
   lastMarkerWriteAtMs: number;
   terminalMarkerWritePromise?: Promise<void>;
+  /**
+   * Run-owned readiness for the initially admitted backend occurrence. A send arriving after the
+   * durable run handle is returned waits here instead of racing session provisioning.
+   */
+  provisioningPromise?: Promise<void>;
   terminalPromise: Promise<void>;
   resolveTerminal: () => void;
 };

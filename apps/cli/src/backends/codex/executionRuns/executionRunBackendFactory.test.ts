@@ -227,6 +227,7 @@ describe('executionRunBackendFactory (codex)', () => {
     vi.stubEnv('HAPPIER_CODEX_APP_SERVER_BIN', '/tmp/fake-codex-app-server');
     vi.stubEnv('HAPPIER_CODEX_EXECUTION_RUN_TRANSPORT', 'appServer');
     vi.stubEnv('HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS', '1234');
+    vi.stubEnv('HAPPIER_CODEX_HAPPIER_MCP_TOOL_CALL_TIMEOUT_MS', '7230500');
 
     vi.doMock('./createCodexAppServerExecutionRunBackend', () => ({
       createCodexAppServerExecutionRunBackend: (options: Record<string, unknown>) => {
@@ -258,6 +259,7 @@ describe('executionRunBackendFactory (codex)', () => {
       HAPPIER_CODEX_APP_SERVER_BIN: '/tmp/fake-codex-app-server',
       HAPPIER_CODEX_EXECUTION_RUN_TRANSPORT: 'appServer',
       HAPPIER_CODEX_APP_SERVER_RPC_TIMEOUT_MS: '1234',
+      HAPPIER_CODEX_HAPPIER_MCP_TOOL_CALL_TIMEOUT_MS: '7230500',
       XDG_STATE_HOME: '/tmp/state',
       PATH: `${resolve('/tmp/happier-worktree', 'scripts', 'shims')}${delimiter}/tmp/isolated-bin:/usr/bin`,
     });
