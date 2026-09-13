@@ -185,6 +185,24 @@ async function readRecordedParams(path: string): Promise<Record<string, unknown>
 }
 
 describe('AcpBackend session configOptions', () => {
+  it('suppresses mode controls and rejects both mode mutation paths when provider policy disables modes', async () => {
+    await withTempDir('happier-acp-disabled-modes-', async (dir) => {
+      const backend = new AcpBackend({
+        agentName: 'test', cwd: dir, command: process.execPath,
+        args: [writeFakeAcpAgentScript({ dir })],
+        sessionModesEnabled: false,
+      });
+      try {
+        const { sessionId } = await backend.startSession();
+        expect(backend.getSessionConfigOptionsState()?.map((option) => option.id)).not.toContain('mode');
+        expect(backend.getSessionConfigOptionsState()?.map((option) => option.id)).toContain('model');
+        await expect(backend.setSessionMode(sessionId, 'auto')).rejects.toThrow(/disabled/);
+        await expect(backend.setSessionConfigOption(sessionId, 'mode', 'auto')).rejects.toThrow(/disabled/);
+      } finally {
+        await backend.dispose();
+      }
+    });
+  });
   it('captures configOptions from newSession and can set a config option', async () => {
     await withTempDir('happier-acp-config-options-', async (dir) => {
       const scriptPath = writeFakeAcpAgentScript({ dir });

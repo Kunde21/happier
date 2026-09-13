@@ -166,7 +166,15 @@ export type StandardAcpProviderConfig = {
   onAfterReset?: (params: { session: ApiSessionClient; runtime: RuntimeForLoop }) => void | Promise<void>;
   onDispose?: (params: { session: ApiSessionClient; runtime: RuntimeForLoop }) => void | Promise<void>;
   startRuntimeBeforeFirstPrompt?: boolean;
-  failClosedOnResumeFailure?: boolean;
+  /**
+   * The provider/catalog declaration that this backend owns ACP `session/load` — the same
+   * fact the ACP protocol owner receives as `declaredSessionLoadSupport`.
+   *
+   * It is also the single policy source for explicit-resume failure handling: when a backend
+   * claims vendor resume, a failed `session/load` must surface instead of silently becoming a
+   * fresh vendor session. Backends that never claim resume keep the new-session fallback.
+   */
+  declaredSessionLoadSupport?: boolean;
   /**
    * True when the backend applies the effective coding system prompt at process
    * spawn without waiting for the first message — e.g. pi, where the spawn flag
@@ -712,7 +720,7 @@ export async function runStandardAcpProvider(
           await trackedNativeReturn.invalidateOnMismatch();
         }
         : undefined,
-      failClosedOnResumeFailure: config.failClosedOnResumeFailure === true,
+      failClosedOnResumeFailure: config.declaredSessionLoadSupport === true,
       startRuntimeBeforeFirstPrompt: config.startRuntimeBeforeFirstPrompt === true,
       resolveFreshSessionSystemPrompt: async ({ baseOverride }) => {
         if (config.deliversSystemPromptAtSpawn !== true) {

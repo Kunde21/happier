@@ -61,10 +61,20 @@ export function createConfiguredAcpRuntime(params: CreateConfiguredAcpRuntimePar
     mcpServers: params.mcpServers,
     permissionHandler: params.permissionHandler,
     onThinkingChange: params.onThinkingChange,
-    sessionIdentity: {
-      kind: 'runtime-only',
-      reason: 'vendor-resume-unsupported',
-    },
+    sessionIdentity: params.backend.capabilities.supportsLoadSession
+      ? {
+          kind: 'persist-bound',
+          persistBound: async (event) => {
+            await Promise.resolve(params.session.updateMetadata((metadata) => ({
+              ...metadata,
+              customAcpSessionId: event.vendorSessionId,
+            })));
+          },
+        }
+      : {
+          kind: 'runtime-only',
+          reason: 'vendor-resume-unsupported',
+        },
     memoryRecallGuidance: params.memoryRecallGuidance,
     hooks: {
       onPermissionRequest: (evt) => {

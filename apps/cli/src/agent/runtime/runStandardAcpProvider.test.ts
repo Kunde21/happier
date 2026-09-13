@@ -1398,4 +1398,35 @@ describe('runStandardAcpProvider', () => {
     );
     expect(observedGetAccountSettingsSecretsReadKeys?.()).toEqual(settingsSecretsReadKeys);
   });
+
+  /**
+   * The prompt loop's new-session fallback is the only path that can turn an explicit vendor
+   * resume into a fresh vendor session. This runner is its single policy owner: the declared
+   * `session/load` support decides, so no provider leaf can forget to opt in.
+   */
+  it('fails closed on explicit resume for a backend that declares vendor session load support', async () => {
+    const harness = createHarness();
+    harness.config.declaredSessionLoadSupport = true;
+    let observedFailClosed: unknown;
+    harness.deps.runPermissionModePromptLoopFn = async (params: any) => {
+      observedFailClosed = params.failClosedOnResumeFailure;
+    };
+
+    await runStandardAcpProvider(harness.opts, harness.config, harness.deps);
+
+    expect(observedFailClosed).toBe(true);
+  });
+
+  it('keeps the new-session fallback for a backend that never claims vendor session load support', async () => {
+    const harness = createHarness();
+    let observedFailClosed: unknown;
+    harness.deps.runPermissionModePromptLoopFn = async (params: any) => {
+      observedFailClosed = params.failClosedOnResumeFailure;
+    };
+
+    await runStandardAcpProvider(harness.opts, harness.config, harness.deps);
+
+    expect(harness.config.declaredSessionLoadSupport).toBeUndefined();
+    expect(observedFailClosed).toBe(false);
+  });
 });

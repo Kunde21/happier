@@ -12,6 +12,8 @@ export type CatalogDefinedAcpBackendOptions = AgentFactoryOptions & Readonly<{
   permissionHandler?: AcpPermissionHandler;
   permissionMode?: PermissionMode;
   prepareProcessLaunch?: AcpBackendOptions['prepareProcessLaunch'];
+  sessionModelAdapter?: AcpBackendOptions['sessionModelAdapter'];
+  launch?: Readonly<{ command: string; args: readonly string[] }>;
 }>;
 
 export function createCatalogDefinedAcpBackend(
@@ -22,22 +24,26 @@ export function createCatalogDefinedAcpBackend(
   if (!config) {
     throw new Error(`Agent '${agentId}' is not a built-in generic ACP agent`);
   }
-  const launch = requireProviderCliLaunchSpec(agentId, { processEnv: { ...process.env, ...options.env } });
+  const launch = options.launch
+    ?? requireProviderCliLaunchSpec(agentId, { processEnv: { ...process.env, ...options.env } });
 
   const backend = createAcpBackend({
     agentName: agentId,
     cwd: options.cwd,
     command: launch.command,
-    args: [...launch.args, ...config.launcher.args],
+    args: options.launch ? [...launch.args] : [...launch.args, ...config.launcher.args],
     env: {
       ...options.env,
       NODE_ENV: 'production',
       DEBUG: '',
     },
     prepareProcessLaunch: options.prepareProcessLaunch,
+    sessionModelAdapter: options.sessionModelAdapter,
+    sessionModesEnabled: config.supportsModes !== 'no',
     mcpServers: config.mcpServers === 'drop' ? undefined : options.mcpServers,
     permissionHandler: options.permissionHandler,
     transportHandler: resolveAcpCatalogTransportHandler(config.transportProfile),
+    declaredSessionLoadSupport: config.supportsLoadSession,
   });
 
   const permissionMode = options.permissionMode ?? 'default';

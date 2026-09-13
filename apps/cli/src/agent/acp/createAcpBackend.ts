@@ -72,6 +72,10 @@ export interface CreateAcpBackendOptions {
 
   /** Provider-owned projection/application for model metadata not standardized by ACP. */
   sessionModelAdapter?: AcpSessionModelAdapter;
+  sessionModesEnabled?: AcpBackendOptions['sessionModesEnabled'];
+
+  /** Configured-catalog policy for session/load. */
+  declaredSessionLoadSupport?: boolean;
 }
 
 /**
@@ -115,6 +119,8 @@ export function createAcpBackend(options: CreateAcpBackendOptions): AgentBackend
     initializeClientCapabilitiesMeta: options.initializeClientCapabilitiesMeta,
     extensionHandlers: options.extensionHandlers,
     sessionModelAdapter: options.sessionModelAdapter,
+    sessionModesEnabled: options.sessionModesEnabled,
+    declaredSessionLoadSupport: options.declaredSessionLoadSupport,
   };
 
   return new AcpBackend(backendOptions);

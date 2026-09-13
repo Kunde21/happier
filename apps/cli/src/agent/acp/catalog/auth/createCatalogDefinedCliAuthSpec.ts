@@ -49,7 +49,11 @@ async function detectKiroAuthStatus(resolvedPath: string, args: ReadonlyArray<st
   };
 }
 
-async function detectCommandExitAuthStatus(
+function reportsDevinLoggedOut(stdout: string, stderr: string): boolean {
+  return /(?:^|\r?\n)\s*not logged in\.\s*(?:\r?\n|$)/iu.test(`${stdout}\n${stderr}`);
+}
+
+async function detectDevinAuthStatus(
   resolvedPath: string,
   args: ReadonlyArray<string>,
 ): Promise<CliAuthStatusDraft> {
@@ -59,13 +63,15 @@ async function detectCommandExitAuthStatus(
     timeoutMs: 2_000,
   });
 
-  if (!result.ok) {
+  if (reportsDevinLoggedOut(result.stdout, result.stderr)) {
     return {
-      state: result.exitCode === null ? 'unknown' : 'logged_out',
-      reason: result.exitCode === null ? 'probe_failed' : 'missing_credentials',
+      state: 'logged_out',
+      reason: 'missing_credentials',
       source: 'command',
     };
   }
+
+  if (!result.ok) return { state: 'unknown', reason: 'probe_failed', source: 'command' };
 
   return {
     state: 'logged_in',
@@ -87,9 +93,9 @@ export function createCatalogDefinedCliAuthSpec(agentId: AgentId): CliAuthSpec {
     });
   }
 
-  if (config.parser === 'commandExitStatus' && config.statusCommand) {
+  if (config.parser === 'devinAuthStatus' && config.statusCommand) {
     return createCatalogCliAuthSpec(agentId, {
-      detectAuthStatus: async ({ resolvedPath }) => detectCommandExitAuthStatus(resolvedPath, config.statusCommand ?? []),
+      detectAuthStatus: async ({ resolvedPath }) => detectDevinAuthStatus(resolvedPath, config.statusCommand ?? []),
     });
   }
 
