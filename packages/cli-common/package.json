@@ -21,6 +21,11 @@
       "require": "./cliDistBuildManifest.cjs",
       "default": "./cliDistBuildManifest.cjs"
     },
+    "./numericPlanetFrame": {
+      "types": "./numericPlanetFrame.d.mts",
+      "import": "./numericPlanetFrame.mjs",
+      "default": "./numericPlanetFrame.mjs"
+    },
     "./workspaceLockLease": {
       "types": "./workspaceLockLease.d.mts",
       "import": "./workspaceLockLease.mjs",

@@ -148,4 +148,16 @@ describe('numeric planet', () => {
       expect(frame.every((line) => line.length <= 24)).toBe(true);
     }
   });
+
+  it('renders a rounded globe with varied numeric texture instead of concentric bands', () => {
+    const frame = renderNumericPlanet({ columns: 28, seconds: 1.6, color: false });
+    const occupiedWidths = frame.map((line) => line.trim().length).filter((width) => width > 0);
+    const visible = frame.join('').replace(/[ .]/gu, '');
+
+    expect(frame).toHaveLength(13);
+    expect(occupiedWidths.at(0)).toBeLessThan(occupiedWidths[Math.floor(occupiedWidths.length / 2)]!);
+    expect(occupiedWidths.at(-1)).toBeLessThan(occupiedWidths[Math.floor(occupiedWidths.length / 2)]!);
+    expect(new Set(visible).size).toBeGreaterThanOrEqual(8);
+    expect(visible).not.toMatch(/^(?:0+1+2+3+4+)+$/u);
+  });
 });
