@@ -134,14 +134,19 @@ Checklist ids are treated as stable API between daemon and app:
 - `machine-details`
 - `resume.<agentId>`
 
-### ACP resume (no runtime probes)
+### ACP resume (static policy, runtime negotiation)
 
-We do **not** runtime-probe ACP `loadSession` support in normal UI/CLI flows.
+We do **not** launch an ACP subprocess merely to probe `loadSession` support in normal UI/CLI flows.
 
 Instead:
-- resumability is driven by the static agents catalog + the selected backend (e.g. `codexBackendMode`)
+- resume eligibility is driven by the selected backend's static agents-catalog `supportsLoadSession` declaration
+- when a declared-capable backend is actually resumed, its ACP `initialize` response must also negotiate `agentCapabilities.loadSession`; a mismatch fails before `session/load`
 - explicit “resume inactive session” is **fail-closed**: if `loadSession` fails, we surface the error instead of silently starting a fresh vendor session
 - any ACP capability probing (e.g. `includeAcpCapabilities`) is reserved for opt-in diagnostics / e2e probes, not day-to-day UX
+
+Kimi Code discovery is a development exception for executable identity: current Kimi Code and legacy Python `kimi-cli` share the command name and cannot be distinguished by version ordering. Its provider-owned discovery uses a no-auth `initialize` fingerprint (including close/delete/fork and SSE), honors explicit executable overrides, and refuses unknown or legacy launches. This does not create a second resume policy. Probe cache identity includes the effective process environment, hashed in memory to avoid retaining credentials in cache keys.
+
+Built-in ACP `supportsModes: 'no'` disables mode projection and both mode mutation paths at the shared backend. Kimi uses that policy until authenticated live mode behavior is verified; model controls remain available.
 
 ### Dynamic model lists
 

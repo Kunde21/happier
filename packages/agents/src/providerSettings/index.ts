@@ -44,14 +44,11 @@ export {
   resolveCursorSpawnExtrasFromSettings,
 } from './definitions/cursor.js';
 
-export type { KimiAcpPythonSelector } from './definitions/kimi.js';
 export {
   KIMI_PROVIDER_SETTINGS_DEFINITION,
   KIMI_PROVIDER_FIELDS,
   KIMI_PROVIDER_SETTINGS_DEFAULTS,
   buildKimiProviderSettingsShape,
-  normalizeKimiAcpPythonSelector,
-  resolveKimiSpawnExtrasFromSettings,
 } from './definitions/kimi.js';
 
 export {
