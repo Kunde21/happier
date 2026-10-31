@@ -370,6 +370,26 @@ describe('evaluateScmOperationPreflight', () => {
         expect(result.allowed).toBe(true);
     });
 
+    it('treats a selected-path scan as unknown when entries are omitted and falls back to totals', () => {
+        const snapshot = makeSnapshot({
+            entries: [],
+            entriesPresentation: 'omitted',
+        }, { pendingFiles: 2, changedFiles: 2 });
+
+        // With a selection present but entries omitted, the scan cannot prove
+        // absence — the preflight must NOT claim "no selected changes".
+        const result = evaluateScmOperationPreflight({
+            intent: 'commit',
+            scmWriteEnabled: true,
+            sessionPath: '/repo',
+            snapshot,
+            commitStrategy: 'atomic',
+            commitSelectionPaths: ['src/selected.ts'],
+        } as any);
+
+        expect(result.allowed).toBe(true);
+    });
+
     it('treats a selected-path scan as unknown when entries are truncated', () => {
         const snapshot = makeSnapshot({
             entries: [],
