@@ -42,6 +42,8 @@ import type {
     ScmStashPopResponse,
     ScmStashShowRequest,
     ScmStashShowResponse,
+    ScmStatusEntriesRequest,
+    ScmStatusEntriesResponse,
     ScmStatusSnapshotRequest,
     ScmStatusSnapshotResponse,
     ScmWorktreeCreateRequest,
@@ -53,6 +55,7 @@ import type {
     ScmWorktreesEnrichmentRequest,
     ScmWorktreesEnrichmentResponse,
 } from '@happier-dev/protocol';
+import { SCM_OPERATION_ERROR_CODES, SCM_STATUS_SNAPSHOT_MAX_ENTRY_BYTES } from '@happier-dev/protocol';
 import { RPC_METHODS } from '@happier-dev/protocol/rpc';
 
 import { resolveRpcReplyJsonMaxBytes } from '@/api/rpc/rpcReplyJsonBudget';
@@ -63,6 +66,7 @@ import {
     notRepositoryResponse,
     runScmRoute,
 } from '@/scm/rpc/dispatch';
+import type { ScmBackendRegistry } from '@/scm/registry';
 import type { ScmFilesystemAccessPolicy } from '@/scm/runtime';
 import type { ScmConnectedAccountCredentialResolver } from '@/scm/types';
 import { estimateJsonUtf8BytesBounded } from '@/transfers/shared/estimateJsonUtf8BytesBounded';
@@ -71,28 +75,41 @@ import { registerScmPullRequestHandlers } from './scm/registerScmPullRequestHand
 import { registerScmRepositoryProvisioningHandlers } from './scm/registerScmRepositoryProvisioningHandlers';
 import type { ScmHandlerRouteBase } from './scm/scmHandlerRouteBase';
 
-/** Serialized bytes of the ',' between two entries of the entries array. */
+/** Serialized bytes of the ',' separating two entries inside the entries array. */
 const STATUS_SNAPSHOT_ENTRY_SEPARATOR_BYTES = 1;
 
 /**
- * Bounds the entry list of a snapshot reply at the one choke point every backend's snapshot
- * passes through. The budget is the reply ceiling the RPC reply guard enforces, converted to JSON
- * bytes (resolveRpcReplyJsonMaxBytes) minus the rest of the reply, so entries are cut only when
- * the whole reply would otherwise be refused, and a huge working tree degrades to a truncated
- * list instead of an error. The backend computed totals from its full entry set; they are kept,
- * and `totals.changedFiles` records the full changed-file count. Entries are cut only between
- * whole entries, in shipped order, and the snapshot is then marked `entriesPresentation: 'truncated'`.
+ * Applies the serialized-entry byte budget and the entry delivery facts at the one choke
+ * point every backend's snapshot passes through. The budget is the reply ceiling the RPC
+ * reply guard enforces, converted to JSON bytes (resolveRpcReplyJsonMaxBytes) minus the rest
+ * of the reply, so entries are cut only when the whole reply would otherwise be refused, and
+ * a huge working tree degrades to a truncated list instead of an error.
+ *
+ * Totals were computed by the backend from its FULL entry set and are never recomputed here.
+ * `includeEntries: false` ships no entries at all (`'omitted'`). Truncation happens only
+ * between entries: each entry is measured whole with the repo's bounded estimator and
+ * accumulated in shipped order; the loop stops before the first entry that would exceed the
+ * budget, so a partially-serialized entry is never shipped — including the degenerate
+ * first-entry-larger-than-the-budget case, which terminates as an empty prefix + 'truncated'.
  */
-function applyStatusSnapshotEntryBudget(response: ScmStatusSnapshotResponse): ScmStatusSnapshotResponse {
-    const snapshot = response.success === true ? response.snapshot : undefined;
-    if (!snapshot || !Array.isArray(snapshot.entries)) return response;
-    const totals = { ...snapshot.totals, changedFiles: snapshot.totals.changedFiles ?? snapshot.entries.length };
+function applyStatusSnapshotEntryDelivery(
+    response: ScmStatusSnapshotResponse,
+    request: ScmStatusSnapshotRequest,
+): ScmStatusSnapshotResponse {
+    if (response.success !== true || !response.snapshot || !Array.isArray(response.snapshot.entries)) return response;
+    const snapshot = response.snapshot;
+    if (request.includeEntries === false) {
+        return {
+            ...response,
+            snapshot: { ...snapshot, entries: [], entriesPresentation: 'omitted' },
+        };
+    }
     const replyJsonMaxBytes = resolveRpcReplyJsonMaxBytes(configuration.rpcResponseMaxBytes);
     const replyWithoutEntriesBytes = estimateJsonUtf8BytesBounded({
         ...response,
-        snapshot: { ...snapshot, entries: [], entriesPresentation: 'truncated', totals },
+        snapshot: { ...snapshot, entries: [], entriesPresentation: 'truncated' },
     }, replyJsonMaxBytes);
-    const entriesBudgetBytes = replyJsonMaxBytes - replyWithoutEntriesBytes;
+    const entriesBudgetBytes = Math.max(0, replyJsonMaxBytes - replyWithoutEntriesBytes);
     let accumulatedBytes = 0;
     let shippedCount = 0;
     for (const entry of snapshot.entries) {
@@ -105,14 +122,13 @@ function applyStatusSnapshotEntryBudget(response: ScmStatusSnapshotResponse): Sc
                     ...snapshot,
                     entries: snapshot.entries.slice(0, shippedCount),
                     entriesPresentation: 'truncated',
-                    totals,
                 },
             };
         }
         accumulatedBytes += separatorBytes + entryBytes;
         shippedCount += 1;
     }
-    return { ...response, snapshot: { ...snapshot, totals } };
+    return response;
 }
 
 export function registerScmHandlers(
@@ -121,12 +137,14 @@ export function registerScmHandlers(
     deps?: Readonly<{
         accessPolicy?: ScmFilesystemAccessPolicy;
         connectedAccounts?: ScmConnectedAccountCredentialResolver;
+        registry?: ScmBackendRegistry;
     }>
 ): void {
     const routeBase: ScmHandlerRouteBase = {
         workingDirectory,
         accessPolicy: deps?.accessPolicy,
         connectedAccounts: deps?.connectedAccounts,
+        registry: deps?.registry,
     };
     const statusSnapshotInFlight = new Map<string, Promise<ScmStatusSnapshotResponse>>();
     const statusSnapshotCache = new Map<string, { value: ScmStatusSnapshotResponse; expiresAtMs: number }>();
@@ -156,6 +174,10 @@ export function registerScmHandlers(
         cwd: request.cwd ?? null,
         backendPreference: request.backendPreference ?? null,
         includeWorktreeStatus: request.includeWorktreeStatus === true,
+        // Every response-shaping field must participate, or clients receive
+        // wrong-shaped cached replies (silent corruption).
+        untrackedFiles: request.untrackedFiles ?? null,
+        includeEntries: request.includeEntries ?? null,
     });
     const runStatusSnapshot = (request: ScmStatusSnapshotRequest): Promise<ScmStatusSnapshotResponse> => {
         const key = statusSnapshotKey(request);
@@ -177,11 +199,11 @@ export function registerScmHandlers(
             runWithBackend: ({ context, selection }) =>
                 selection.backend.statusSnapshot({ context, request }),
         }).then((backendValue) => {
-            const value = applyStatusSnapshotEntryBudget(backendValue);
+            const bounded = applyStatusSnapshotEntryDelivery(backendValue, request);
             if (statusSnapshotCacheTtlMs > 0 && cacheGeneration === statusSnapshotCacheGeneration) {
-                statusSnapshotCache.set(key, { value, expiresAtMs: Date.now() + statusSnapshotCacheTtlMs });
+                statusSnapshotCache.set(key, { value: bounded, expiresAtMs: Date.now() + statusSnapshotCacheTtlMs });
             }
-            return value;
+            return bounded;
         });
         statusSnapshotInFlight.set(key, promise);
         void promise.finally(() => {
@@ -207,6 +229,33 @@ export function registerScmHandlers(
     rpcHandlerManager.registerHandler<ScmStatusSnapshotRequest, ScmStatusSnapshotResponse>(
         RPC_METHODS.SCM_STATUS_SNAPSHOT,
         async (request) => runStatusSnapshot(request)
+    );
+
+    rpcHandlerManager.registerHandler<ScmStatusEntriesRequest, ScmStatusEntriesResponse>(
+        RPC_METHODS.SCM_STATUS_ENTRIES,
+        async (request) =>
+            runScmRoute<ScmStatusEntriesRequest, ScmStatusEntriesResponse>({
+                request,
+                ...routeBase,
+                onNonRepository: async () => notRepositoryResponse<ScmStatusEntriesResponse>(),
+                runWithBackend: ({ context, selection }) => {
+                    const statusEntries = selection.backend.statusEntries;
+                    if (!statusEntries) {
+                        // Backends without the optional capability (sapling
+                        // today) degrade explicitly; the UI falls back to
+                        // snapshot-carried entries.
+                        return Promise.resolve({
+                            success: false,
+                            entries: [],
+                            hasMore: false,
+                            fetchedAt: Date.now(),
+                            errorCode: SCM_OPERATION_ERROR_CODES.FEATURE_UNSUPPORTED,
+                            error: `Backend "${selection.backend.id}" does not support paged status entries.`,
+                        });
+                    }
+                    return statusEntries({ context, request });
+                },
+            })
     );
 
     rpcHandlerManager.registerHandler<ScmDiffFileRequest, ScmDiffFileResponse>(
