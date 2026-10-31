@@ -283,13 +283,41 @@ describe('sessions domain: batched project SCM snapshot publish', () => {
         expect(domain.getSessionProjectScmSnapshotError('s1')).toBeNull();
     });
 
+    it('keeps touched and commit-selection paths when the snapshot omits entries', async () => {
+        mockSessionPersistenceBoundaries();
+        const { projectManager } = await import('../../runtime/orchestration/projectManager');
+        projectManager.clear();
+
+        const { createSessionsDomain } = await import('./sessions');
+        const { domain, get } = createHarness(createSessionsDomain, {
+            sessions: { s1: makeSession('s1') },
+            machines: { m1: { id: 'm1', metadata: { homeDir: '/home/u' } } },
+        });
+
+        domain.markSessionProjectScmTouchedPaths('s1', ['src/a.ts', 'gone.ts']);
+        domain.markSessionProjectScmCommitSelectionPaths('s1', ['src/a.ts', 'selected-but-kept.ts']);
+
+        const summary = makeSnapshot(100);
+        (summary as any).entries = [];
+        (summary as any).entriesPresentation = 'omitted';
+        domain.publishSessionProjectScmSnapshots([
+            { sessionId: 's1', snapshot: summary as any, status: makeStatus(100) as any },
+        ]);
+
+        // Evidence of absence is not absence of evidence: an omitted entries
+        // array must never prune touched-path or commit-selection state.
+        expect([...domain.getSessionProjectScmTouchedPaths('s1')].sort()).toEqual(['gone.ts', 'src/a.ts']);
+        expect([...domain.getSessionProjectScmCommitSelectionPaths('s1')].sort()).toEqual(['selected-but-kept.ts', 'src/a.ts']);
+        expect(domain.getSessionProjectScmSnapshot('s1')).toBe(summary);
+    });
+
     it('keeps touched and commit-selection paths when the snapshot entries are truncated', async () => {
         mockSessionPersistenceBoundaries();
         const { projectManager } = await import('../../runtime/orchestration/projectManager');
         projectManager.clear();
 
         const { createSessionsDomain } = await import('./sessions');
-        const { domain } = createHarness(createSessionsDomain, {
+        const { domain, get } = createHarness(createSessionsDomain, {
             sessions: { s1: makeSession('s1') },
             machines: { m1: { id: 'm1', metadata: { homeDir: '/home/u' } } },
         });
@@ -315,7 +343,7 @@ describe('sessions domain: batched project SCM snapshot publish', () => {
         projectManager.clear();
 
         const { createSessionsDomain } = await import('./sessions');
-        const { domain } = createHarness(createSessionsDomain, {
+        const { domain, get } = createHarness(createSessionsDomain, {
             sessions: { s1: makeSession('s1') },
             machines: { m1: { id: 'm1', metadata: { homeDir: '/home/u' } } },
         });
@@ -323,8 +351,10 @@ describe('sessions domain: batched project SCM snapshot publish', () => {
         domain.markSessionProjectScmTouchedPaths('s1', ['gone.ts', 'src/a.ts']);
         domain.markSessionProjectScmCommitSelectionPaths('s1', ['gone.ts', 'src/a.ts']);
 
+        const complete = makeSnapshot(100);
+        (complete as any).entriesPresentation = 'complete';
         domain.publishSessionProjectScmSnapshots([
-            { sessionId: 's1', snapshot: makeSnapshot(100) as any, status: makeStatus(100) as any },
+            { sessionId: 's1', snapshot: complete as any, status: makeStatus(100) as any },
         ]);
 
         expect([...domain.getSessionProjectScmTouchedPaths('s1')].sort()).toEqual(['src/a.ts']);

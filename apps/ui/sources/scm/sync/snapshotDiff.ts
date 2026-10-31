@@ -85,7 +85,6 @@ export function areScmWorkingSnapshotsEquivalentIgnoringFetchedAt(
     if (a.projectKey !== b.projectKey) return false;
     if (a.hasConflicts !== b.hasConflicts) return false;
     if (a.stashCount !== b.stashCount) return false;
-    if (a.entriesPresentation !== b.entriesPresentation) return false;
     if (!areJsonComparableValuesEqual(a.repo, b.repo)) return false;
     if (!areJsonComparableValuesEqual(a.capabilities, b.capabilities)) return false;
     if (!areJsonComparableValuesEqual(a.branch, b.branch)) return false;
@@ -97,11 +96,19 @@ export function areScmWorkingSnapshotsEquivalentIgnoringFetchedAt(
 }
 
 export function collectChangedPaths(previous: ScmWorkingSnapshot | null | undefined, next: ScmWorkingSnapshot): string[] {
-    // A truncated side lacks the paths beyond its prefix, so a diff would report them as removed
-    // or added. Report nothing rather than misattribute. A missing previous snapshot is not a gap.
-    if (!scmSnapshotEntriesAreComplete(next) || (previous && !scmSnapshotEntriesAreComplete(previous))) {
+    // A summary's `entries: []` (or a truncated prefix) is evidence of absence,
+    // not absence of evidence: diffing it would report every previously known
+    // path as removed. The caller refetches an entries-carrying snapshot when a
+    // real diff is required (see scmStatusSync attribution). A missing previous
+    // snapshot is NOT a completeness gap — the first observation attributes
+    // every current path, matching the historical first-poll behavior.
+    if (next && !scmSnapshotEntriesAreComplete(next)) {
         return [];
     }
+    if (previous && !scmSnapshotEntriesAreComplete(previous)) {
+        return [];
+    }
+
     const previousMap = toComparableMap(previous);
     const nextMap = toComparableMap(next);
     const candidatePaths = new Set<string>([

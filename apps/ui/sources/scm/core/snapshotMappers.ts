@@ -47,6 +47,22 @@ export function mergeScmCapabilities(capabilities: Partial<ScmCapabilities> | nu
     };
 }
 
+/**
+ * Single owner for the entry-list completeness fact.
+ *
+ * Absent `entriesPresentation` = legacy `'complete'`. `'omitted'`/`'truncated'`
+ * snapshots do not carry the full entry set, so every consumer that would
+ * otherwise treat `entries` as the complete working set (path diffs, touched/
+ * selection pruning, selected-changes scans) MUST gate on this predicate:
+ * evidence of absence is not absence of evidence.
+ */
+export function scmSnapshotEntriesAreComplete(
+    snapshot: Pick<ScmWorkingSnapshot, 'entriesPresentation'> | null | undefined
+): snapshot is Pick<ScmWorkingSnapshot, 'entriesPresentation'> {
+    if (!snapshot) return false;
+    return snapshot.entriesPresentation === undefined || snapshot.entriesPresentation === 'complete';
+}
+
 export function mapProtocolEntryToUiEntry(entry: ProtocolScmWorkingSnapshot['entries'][number]): ScmWorkingEntry {
     return {
         path: entry.path,
@@ -64,6 +80,8 @@ export function mapProtocolEntryToUiEntry(entry: ProtocolScmWorkingSnapshot['ent
             isBinary: entry.stats.isBinary,
             ...(entry.stats.isComplete === undefined ? {} : { isComplete: entry.stats.isComplete }),
         },
+        ...(entry.isDirectory === undefined ? {} : { isDirectory: entry.isDirectory }),
+        ...(entry.untrackedFileCount === undefined ? {} : { untrackedFileCount: entry.untrackedFileCount }),
     };
 }
 

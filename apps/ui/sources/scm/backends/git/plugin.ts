@@ -1,5 +1,4 @@
 import type { ScmUiBackendPlugin } from '@/scm/registry/scmUiBackendPlugin';
-import { readScmSnapshotChangedFileCount } from '@/scm/core/snapshotMappers';
 import { resolveChangeSetModel, resolveSupportedDiffAreas } from '@/scm/registry/scmUiBackendPlugin';
 import { inferScmRemoteTarget } from '@happier-dev/protocol';
 
@@ -75,7 +74,11 @@ export const gitScmUiPlugin: ScmUiBackendPlugin = {
     statusSummaryMapper(snapshot) {
         if (!snapshot) return null;
         return {
-            changedFiles: readScmSnapshotChangedFileCount(snapshot),
+            // Totals-first: totals.changedFiles is the server-derived
+            // deduplicated count from the full entry set; entries.length
+            // undercounts collapsed directories and is empty under summary
+            // polls. Never claim a count from an omitted entries array.
+            changedFiles: snapshot.totals.changedFiles ?? snapshot.entries.length,
             includedFiles: snapshot.totals.includedFiles,
             pendingFiles: snapshot.totals.pendingFiles,
             untrackedFiles: snapshot.totals.untrackedFiles,
