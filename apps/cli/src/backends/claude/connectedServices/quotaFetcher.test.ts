@@ -700,6 +700,63 @@ describe('createClaudeSubscriptionQuotaFetcher', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('signals a typed 429 with Retry-After when the 5xx retry lands on 429', async () => {
+    const now = 5_000_000;
+    let usageCalls = 0;
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input ?? '');
+      if (!url.includes('/anthropic/oauth/usage')) {
+        throw new Error(`Unexpected URL in test: ${url}`);
+      }
+      usageCalls += 1;
+      if (usageCalls === 1) {
+        return {
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          text: async (): Promise<string> => 'unavailable',
+        };
+      }
+      return {
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { get: (name: string) => (name.toLowerCase() === 'retry-after' ? '90' : null) },
+        text: async (): Promise<string> => 'rate limited',
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const record = buildConnectedServiceCredentialRecord({
+      now,
+      serviceId: 'claude-subscription',
+      profileId: 'work',
+      kind: 'oauth',
+      expiresAt: now + 60_000,
+      oauth: {
+        accessToken: 'at',
+        refreshToken: 'rt',
+        idToken: null,
+        scope: claudeCodeScope,
+        tokenType: null,
+        providerAccountId: null,
+        providerEmail: 'user@example.com',
+      },
+    });
+
+    const fetcher = createClaudeSubscriptionQuotaFetcher({
+      usageUrl: 'https://quota.happier.dev/anthropic/oauth/usage',
+      staleAfterMs: 300_000,
+    });
+
+    await expect(fetcher.fetch({ record, now, signal: new AbortController().signal })).rejects.toMatchObject({
+      quotaFetchErrorCode: 'provider_backoff',
+      status: 429,
+      retryAfterMs: 90_000,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('does not reuse a Retry-After cooldown after a profile reconnects with different credentials', async () => {
     const now = 5_250_000;
     let usageCalls = 0;

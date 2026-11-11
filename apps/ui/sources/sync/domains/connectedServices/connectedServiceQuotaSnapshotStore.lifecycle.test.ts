@@ -312,6 +312,28 @@ describe('connectedServiceQuotaSnapshotStore polling lifecycle', () => {
         release();
     });
 
+    it('preserves the last-known snapshot after the refresh deadline notice when later polls still read no data', async () => {
+        const snapshot = {
+            v: 1 as const, serviceId: ctx.serviceId, profileId: ctx.profileId,
+            fetchedAt: 1, staleAfterMs: 30 * 60_000, planLabel: null, accountLabel: null, meters: [],
+        };
+        getSnapshotPlain.mockResolvedValue(snapshot);
+        const key = buildQuotaSnapshotScopeKey(ctx.credentialScope, ctx.serviceId, ctx.profileId);
+        const release = retainQuotaSnapshotPolling(key, ctx);
+        await vi.advanceTimersByTimeAsync(0);
+        getSnapshotPlain.mockResolvedValue(null);
+        void refreshQuotaSnapshot(key, ctx);
+        await vi.advanceTimersByTimeAsync(11_000);
+        expect(getQuotaSnapshotEntry(key).refreshing).toBe(true);
+
+        // Poll past the 5-minute refresh deadline and one further poll after it: the
+        // deadline notice must not evict the last-known snapshot on a null read.
+        await vi.advanceTimersByTimeAsync(6 * 60_000);
+        expect(getQuotaSnapshotEntry(key).refreshing).toBe(false);
+        expect(getQuotaSnapshotEntry(key).snapshot).toEqual(snapshot);
+        release();
+    });
+
 
     it.each(['snapshot', 'error'] as const)('retries a cancelled unresolved refresh and receives a newer %s', async (outcome) => {
         const snapshot = {

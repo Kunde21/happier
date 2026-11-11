@@ -11888,6 +11888,220 @@ describe('ConnectedServiceQuotasCoordinator', () => {
     } finally { accountUsagePersistence.dispose(); }
   });
 
+  it('keeps a current-source refresh request that was replaced during a failed forced attempt scheduled', async () => {
+    const now = 2_000_000;
+    const accountUsageStore = createProviderAccountUsageStore();
+    const accountUsagePersistence = {
+      recordInBandSnapshot: vi.fn(async () => ({ status: 'enqueued' as const, enqueue: 'accepted' as const })),
+    };
+    const credentials = {
+      token: 'happy-token',
+      encryption: { type: 'legacy', secret: new Uint8Array(32).fill(9) },
+    } satisfies Credentials;
+    const existingSnapshot: ConnectedServiceQuotaSnapshotV1 = {
+      v: 1,
+      serviceId: 'openai-codex',
+      profileId: 'work',
+      fetchedAt: now - 60_000,
+      staleAfterMs: 300_000,
+      planLabel: 'pro',
+      accountLabel: 'user@example.com',
+      meters: [],
+    };
+    const record = buildConnectedServiceCredentialRecord({
+      now,
+      serviceId: 'openai-codex',
+      profileId: 'work',
+      kind: 'oauth',
+      expiresAt: now + 60_000,
+      oauth: {
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        idToken: null,
+        scope: null,
+        tokenType: null,
+        providerAccountId: 'acct',
+        providerEmail: 'user@example.com',
+      },
+    });
+    const api = {
+      getAccountEncryptionMode: vi.fn(async () => 'plain' as const),
+      getConnectedServiceQuotaSnapshotPlain: vi.fn(async () => ({
+        content: { t: 'plain' as const, v: existingSnapshot },
+        metadata: {
+          fetchedAt: existingSnapshot.fetchedAt,
+          staleAfterMs: existingSnapshot.staleAfterMs,
+          status: 'ok' as const,
+        },
+      })),
+      getConnectedServiceCredentialPlain: vi.fn(async () => ({ content: { t: 'plain' as const, v: record } })),
+      registerProviderAccountUsageSnapshotPlain: vi.fn(async () => {}),
+      getConnectedServiceQuotaSnapshotSealed: vi.fn(async () => null),
+      getConnectedServiceCredentialSealed: vi.fn(async () => null),
+      registerProviderAccountUsageSnapshotSealed: vi.fn(async () => {}),
+    } as unknown as QuotaApi;
+    let coordinator!: ConnectedServiceQuotasCoordinator;
+    const fetcher: ConnectedServiceQuotaFetcher = {
+      serviceId: 'openai-codex',
+      fetch: vi.fn(async () => {
+        // A second refresh request for the same binding arrives while this attempt runs.
+        coordinator.scheduleCurrentSourceRefresh([
+          { serviceId: 'openai-codex', profileId: 'work', bindingKind: 'profile' },
+        ]);
+        throw new ConnectedServiceQuotaFetchError('usage fetch rate limited', {
+          status: 429,
+          retryAfterMs: 120_000,
+          quotaFetchErrorCode: 'provider_backoff',
+        });
+      }),
+    };
+    coordinator = new ConnectedServiceQuotasCoordinator({
+      api,
+      credentials,
+      quotaFetchers: [fetcher],
+      now: () => now,
+      randomBytes: (length: number) => randomBytes(length),
+      accountUsageStore,
+      accountUsagePersistence,
+    });
+
+    expect(coordinator.scheduleCurrentSourceRefresh([
+      { serviceId: 'openai-codex', profileId: 'work', bindingKind: 'profile' },
+    ])).toEqual({ accepted: 1, ignored: 0 });
+
+    coordinator.registerSpawnTarget({
+      pid: 123,
+      connectedServicesBindingsRaw: {
+        v: 1,
+        bindingsByServiceId: { 'openai-codex': { source: 'connected', profileId: 'work' } },
+      },
+    });
+
+    await coordinator.tickOnce();
+
+    expect(fetcher.fetch).toHaveBeenCalledTimes(1);
+    // The replacement request arrived after this attempt captured its work; clearing
+    // this attempt's own requests must leave the replacement scheduled for a later attempt.
+    expect(coordinator.scheduleCurrentSourceRefresh([
+      { serviceId: 'openai-codex', profileId: 'work', bindingKind: 'profile' },
+    ])).toEqual({ accepted: 0, ignored: 1 });
+  });
+
+  it('records the rate-limit fallback snapshot under the credential account when the stale snapshot omits active account id', async () => {
+    const now = 2_000_000;
+    const accountUsageStore = createProviderAccountUsageStore();
+    const accountUsagePersistence = {
+      recordInBandSnapshot: vi.fn(async () => ({ status: 'enqueued' as const, enqueue: 'accepted' as const })),
+    };
+    const credentials = {
+      token: 'happy-token',
+      encryption: { type: 'legacy', secret: new Uint8Array(32).fill(9) },
+    } satisfies Credentials;
+    const existingSnapshot: ConnectedServiceQuotaSnapshotV1 = {
+      v: 1,
+      serviceId: 'openai-codex',
+      profileId: 'work',
+      fetchedAt: now - 60_000,
+      staleAfterMs: 300_000,
+      planLabel: 'pro',
+      accountLabel: 'user@example.com',
+      meters: [{
+        meterId: 'primary',
+        label: 'Primary',
+        used: 50,
+        limit: 100,
+        unit: 'requests',
+        utilizationPct: 50,
+        remainingPct: 50,
+        resetsAt: 10_000,
+        status: 'ok',
+        details: {},
+      }],
+    };
+    const record = buildConnectedServiceCredentialRecord({
+      now,
+      serviceId: 'openai-codex',
+      profileId: 'work',
+      kind: 'oauth',
+      expiresAt: now + 60_000,
+      oauth: {
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        idToken: null,
+        scope: null,
+        tokenType: null,
+        providerAccountId: 'acct',
+        providerEmail: 'user@example.com',
+      },
+    });
+    const api = {
+      getAccountEncryptionMode: vi.fn(async () => 'plain' as const),
+      getConnectedServiceQuotaSnapshotPlain: vi.fn(async () => ({
+        content: { t: 'plain' as const, v: existingSnapshot },
+        metadata: {
+          fetchedAt: existingSnapshot.fetchedAt,
+          staleAfterMs: existingSnapshot.staleAfterMs,
+          status: 'ok' as const,
+          refreshRequestedAt: now,
+        },
+      })),
+      getConnectedServiceCredentialPlain: vi.fn(async () => ({ content: { t: 'plain' as const, v: record } })),
+      registerProviderAccountUsageSnapshotPlain: vi.fn(async () => {}),
+      getConnectedServiceQuotaSnapshotSealed: vi.fn(async () => null),
+      getConnectedServiceCredentialSealed: vi.fn(async () => null),
+      registerProviderAccountUsageSnapshotSealed: vi.fn(async () => {}),
+    } as unknown as QuotaApi;
+    const fetcher: ConnectedServiceQuotaFetcher = {
+      serviceId: 'openai-codex',
+      fetch: vi.fn(async () => {
+        throw new ConnectedServiceQuotaFetchError('usage fetch rate limited', {
+          status: 429,
+          retryAfterMs: 120_000,
+          quotaFetchErrorCode: 'provider_backoff',
+        });
+      }),
+    };
+
+    const coordinator = new ConnectedServiceQuotasCoordinator({
+      api,
+      credentials,
+      quotaFetchers: [fetcher],
+      now: () => now,
+      randomBytes: (length: number) => randomBytes(length),
+      accountUsageStore,
+      accountUsagePersistence,
+    });
+
+    coordinator.registerSpawnTarget({
+      pid: 123,
+      connectedServicesBindingsRaw: {
+        v: 1,
+        bindingsByServiceId: { 'openai-codex': { source: 'connected', profileId: 'work' } },
+      },
+    });
+
+    await coordinator.tickOnce();
+
+    expect(fetcher.fetch).toHaveBeenCalledTimes(1);
+    expect(accountUsagePersistence.recordInBandSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordKey: expect.objectContaining({ accountSubjectId: 'acct', subjectKind: 'account' }),
+      }),
+      expect.objectContaining({
+        sources: [expect.objectContaining({
+          serviceId: 'openai-codex',
+          profileId: 'work',
+          bindingKind: 'profile',
+        })],
+      }),
+    );
+    expect(accountUsageStore.resolveBySource({
+      serviceId: 'openai-codex',
+      profileId: 'work',
+      bindingKind: 'profile',
+    })).toMatchObject({ recordKey: { accountSubjectId: 'acct', subjectKind: 'account' } });
+  });
+
   it('honors a refresh request for an inactive profile between discovery passes', async () => {
     let now = 1_000_000;
     let refreshRequestedAt: number | undefined;

@@ -4686,6 +4686,36 @@ export class ConnectedServiceQuotasCoordinator {
               snapshot: annotateSnapshotAsStale(staleSnapshotForFallback),
               verifiedCredentialFingerprint: staleSnapshotVerifiedCredentialFingerprint });
           }
+          // A user-requested refresh refused with 429 must not end in silence at the
+          // client that asked for it: persist the last-known meters with a
+          // rate-limit annotation and an advanced fetchedAt so the pending refresh
+          // resolves promptly with a visible "rate limited" outcome instead of the
+          // generic refresh deadline. The failure backoff above still spaces the
+          // daemon's next provider attempt by the provider's Retry-After.
+          if (forcedRefresh && failureStorageMode !== null && staleSnapshotForFallback && isQuotaRateLimitError(error)) {
+            // The failed attempt's credential identity links the fallback record to the
+            // profile's provider account when the stale snapshot agrees (or is silent);
+            // a stale snapshot naming a different account does not establish the match.
+            const attemptProviderAccountId = failureCredential
+              ? readCredentialAccountIdentity(failureCredential)?.providerAccountId ?? null
+              : null;
+            await this.recordFetchedQuotaSnapshotAsAccountUsage({
+              serviceId,
+              profileId,
+              snapshot: {
+                ...annotateSnapshotAsStale(staleSnapshotForFallback, 'provider_rate_limited'),
+                fetchedAt: now,
+              },
+              now,
+              accountMode: failureStorageMode,
+              sourceProviderAccountId: attemptProviderAccountId !== null
+                && (staleSnapshotForFallback.activeAccountId == null
+                  || staleSnapshotForFallback.activeAccountId === attemptProviderAccountId)
+                  ? attemptProviderAccountId
+                  : null,
+              onPersistenceAccepted: completeScheduledRefresh,
+            }).catch(() => null);
+          }
           // Best-effort only.
           continue;
         } finally {
