@@ -10,7 +10,9 @@ import {
     deleteEvictedSessionTranscript,
     hydrateEvictedSessionTranscript,
     persistEvictedSessionTranscript,
+    persistEvictedSessionTranscriptWeb,
     readEvictedSessionTranscript,
+    readEvictedSessionTranscriptWeb,
 } from './sessionTranscriptDiskCache';
 
 // Uses the shared global MMKV stub (vitestSetup) rather than a file-local mock: the stub is the
@@ -36,24 +38,29 @@ describe('sessionTranscriptDiskCache', () => {
         await prepareWarmCacheEncryptionKey();
     });
 
-    it('skips transcript persistence on web and prunes stale web copies from the quota-bound store', async () => {
+    it('persists transcripts to IndexedDB on web and migrates stale localStorage copies away', async () => {
         await prepareWarmCacheEncryptionKey();
-        // Seed what the pre-gate build wrote: a full transcript record under the scoped key.
+        // Seed what the pre-IndexedDB build wrote into the quota-bound localStorage origin.
         const staleKey = buildScopedKey('session-transcript-v1:s1', 'server-a', 'account-a')!;
         saveScopedRecord(staleKey, { v: 1, messages: [{ id: 'm1' }] } as unknown as ScopedRecord);
 
         const previousOS = (Platform as { OS: string }).OS;
         (Platform as { OS: string }).OS = 'web';
         try {
-            // Web/desktop localStorage origins carry a hard quota (~MBs); a transcript record
-            // class is MB-scale, so persistence must be a no-op there.
-            expect(persistEvictedSessionTranscript(scope, 's1', transcriptOf(message('m1', 'x')))).toBe(false);
-
-            // The stale copies the pre-gate build wrote are pruned on first use: the desktop
-            // install whose quota they filled recovers without manual intervention.
+            const { migrateSessionTranscriptDiskCacheToWebBackend } = await import('./warmCachePersistence');
+            // Startup migration: stale localStorage records are removed. Idempotent and safe to
+            // re-run; nothing is imported — the server remains the transcript authority.
+            await migrateSessionTranscriptDiskCacheToWebBackend();
+            await migrateSessionTranscriptDiskCacheToWebBackend();
             const storage = new MMKV({ id: 'default' });
             expect(storage.getAllKeys().some((key) => key.startsWith('session-transcript-v1:'))).toBe(false);
-            expect(readEvictedSessionTranscript(scope, 's1')).toBeNull();
+
+            // Web persistence lands in IndexedDB (browserRecordStorage), not localStorage.
+            await expect(persistEvictedSessionTranscriptWeb(scope, 's1', transcriptOf(message('m1', 'hello'), message('m2', 'world')))).resolves.toBe(true);
+            expect(storage.getAllKeys().some((key) => key.startsWith('session-transcript-v1:'))).toBe(false);
+
+            const restored = await readEvictedSessionTranscriptWeb(scope, 's1');
+            expect(restored?.map((m: any) => m.id)).toEqual(['m1', 'm2']);
         } finally {
             (Platform as { OS: string }).OS = previousOS;
         }
@@ -99,50 +106,50 @@ describe('sessionTranscriptDiskCache', () => {
     });
 
     describe('hydrateEvictedSessionTranscript', () => {
-        it('applies the persisted baseline through the canonical ingest when the store is empty', () => {
+        it('applies the persisted baseline through the canonical ingest when the store is empty', async () => {
             persistEvictedSessionTranscript(scope, 's1', transcriptOf(message('m1', 'hello')));
             const applied: any[][] = [];
             const applyMessages = vi.fn((_sessionId: string, messages: readonly any[]) => {
                 applied.push([...messages]);
             });
 
-            expect(hydrateEvictedSessionTranscript({
+            await expect(hydrateEvictedSessionTranscript({
                 scope,
                 sessionId: 's1',
                 hasMaterializedMessages: false,
                 applyMessages,
-            })).toBe(true);
+            })).resolves.toBe(true);
             expect(applied).toHaveLength(1);
             expect(applied[0]!.map((m: any) => m.id)).toEqual(['m1']);
         });
 
-        it('never overrides a store that already has materialized messages', () => {
+        it('never overrides a store that already has materialized messages', async () => {
             persistEvictedSessionTranscript(scope, 's1', transcriptOf(message('m1', 'hello')));
             const applyMessages = vi.fn();
 
-            expect(hydrateEvictedSessionTranscript({
+            await expect(hydrateEvictedSessionTranscript({
                 scope,
                 sessionId: 's1',
                 hasMaterializedMessages: true,
                 applyMessages,
-            })).toBe(false);
+            })).resolves.toBe(false);
             expect(applyMessages).not.toHaveBeenCalled();
         });
 
-        it('is a no-op without a scope or a persisted copy', () => {
+        it('is a no-op without a scope or a persisted copy', async () => {
             const applyMessages = vi.fn();
-            expect(hydrateEvictedSessionTranscript({
+            await expect(hydrateEvictedSessionTranscript({
                 scope: null,
                 sessionId: 's1',
                 hasMaterializedMessages: false,
                 applyMessages,
-            })).toBe(false);
-            expect(hydrateEvictedSessionTranscript({
+            })).resolves.toBe(false);
+            await expect(hydrateEvictedSessionTranscript({
                 scope,
                 sessionId: 'never-persisted',
                 hasMaterializedMessages: false,
                 applyMessages,
-            })).toBe(false);
+            })).resolves.toBe(false);
             expect(applyMessages).not.toHaveBeenCalled();
         });
     });

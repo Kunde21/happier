@@ -125,21 +125,23 @@ export function wrapWebStorageBudget<TStorage extends object>(
         (storage.delete as (key: string) => void)(key);
     };
 
-    /** Best-effort recovery: reclaim every disposable byte, then retry the refused write once. */
-    const writeWithQuotaRecovery = (key: string, value: unknown): boolean => {
+    /**
+     * Best-effort recovery for one write: when the platform refuses, reclaim every OTHER
+     * disposable byte from the caller's shared index map (deleting from the store and the map),
+     * then retry the write once. Returns whether the write landed; a still-refused write is
+     * warned once and never propagated.
+     */
+    const writeWithQuotaRecovery = (key: string, value: unknown, index: Map<string, BudgetIndexEntry>): boolean => {
         try {
             underlyingSet(key, value);
             return true;
         } catch (firstError) {
-            const index = readIndex(storage);
-            for (const indexedKey of index.keys()) {
-                if (indexedKey === key) continue;
-                if (isDisposable(indexedKey)) {
+            for (const indexedKey of [...index.keys()]) {
+                if (indexedKey !== key && isDisposable(indexedKey)) {
                     underlyingDelete(indexedKey);
                     index.delete(indexedKey);
                 }
             }
-            writeIndex(storage, index);
             try {
                 underlyingSet(key, value);
                 console.warn(
@@ -196,7 +198,7 @@ export function wrapWebStorageBudget<TStorage extends object>(
                             }
                             cursor += 1;
                         }
-                        if (!writeWithQuotaRecovery(key, value)) {
+                        if (!writeWithQuotaRecovery(key, value, index)) {
                             index.delete(key);
                         } else {
                             index.set(key, { seq: ++writeSequence, bytes: entryBytes });
@@ -206,7 +208,7 @@ export function wrapWebStorageBudget<TStorage extends object>(
                     }
 
                     // Durable key: always attempted, recovered-for, never evicted.
-                    if (!writeWithQuotaRecovery(key, value)) return;
+                    if (!writeWithQuotaRecovery(key, value, index)) return;
                     index.set(key, { seq: ++writeSequence, bytes: entryBytes });
                     writeIndex(storage, index);
                 };

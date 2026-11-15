@@ -98,15 +98,17 @@ describe('wrapWebStorageBudget', () => {
 
     it('evicts the oldest disposable writes first once the budget is exceeded', () => {
         const { inner, budgeted } = makeBudgetedStorage();
-        const half = Math.floor(WEB_STORAGE_DISPOSABLE_BUDGET_BYTES / 2);
-        budgeted.set('session-list-warm-cache-v1:old', blob(half));
-        budgeted.set('machine-display-warm-cache-v1:mid', blob(half));
-        // Over budget: the oldest disposable write is reclaimed to admit the new one.
-        budgeted.set('session-list-warm-cache-v1:new', blob(half));
+        // Eighth-budget entries sit safely under the per-entry cap; enough of them exceed the
+        // collective budget and force oldest-write-first eviction.
+        const eighth = Math.floor(WEB_STORAGE_DISPOSABLE_BUDGET_BYTES / 8);
+        const writes = Array.from({ length: 12 }, (_, index) => `session-list-warm-cache-v1:w${index + 1}`);
+        for (const key of writes) budgeted.set(key, blob(eighth));
 
-        expect(inner.values.has('session-list-warm-cache-v1:old')).toBe(false);
-        expect(inner.values.has('machine-display-warm-cache-v1:mid')).toBe(true);
-        expect(inner.values.has('session-list-warm-cache-v1:new')).toBe(true);
+        // The oldest writes were reclaimed; the newest survived and is readable.
+        expect(inner.values.has(writes[0])).toBe(false);
+        expect(inner.values.has(writes[1])).toBe(false);
+        expect(inner.values.has(writes[11])).toBe(true);
+        expect(budgeted.getString(writes[11])).toBe(blob(eighth));
     });
 
     it('rejects a single oversized disposable entry instead of evicting the namespace', () => {

@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { readStorageScopeFromEnv, scopedStorageId } from '@/utils/system/storageScope';
 import { prepareWarmCacheEncryptionKey, readResolvedWarmCacheEncryptionKey } from './warmCacheEncryptionKey';
 import { selectMostRecentWarmCacheSessionIds } from './warmCacheAdapters';
+import { wrapWebStorageBudget } from './webStorageBudget';
 
 /**
  * The same predicate the rest of this corridor uses (`state/persistence.ts`,
@@ -99,6 +100,16 @@ const LEGACY_PLAINTEXT_WARM_CACHE_PREFIXES: readonly string[] = [
     LEGACY_SESSION_LIST_PINNED_IDS_WARM_CACHE_PREFIX,
 ];
 
+/**
+ * The warm-cache record classes that may be reclaimed under the web storage budget. Everything
+ * else sharing the origin — settings, modes, drafts — is durable by default (default-deny
+ * eviction) and is recovered for, never evicted.
+ */
+const WARM_CACHE_DISPOSABLE_PREFIXES: readonly string[] = LEGACY_PLAINTEXT_WARM_CACHE_PREFIXES.map(
+    (prefix) => `${prefix}:`,
+);
+export { WARM_CACHE_DISPOSABLE_PREFIXES };
+
 const LEGACY_PLAINTEXT_PURGE_COMPACTION_KEY = 'warm-cache-plaintext-purge-compaction-v1';
 // MMKV starts at one page and `trim()` skips rewriting files that have not grown beyond their
 // expected capacity. This deliberately exceeds that floor so the first trim must perform a full
@@ -168,6 +179,23 @@ function purgeLegacyPlaintextWarmCache(storageScope: string | null): void {
 export async function prepareWarmCacheStorage(): Promise<void> {
     purgeLegacyPlaintextWarmCache(warmCacheStorageScope());
     await prepareWarmCacheEncryptionKey();
+    await migrateSessionTranscriptDiskCacheToWebBackend();
+}
+
+/**
+ * Startup migration off the quota-bound localStorage origin: transcript records an earlier
+ * build wrote through react-native-mmkv's web adapter are REMOVED (not imported — the server
+ * remains the transcript authority, and reopen falls back to the first-open fetch). Owned here
+ * because the localStorage origin is this module's placement. Idempotent and safe on an empty
+ * or already-migrated store; runs for every profile sharing the origin.
+ */
+export async function migrateSessionTranscriptDiskCacheToWebBackend(): Promise<void> {
+    if (!isWebRuntime()) return;
+    try {
+        deleteWarmCacheRecordsWithPrefix('session-transcript-v1:');
+    } catch (error) {
+        console.warn('[warm-cache] transcript localStorage migration failed; will retry next boot', error);
+    }
 }
 
 /**
@@ -229,7 +257,11 @@ function getWarmCacheStorage(): MMKV | null {
     if (!placement) return null;
 
     try {
-        warmCacheStorage = new MMKV(placement);
+        warmCacheStorage = isWebRuntime()
+            ? wrapWebStorageBudget(new MMKV(placement), {
+                disposablePrefixes: WARM_CACHE_DISPOSABLE_PREFIXES,
+            })
+            : new MMKV(placement);
         discardUnprovenWarmCacheEntries(warmCacheStorage);
     } catch {
         // A store we cannot open stays unopened for this process: retrying per read would turn one

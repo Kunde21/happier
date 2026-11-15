@@ -1,3 +1,5 @@
+import { wrapWebStorageBudget } from './webStorageBudget';
+import { WARM_CACHE_DISPOSABLE_PREFIXES } from './warmCachePersistence';
 import { MMKV } from 'react-native-mmkv';
 import { Platform } from 'react-native';
 import { z } from 'zod';
@@ -162,7 +164,13 @@ export function getPersistenceStorage(): MMKV {
     if (persistedStorage) return persistedStorage;
     // Keep storage-scope bootstrap local here to avoid import-cycle TDZ hazards during Sync initialization.
     const storageScope = isWebRuntime() ? null : readScopedStorageScopeFromEnv();
-    persistedStorage = wrapQuotaGuardedSet(storageScope ? new MMKV({ id: buildScopedStorageId('default', storageScope) }) : new MMKV());
+    const instance = storageScope ? new MMKV({ id: buildScopedStorageId('default', storageScope) }) : new MMKV();
+    // On web this instance shares the localStorage origin with the warm-cache records: route it
+    // through the shared web storage budget (idempotent per store), so durable settings writes
+    // are quota-recovered and disposable warm-cache bytes are the reclaim pool.
+    persistedStorage = isWebRuntime()
+        ? wrapWebStorageBudget(instance, { disposablePrefixes: WARM_CACHE_DISPOSABLE_PREFIXES })
+        : instance;
     return persistedStorage;
 }
 
@@ -173,24 +181,6 @@ export function getPersistenceStorage(): MMKV {
  * the key, never the payload) and never propagates: the in-session state remains
  * authoritative and the next change retries persistence once the quota frees.
  */
-function wrapQuotaGuardedSet(storage: MMKV): MMKV {
-    return new Proxy(storage, {
-        get(target, property, _receiver) {
-            if (property === 'set') {
-                return (key: string, value: unknown) => {
-                    try {
-                        target.set(key, value);
-                    } catch (error) {
-                        console.warn(`[persistence] storage write refused for "${key}"`, error);
-                    }
-                };
-            }
-            const field = Reflect.get(target, property, target);
-            return typeof field === 'function' ? (field as (...args: unknown[]) => unknown).bind(target) : field;
-        },
-    }) as MMKV;
-}
-
 export type NewSessionAgentType = AgentId;
 
 export interface NewSessionDraft {

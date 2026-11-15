@@ -5809,7 +5809,7 @@ class Sync {
           // snapshot load below runs, so first paint has content. It never marks the session
           // loaded and never overrides materialized content; the fetch below still owns isLoaded,
           // coverage, and reconciliation against the server.
-          if (hydrateEvictedSessionTranscript({
+          if (await hydrateEvictedSessionTranscript({
               scope: getActiveServerAccountScope(),
               sessionId,
               hasMaterializedMessages: Object.keys(loadedTranscript?.messagesById ?? {}).length > 0,

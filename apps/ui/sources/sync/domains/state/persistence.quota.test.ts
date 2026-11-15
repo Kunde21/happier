@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Platform } from 'react-native';
 
 // The web production adapter for `react-native-mmkv` writes through localStorage: when the
 // origin quota is exhausted, `set` throws synchronously. This suite pins the persistence
-// owner's contract for that platform boundary: a refused write is observed (warn) and never
-// propagates into settings application, which is a live boot path.
+// owner's contract for that platform boundary under the web storage budget: a refused write
+// is observed (warn) and never propagates into settings application, a live boot path.
 
 const setShouldThrow = { current: false };
 const setCalls: readonly string[] = [];
@@ -37,13 +38,20 @@ vi.mock('react-native-mmkv', () => {
 import { loadLocalSettings, saveLocalSettings } from './persistence';
 
 describe('persistence quota boundary', () => {
+    let previousOS: string;
+
     beforeEach(() => {
         setShouldThrow.current = false;
         vi.spyOn(console, 'warn').mockImplementation(() => {});
         vi.resetModules();
+        // The persistence owner's web predicate is the corridor's document-based one; satisfy
+        // it in the node test environment so the budgeted branch is the one under test.
+        vi.stubGlobal('window', vi.stubGlobal('window', globalThis).valueOf() ?? {});
+        vi.stubGlobal('document', {});
     });
 
     afterEach(() => {
+        vi.unstubAllGlobals();
         vi.restoreAllMocks();
         void setCalls;
     });
