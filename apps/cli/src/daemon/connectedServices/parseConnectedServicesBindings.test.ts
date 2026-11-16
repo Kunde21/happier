@@ -52,6 +52,7 @@ describe('parseConnectedServicesBindings', () => {
         kind: 'group',
         serviceId: 'openai-codex',
         groupId: 'main',
+        pinnedProfileId: 'fallback',
         fallbackProfileId: 'fallback',
       },
     ]);

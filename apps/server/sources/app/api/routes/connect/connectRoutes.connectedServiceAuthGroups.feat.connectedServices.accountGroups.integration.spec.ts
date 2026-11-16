@@ -233,8 +233,80 @@ describe("connectRoutes connected service auth groups (integration)", () => {
         expect(explicit.json().group.policy.strategy).toBe("least_limited");
     });
 
-    it.each(["openai-codex", "claude-subscription"])("negotiates quota-reset policy reads while preserving the opt-in across older-client edits (%s)", async (serviceId) => {
-        const user = await createAccount(`pk-groups-auto-reset-${serviceId}`);
+    it("negotiates round-robin reads and pool member tiers for readers that advertise them", async () => {
+        const user = await createAccount("pk-groups-round-robin");
+        await createConnectedProfile(user.id, "claude-subscription", "work");
+        await createConnectedProfile(user.id, "claude-subscription", "spare");
+        const app = await createReadyApp();
+        const headers = authHeaders(user.id);
+        const url = "/v3/connect/claude-subscription/groups/rotation-pool";
+        const create = await app.inject({ method: "POST", url: "/v3/connect/claude-subscription/groups?happierPoolRoundRobin=1", headers,
+            payload: {
+                groupId: "rotation-pool",
+                activeProfileId: "work",
+                members: [
+                    { profileId: "work", priority: 10 },
+                    { profileId: "spare", priority: 20, role: "secondary" },
+                ],
+                policy: { strategy: "round_robin" },
+            },
+        });
+        expect(create.statusCode).toBe(200);
+        expect(create.json().group.policy.strategy).toBe("round_robin");
+        expect(create.json().group.members).toEqual([
+            expect.objectContaining({ profileId: "work" }),
+            expect.objectContaining({ profileId: "spare", role: "secondary" }),
+        ]);
+        expect(create.json().group.members[0]).not.toHaveProperty("role");
+
+        // A released strict V1 reader neither sees the new strategy nor an unknown member key.
+        const oldRead = await app.inject({ method: "GET", url, headers });
+        expect(oldRead.json().group.policy.strategy).toBe("priority");
+        expect(oldRead.json().group.members[1]).not.toHaveProperty("role");
+        const oldList = await app.inject({ method: "GET", url: "/v3/connect/claude-subscription/groups", headers });
+        expect(oldList.json().groups[0].policy.strategy).toBe("priority");
+
+        // The tier and the strategy survive a normal older-client partial policy edit.
+        const oldEdit = await app.inject({ method: "PATCH", url, headers, payload: {
+            expectedGeneration: create.json().group.generation,
+            policy: { cooldownMs: 4321 },
+        } });
+        expect(oldEdit.statusCode).toBe(200);
+        const read = await app.inject({ method: "GET", url: `${url}?happierPoolRoundRobin=1`, headers });
+        expect(read.json().group.policy).toMatchObject({ strategy: "round_robin", cooldownMs: 4321 });
+        expect(read.json().group.members[1]).toMatchObject({ profileId: "spare", role: "secondary" });
+
+        const promote = await app.inject({ method: "PATCH", url: `${url}/members/spare`, headers, payload: {
+            expectedGeneration: read.json().group.generation,
+            role: "primary",
+        } });
+        expect(promote.statusCode).toBe(200);
+        expect(promote.json().group.members[1]).not.toHaveProperty("role");
+    });
+
+    it("rejects round-robin when the pool strategy gate is denied by build policy", async () => {
+        const user = await createAccount("pk-groups-round-robin-gate");
+        await createConnectedProfile(user.id, "claude-subscription", "work");
+        const app = await createReadyApp();
+        process.env.HAPPIER_BUILD_FEATURES_DENY = "connectedServices.poolRoundRobin";
+        try {
+            const res = await app.inject({
+                method: "POST",
+                url: "/v3/connect/claude-subscription/groups",
+                headers: authHeaders(user.id),
+                payload: {
+                    groupId: "gated-pool",
+                    members: [{ profileId: "work" }],
+                    policy: { strategy: "round_robin" },
+                },
+            });
+            expect(res.statusCode).toBe(400);
+        } finally {
+            delete process.env.HAPPIER_BUILD_FEATURES_DENY;
+        }
+    });
+
+    it.each(["openai-codex", "claude-subscription"])("negotiates quota-reset policy reads while preserving the opt-in across older-client edits (%s)", async (serviceId) => {        const user = await createAccount(`pk-groups-auto-reset-${serviceId}`);
         await createConnectedProfile(user.id, serviceId, "work");
         const app = await createReadyApp();
         const quotaResetHeaders = { ...authHeaders(user.id), accept: "application/json; happier-connected-service-auto-quota-reset=1" };
@@ -569,6 +641,22 @@ describe("connectRoutes connected service auth groups (integration)", () => {
             serviceId: "openai-codex",
             groupId: "codex-main",
         })).resolves.toEqual({ activeProfileId: "backup", generation: 1 });
+    });
+
+    it("records rotation provenance instead of degrading spawn rotation to a manual switch", async () => {
+        const user = await createAccount("pk-groups-rotation-reason");
+        await createConnectedProfile(user.id, "openai-codex", "member-a");
+        await createConnectedProfile(user.id, "openai-codex", "member-b");
+        await seedAuthGroup({ accountId: user.id, serviceId: "openai-codex", groupId: "pool",
+            memberProfileIds: ["member-a", "member-b"], activeProfileId: "member-a" });
+        const app = await createReadyApp();
+        const rotated = await app.inject({
+            method: "POST", url: "/v3/connect/openai-codex/groups/pool/active-profile",
+            headers: { ...authHeaders(user.id), "x-happier-connected-service-switch-reason": "rotation" },
+            payload: { profileId: "member-b", expectedGeneration: 0, overrideRuntimeCooldown: true },
+        });
+        expect(rotated.statusCode).toBe(200);
+        expect(rotated.json().group.state).toMatchObject({ lastSwitchReason: "rotation", lastSwitchAt: expect.any(Number) });
     });
 
     it.each(["active-profile", "patch", "patch-legacy", "delete", "disable"])("records automatic fallback provenance and clears it for an old-client manual %s", async (action) => {
@@ -2722,7 +2810,7 @@ describe("connectRoutes connected service auth groups (integration)", () => {
             payload: {
                 groupId: "codex-main",
                 members: [{ profileId: "work" }],
-                policy: { strategy: "round_robin" },
+                policy: { strategy: "random" },
             },
         });
 

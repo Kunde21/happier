@@ -282,7 +282,7 @@ type AccountBlockNodeProps = {
     isDefault?: boolean;
     isActive?: boolean;
     onSetActive?: () => void;
-    actions?: ReadonlyArray<{ id: string; disabled?: boolean; onPress?: () => void; subtitle?: string }>;
+    actions?: ReadonlyArray<{ id: string; title?: string; disabled?: boolean; onPress?: () => void; subtitle?: string }>;
     reorderGesture?: ReorderGesture | null;
 };
 
@@ -1223,6 +1223,62 @@ describe('PoolDetailView', () => {
         if (!unsupportedDropdown) throw new Error('Strategy control is missing');
         expect(unsupportedDropdown.props.items.map((item: { id: string }) => item.id))
             .not.toContain('expiry_first');
+    });
+
+    it('offers round-robin only on supporting servers and saves the explicit choice', async () => {
+        const screen = await renderPoolDetail();
+        const dropdown = findDropdown(screen, 'connected-services-pool-detail:strategy');
+        if (!dropdown) throw new Error('Strategy control is missing');
+        expect(dropdown.props.items.map((item: { id: string }) => item.id)).toContain('round_robin');
+        await act(async () => {
+            dropdown.props.onSelect('round_robin');
+            await flushAsyncHandlers();
+        });
+        expect(authGroupApiSpies.patchConnectedServiceAuthGroupV3).toHaveBeenCalledWith(
+            expect.anything(), expect.objectContaining({ patch: expect.objectContaining({ policy: { strategy: 'round_robin' } }) }),
+        );
+        featureEnabledById.set('connectedServices.poolRoundRobin', false);
+        const unsupported = await renderPoolDetail();
+        const unsupportedDropdown = findDropdown(unsupported, 'connected-services-pool-detail:strategy');
+        if (!unsupportedDropdown) throw new Error('Strategy control is missing');
+        expect(unsupportedDropdown.props.items.map((item: { id: string }) => item.id))
+            .not.toContain('round_robin');
+    });
+
+    it('labels the active member as the rotation cursor on round-robin pools (D-5)', async () => {
+        const baseGroup = createAuthoritativeGroup();
+        authoritativeGroupState.groups = [{
+            ...baseGroup,
+            policy: { ...baseGroup.policy, strategy: 'round_robin' },
+        }];
+        const screen = await renderPoolDetail();
+        const blocks = findMemberBlocks(screen);
+        const active = blocks.find((block) => block.profileId === baseGroup.activeProfileId);
+        if (!active) throw new Error('active member row missing');
+        const setActive = active.actions?.find((action) => action.id.endsWith(':set-active'));
+        if (!setActive) throw new Error('set-active action missing');
+        // The translate mock returns keys, so the label identity IS the assertion.
+        expect(setActive.title).toBe('connectedServices.detail.groupActions.rotationCursor');
+    });
+
+    it('patches the member tier between primary and secondary', async () => {
+        const screen = await renderPoolDetail();
+        const blocks = findMemberBlocks(screen);
+        const backup = blocks.find((block) => block.profileId === 'backup');
+        if (!backup) throw new Error('backup member row missing');
+        const makeSecondary = backup.actions?.find((action) => action.id.endsWith(':set-secondary'));
+        if (!makeSecondary?.onPress) throw new Error('set-secondary action missing');
+        await act(async () => {
+            makeSecondary.onPress!();
+            await flushAsyncHandlers();
+        });
+        expect(authGroupApiSpies.patchConnectedServiceAuthGroupMemberV3).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                profileId: 'backup',
+                patch: { role: 'secondary', expectedGeneration: 2 },
+            }),
+        );
     });
 
     it('surfaces every Behavior control including the two previously-hidden knobs', async () => {

@@ -453,6 +453,7 @@ dead account.
 | Strategy | What it does |
 | --- | --- |
 | **Expiring quota first** *(development default)* | Prefers usable quota whose allowance resets or non-renewing subscription ends soonest, with enough headroom. |
+| **Round robin** | Each new session takes the next account in turn; running sessions keep theirs. |
 | **Least limited** | Picks whichever member has the most quota left. |
 | **Priority** | Uses your ordering, falling back down the list. |
 | **Manual** | Never chooses for you; you pick. |
@@ -466,6 +467,18 @@ switch, without adding scheduled swaps or restarting the agent.
 
 Reorder members to set the fallback order, and enable or disable individual
 accounts without removing them.
+
+The round-robin choice requires a server advertising
+`connectedServices.poolRoundRobin`. On a round-robin pool every session keeps
+**its own account**: starting a session takes the next account in turn and never
+restarts or moves the pool's other running sessions. The account a session
+started with stays its account — the pool's “active” member shown in settings is
+the last account handed out, not the account every session is using. If a
+session's own account hits a wall, that session alone moves to the next usable
+account; other sessions are untouched. Every member can also be marked
+**primary** or **secondary**: secondary accounts are only used when no primary
+account is usable, and primaries are preferred again as soon as one recovers.
+Tiers apply to every strategy's ordering but matter most for round robin.
 
 If a provider reports more than one independent allowance, the pool's
 **Usage limits** row can either track every allowance reported by enabled pool

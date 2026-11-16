@@ -22,7 +22,7 @@ const revisionedCredentialBoundary = () => ({
   credentialRevision,
 });
 
-function group(input: Readonly<{ generation?: number; activeProfileId?: string | null }> = {}): ConnectedServiceAuthGroupV1 {
+function group(input: Readonly<{ generation?: number; activeProfileId?: string | null; strategy?: 'round_robin' | 'priority' }> = {}): ConnectedServiceAuthGroupV1 {
   return {
     v: 1,
     serviceId: 'openai-codex',
@@ -31,7 +31,7 @@ function group(input: Readonly<{ generation?: number; activeProfileId?: string |
     activeProfileId: input.activeProfileId === undefined ? 'backup' : input.activeProfileId,
     generation: input.generation ?? 2,
     runtimeStateRevision: 0,
-    policy: { ...DEFAULT_CONNECTED_SERVICE_AUTH_GROUP_POLICY_V1, strategy: 'priority' },
+    policy: { ...DEFAULT_CONNECTED_SERVICE_AUTH_GROUP_POLICY_V1, strategy: input.strategy ?? 'priority' },
     state: { status: 'ready' },
     createdAt: 1,
     updatedAt: 1,
@@ -877,5 +877,105 @@ describe('reconcileConnectedServiceAuthGroupGenerations', () => {
 
     expect(applyCommittedGeneration).not.toHaveBeenCalled();
     expect(notifyCurrentGroupTruth).toHaveBeenCalledOnce();
+  });
+});
+
+describe('round-robin fan-out tolerance (producer)', () => {
+  it('excludes a pinned session from group fan-out once a sibling rotates the cursor', async () => {
+    const { consumer, applyCommittedGeneration } = createConsumer();
+    // Spawn-time generation frozen at 1; the pool has since rotated to generation 2.
+    const target: ConnectedServiceGenerationRuntimeTarget = {
+      ...groupTarget('pinned-live'),
+      connectedServicesBindingsRaw: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': { source: 'connected', selection: 'group', groupId: 'team', profileId: 'my-account' },
+        },
+      },
+    };
+
+    await reconcileConnectedServiceAuthGroupGenerations({
+      consumer,
+      listCurrentGroups: async () => [{ ...group({ generation: 2, strategy: 'round_robin' }), activeProfileId: 'other-account' }],
+      resolveCredentialRevision: () => credentialRevision,
+      executionAuthority: 'passive_projection',
+      listRuntimeTargets: () => [target],
+    });
+
+    expect(applyCommittedGeneration).not.toHaveBeenCalled();
+  });
+
+  it('keeps the released fan-out for unpinned sessions after a rotation commit', async () => {
+    const { consumer, applyCommittedGeneration } = createConsumer();
+
+    await reconcileConnectedServiceAuthGroupGenerations({
+      consumer,
+      listCurrentGroups: async () => [group({ generation: 2 })],
+      resolveCredentialRevision: () => credentialRevision,
+      executionAuthority: 'passive_projection',
+      listRuntimeTargets: () => [groupTarget('unpinned-live')],
+    });
+
+    expect(applyCommittedGeneration).toHaveBeenCalled();
+  });
+});
+
+describe('round-robin fan-out tolerance (pin-local revision facts)', () => {
+  it('applies the pinned account credential revision when the cursor returns to the pin and the revision changed', async () => {
+    const { consumer, applyCommittedGeneration } = createConsumer();
+    const target: ConnectedServiceGenerationRuntimeTarget = {
+      ...groupTarget('pinned-current'),
+      connectedServicesBindingsRaw: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': { source: 'connected', selection: 'group', groupId: 'team', profileId: 'backup' },
+        },
+      },
+    };
+
+    await reconcileConnectedServiceAuthGroupGenerations({
+      consumer,
+      listCurrentGroups: async () => [group({ generation: 5, strategy: 'round_robin' })],
+      resolveCredentialRevision: () => credentialRevision,
+      executionAuthority: 'passive_projection',
+      listRuntimeTargets: () => [target],
+    });
+
+    expect(applyCommittedGeneration).toHaveBeenCalled();
+  });
+
+  it('does not re-apply a healthy pinned session when the generation moved but the pinned revision is unchanged', async () => {
+    const { consumer, applyCommittedGeneration } = createConsumer();
+    const target: ConnectedServiceGenerationRuntimeTarget = {
+      sessionId: 'pinned-healthy',
+      agentId: 'codex',
+      connectedServiceMaterializationIdentityV1: { id: 'materialization-1' },
+      // Settled at spawn: profile backup, generation 1, the CURRENT revision already.
+      activeBindings: [{
+        serviceId: 'openai-codex',
+        profileId: 'backup',
+        groupId: 'team',
+        generation: 1,
+        credentialRevision,
+      }],
+      connectedServicesBindingsRaw: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': { source: 'connected', selection: 'group', groupId: 'team', profileId: 'backup' },
+        },
+      },
+    };
+
+    await reconcileConnectedServiceAuthGroupGenerationForRuntimeTarget({
+      target,
+      consumer,
+      // Cursor rotated away and came back: generation 9, same account, same revision.
+      listCurrentGroups: async () => [group({ generation: 9, strategy: 'round_robin' })],
+      resolveCredentialRevision: () => credentialRevision,
+      resolveCredentialBoundary: revisionedCredentialBoundary,
+      executionAuthority: 'passive_projection',
+    });
+
+    expect(applyCommittedGeneration).not.toHaveBeenCalled();
   });
 });

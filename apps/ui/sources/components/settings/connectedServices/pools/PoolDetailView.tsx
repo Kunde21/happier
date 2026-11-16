@@ -135,7 +135,11 @@ function StrategyCheckmark() {
     return <Icon name="check" size={16} color={theme.colors.accent.blue} />;
 }
 
-function buildStrategyItems(currentStrategy: GroupStrategy, expiryFirstSupported: boolean): DropdownMenuItem[] {
+function buildStrategyItems(
+    currentStrategy: GroupStrategy,
+    expiryFirstSupported: boolean,
+    roundRobinSupported: boolean,
+): DropdownMenuItem[] {
     return [
         ...(expiryFirstSupported || currentStrategy === 'expiry_first' ? [{
             id: 'expiry_first',
@@ -143,6 +147,13 @@ function buildStrategyItems(currentStrategy: GroupStrategy, expiryFirstSupported
             subtitle: t('connectedServices.detail.groupDetail.strategyExpiryFirstSubtitle'),
             rightElement: currentStrategy === 'expiry_first' ? <StrategyCheckmark /> : null,
             disabled: !expiryFirstSupported,
+        }] : []),
+        ...(roundRobinSupported || currentStrategy === 'round_robin' ? [{
+            id: 'round_robin',
+            title: t('connectedServices.detail.groupDetail.strategyRoundRobinTitle'),
+            subtitle: t('connectedServices.detail.groupDetail.strategyRoundRobinSubtitle'),
+            rightElement: currentStrategy === 'round_robin' ? <StrategyCheckmark /> : null,
+            disabled: !roundRobinSupported,
         }] : []),
         {
             id: 'priority',
@@ -224,6 +235,7 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
     const autoDisablePlanInvalidEnabled = useFeatureEnabled('connectedServices.autoDisablePlanInvalid');
     const poolQuotaLimitSelectionEnabled = useFeatureEnabled('connectedServices.poolQuotaLimitSelection');
     const poolExpiryFirstEnabled = useFeatureEnabled('connectedServices.poolExpiryFirst');
+    const poolRoundRobinEnabled = useFeatureEnabled('connectedServices.poolRoundRobin');
     const [strategyOpen, setStrategyOpen] = React.useState(false);
     const [recoveryModeOpen, setRecoveryModeOpen] = React.useState(false);
     const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
@@ -382,6 +394,7 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
     const handleSetStrategy = (strategy: string) => {
         if (!isGroupStrategy(strategy)) return;
         if (strategy === 'expiry_first' && !poolExpiryFirstEnabled) return;
+        if (strategy === 'round_robin' && !poolRoundRobinEnabled) return;
         void patchPolicy({ strategy });
     };
 
@@ -455,6 +468,16 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
             groupId: group.groupId,
             profileId,
             patch: { enabled, expectedGeneration: group.generation },
+        }));
+    }, [group, runGroupMutation, serviceId]);
+
+    const handleSetMemberRole = React.useCallback(async (profileId: string, role: 'primary' | 'secondary') => {
+        if (!serviceId || !group) return;
+        await runGroupMutation(() => patchConnectedServiceAuthGroupMemberV3(ensureCredentials(), {
+            serviceId,
+            groupId: group.groupId,
+            profileId,
+            patch: { role, expectedGeneration: group.generation },
         }));
     }, [group, runGroupMutation, serviceId]);
 
@@ -887,8 +910,12 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
                             },
                             {
                                 id: `connected-services-pool:${group.groupId}:member:${memberModel.profileId}:action:set-active`,
+                                // D-5: on round-robin pools the group active is the rotation
+                                // cursor ("last handed out"), not a persistent active member.
                                 title: isActive
-                                    ? t('connectedServices.detail.groupActions.activeMember')
+                                    ? (group.policy.strategy === 'round_robin'
+                                        ? t('connectedServices.detail.groupActions.rotationCursor', { member: memberTitle })
+                                        : t('connectedServices.detail.groupActions.activeMember'))
                                     : t('connectedServices.detail.groupActions.makeActive'),
                                 subtitle: !isActive
                                     ? !fallbackControlsEnabled
@@ -900,6 +927,18 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
                                 onPress: canSetActiveMember
                                     ? () => void handleSetActiveMember(memberModel.profileId)
                                     : undefined,
+                            },
+                            {
+                                id: `connected-services-pool:${group.groupId}:member:${memberModel.profileId}:action:set-secondary`,
+                                title: memberModel.role === 'secondary'
+                                    ? t('connectedServices.detail.groupActions.makePrimary')
+                                    : t('connectedServices.detail.groupActions.makeSecondary'),
+                                subtitle: t('connectedServices.detail.groupActions.memberTierSubtitle'),
+                                icon: 'stack',
+                                onPress: () => void handleSetMemberRole(
+                                    memberModel.profileId,
+                                    memberModel.role === 'secondary' ? 'primary' : 'secondary',
+                                ),
                             },
                             {
                                 id: `connected-services-pool:${group.groupId}:member:${memberModel.profileId}:action:remove`,
@@ -1038,7 +1077,7 @@ export const PoolDetailView = React.memo(function PoolDetailView() {
                 <DropdownMenu
                     open={strategyOpen}
                     onOpenChange={setStrategyOpen}
-                    items={buildStrategyItems(group.policy.strategy, poolExpiryFirstEnabled)}
+                    items={buildStrategyItems(group.policy.strategy, poolExpiryFirstEnabled, poolRoundRobinEnabled)}
                     selectedId={group.policy.strategy}
                     onSelect={handleSetStrategy}
                     itemTrigger={{

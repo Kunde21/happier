@@ -92,6 +92,58 @@ describe('resolveConnectedServiceRuntimeAuthRecoverySelection', () => {
     });
   });
 
+  it('surfaces the per-session pin from child-env selections and durable bindings', () => {
+    expect(resolveConnectedServiceRuntimeAuthRecoverySelection({
+      classification: baseClassification,
+      environmentVariables: {
+        [HAPPIER_CONNECTED_SERVICE_SELECTIONS_ENV_KEY]: JSON.stringify([{
+          kind: 'group',
+          serviceId: 'openai-codex',
+          groupId: 'main',
+          activeProfileId: 'env-profile',
+          fallbackProfileId: 'env-profile',
+          pinnedProfileId: 'my-account',
+          generation: 3,
+        }]),
+      },
+      trackedConnectedServices: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': { source: 'connected', selection: 'group', groupId: 'main', profileId: 'my-account' },
+        },
+      },
+    })).toEqual({
+      source: 'child_env',
+      selection: {
+        kind: 'group',
+        serviceId: 'openai-codex',
+        groupId: 'main',
+        activeProfileId: 'env-profile',
+        fallbackProfileId: 'env-profile',
+        pinnedProfileId: 'my-account',
+      },
+    });
+
+    expect(resolveConnectedServiceRuntimeAuthRecoverySelection({
+      classification: baseClassification,
+      trackedConnectedServices: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': { source: 'connected', selection: 'group', groupId: 'main', profileId: 'my-account' },
+        },
+      },
+    })).toEqual({
+      source: 'tracked_spawn_options',
+      selection: {
+        kind: 'group',
+        serviceId: 'openai-codex',
+        groupId: 'main',
+        pinnedProfileId: 'my-account',
+        fallbackProfileId: 'my-account',
+      },
+    });
+  });
+
   it('falls back to durable session metadata before trusting an incomplete runtime report', () => {
     expect(resolveConnectedServiceRuntimeAuthRecoverySelection({
       classification: baseClassification,
@@ -102,6 +154,7 @@ describe('resolveConnectedServiceRuntimeAuthRecoverySelection', () => {
         kind: 'group',
         serviceId: 'openai-codex',
         groupId: 'main',
+        pinnedProfileId: 'metadata-profile',
         fallbackProfileId: 'metadata-profile',
       },
     });
@@ -122,6 +175,7 @@ describe('resolveConnectedServiceRuntimeAuthRecoverySelection', () => {
         kind: 'group',
         serviceId: 'openai-codex',
         groupId: 'main',
+        pinnedProfileId: 'tracked-profile',
         fallbackProfileId: 'reported-profile',
       },
     });

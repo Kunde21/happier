@@ -90,6 +90,16 @@ type ConnectedServiceAuthGroupPreTurnSwitchCoordinator = Readonly<{
     activeProfileId?: string | null;
     generation?: number;
   }>>;
+  rotateCursorForSpawn?(params: Readonly<{
+    sessionId?: string;
+    serviceId: string;
+    groupId: string;
+    observedProfileId?: string | null;
+  }>): Promise<Readonly<{
+    status: string;
+    activeProfileId?: string | null;
+    generation?: number;
+  }>>;
   switchAfterClassifiedFailure?(params: Readonly<{
     sessionId?: string;
     serviceId: string;
@@ -559,6 +569,29 @@ async function maybeSelectGroupActiveProfileForSpawn(params: Readonly<{
     nowMs: params.nowMs,
   });
   if (!state) return params.group;
+  if (
+    state.policy.strategy === 'round_robin'
+    && typeof params.authGroupSwitchCoordinator.rotateCursorForSpawn === 'function'
+  ) {
+    // Rotation owns spawn-time account choice on round-robin pools: it advances the cursor to
+    // the next eligible member in tier order through the fenced commit. A not-required or
+    // ineligible outcome falls through to the released exhaustion logic below.
+    const rotated = await params.authGroupSwitchCoordinator.rotateCursorForSpawn({
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+      serviceId: params.serviceId,
+      groupId: params.groupId,
+      observedProfileId: state.activeProfileId,
+    });
+    const authoritative = await resolveAuthoritativeGroupAfterSpawnSwitchResult({
+      group: params.group,
+      serviceId: params.serviceId,
+      groupId: params.groupId,
+      api: params.api,
+      result: rotated,
+      switchReason: 'rotation',
+    });
+    if (authoritative) return authoritative;
+  }
   if (!state.policy.autoSwitch) return params.group;
   const activeUsageExhausted = isActiveGroupProfileUsageExhausted(state, params.nowMs);
   const switchReason = activeUsageExhausted ? 'usage_limit' : 'soft_threshold';
@@ -718,21 +751,29 @@ async function resolveCredentialBindings(params: Readonly<{
     if (!group) {
       throw new Error(`Missing connected service auth group (${selection.serviceId}/${selection.groupId})`);
     }
-    const selectedGroup = await maybeSelectGroupActiveProfileForSpawn({
+    const pinnedProfileId = resolveSpawnPinnedGroupProfileId({
+      bindingPinnedProfileId: selection.pinnedProfileId,
       group,
-      serviceId: selection.serviceId,
-      groupId: selection.groupId,
-      api: groupApi,
-      accountUsageStore: params.accountUsageStore,
-      runtimeQuotaSnapshots: params.runtimeQuotaSnapshots,
-      quotaFreshnessMs: params.quotaFreshnessMs,
-      nowMs: params.nowMs,
-      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-      authGroupSwitchCoordinator: params.authGroupSwitchCoordinator ?? null,
-      predictiveSoftSwitchMode: params.predictiveSoftSwitchMode,
-      quotaProbeDeadlineAtMs: params.quotaProbeDeadlineAtMs,
     });
-    const activeProfileId = readProfileId(selectedGroup.activeProfileId);
+    // A pinned session's account is its own truth: group-cursor maintenance (pre-spawn switches
+    // that commit group truth and apply a restart to this session) must not run for it.
+    const selectedGroup = pinnedProfileId
+      ? group
+      : await maybeSelectGroupActiveProfileForSpawn({
+        group,
+        serviceId: selection.serviceId,
+        groupId: selection.groupId,
+        api: groupApi,
+        accountUsageStore: params.accountUsageStore,
+        runtimeQuotaSnapshots: params.runtimeQuotaSnapshots,
+        quotaFreshnessMs: params.quotaFreshnessMs,
+        nowMs: params.nowMs,
+        ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+        authGroupSwitchCoordinator: params.authGroupSwitchCoordinator ?? null,
+        predictiveSoftSwitchMode: params.predictiveSoftSwitchMode,
+        quotaProbeDeadlineAtMs: params.quotaProbeDeadlineAtMs,
+      });
+    const activeProfileId = pinnedProfileId ?? readProfileId(selectedGroup.activeProfileId);
     if (!activeProfileId) {
       throw new Error(`Connected service auth group has no active profile (${selection.serviceId}/${selection.groupId})`);
     }
@@ -740,6 +781,11 @@ async function resolveCredentialBindings(params: Readonly<{
     groupSelections.set(selection.serviceId, {
       groupId: selection.groupId,
       activeProfileId,
+      // Every round-robin session owns its account: the spawn-time active (post-rotation, or
+      // the honored binding pin) becomes the session pin. Non-round-robin pools stay unpinned.
+      ...(pinnedProfileId ?? (isRoundRobinGroupPolicy(selectedGroup.policy) ? activeProfileId : null)
+        ? { pinnedProfileId: pinnedProfileId ?? activeProfileId }
+        : {}),
       fallbackProfileId: selection.fallbackProfileId ?? activeProfileId,
       generation: typeof selectedGroup.generation === 'number' && Number.isFinite(selectedGroup.generation) ? selectedGroup.generation : 0,
       policy: selectedGroup.policy ?? null,
@@ -755,11 +801,39 @@ async function resolveCredentialBindings(params: Readonly<{
 type ConnectedServiceResolvedGroupSelection = Readonly<{
   groupId: string;
   activeProfileId: string;
+  /** Present only when the session is pinned to a specific member (round-robin pools). */
+  pinnedProfileId?: string;
   fallbackProfileId: string;
   generation: number;
   policy: unknown;
   memberCount: number;
 }>;
+
+/**
+ * A group binding's `profileId` is an authoritative per-session pin only on round-robin pools,
+ * and only while the pinned member is still an enabled candidate. Otherwise the binding keeps
+ * its released fallback meaning and the session follows the group's active profile.
+ */
+function isRoundRobinGroupPolicy(policy: unknown): boolean {
+  return Boolean(policy) && typeof policy === 'object' && (policy as { strategy?: unknown }).strategy === 'round_robin';
+}
+
+function resolveSpawnPinnedGroupProfileId(params: Readonly<{
+  bindingPinnedProfileId: string | undefined;
+  group: ConnectedServiceAuthGroupResponse;
+}>): string | null {
+  const pinnedProfileId = readProfileId(params.bindingPinnedProfileId);
+  if (!pinnedProfileId) return null;
+  if (!isRoundRobinGroupPolicy(params.group.policy)) {
+    return null;
+  }
+  const members = Array.isArray(params.group.members) ? params.group.members : [];
+  return members.some((member) => (
+    readProfileId(member.profileId) === pinnedProfileId && member.enabled !== false
+  ))
+    ? pinnedProfileId
+    : null;
+}
 
 function isAuthoritativeGroupActiveProfileEligible(params: Readonly<{
   group: ConnectedServiceAuthGroupResponse;
@@ -871,6 +945,9 @@ async function applyCanonicalSpawnFailureSwitch(params: Readonly<{
   params.groupSelections.set(params.serviceId, {
     ...group,
     activeProfileId,
+    // The session now runs on the committed replacement: the pin follows the account actually
+    // in use, so the persisted binding never pins the session to the account it just left.
+    ...(group.pinnedProfileId ? { pinnedProfileId: activeProfileId } : {}),
     generation: typeof authoritative?.generation === 'number'
       ? authoritative.generation
       : group.generation,
@@ -991,6 +1068,7 @@ function buildSelectionsByServiceIdForSpawn(params: Readonly<{
       serviceId: selection.serviceId,
       groupId: group.groupId,
       activeProfileId: group.activeProfileId,
+      ...(group.pinnedProfileId ? { pinnedProfileId: group.pinnedProfileId } : {}),
       fallbackProfileId: group.fallbackProfileId,
       generation: group.generation,
       credentialRevision: params.credentialRevisionsByServiceId.get(selection.serviceId) ?? null,
@@ -1023,6 +1101,9 @@ function buildCanonicalConnectedServicesBindingsForSpawn(params: Readonly<{
       source: 'connected',
       selection: 'group',
       groupId: group.groupId,
+      // The pin is re-emitted so the session stays on its own account across restarts; pools
+      // without a pin keep the released binding shape exactly.
+      ...(group.pinnedProfileId ? { profileId: group.pinnedProfileId } : {}),
     };
   }
 

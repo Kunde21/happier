@@ -23,6 +23,11 @@ export type ConnectedServiceBindingSelection =
       kind: 'group';
       serviceId: ConnectedServiceId;
       groupId: string;
+      /**
+       * The group binding's `profileId`. Authoritative per-session pin on round-robin pools
+       * (strategy-aware consumers decide); released consumers keep reading `fallbackProfileId`.
+       */
+      pinnedProfileId?: string;
       fallbackProfileId?: string;
     }>;
 
@@ -52,7 +57,7 @@ export function parseConnectedServiceBindingSelections(raw: unknown): ConnectedS
         kind: 'group',
         serviceId: parsedId.data,
         groupId,
-        ...(profileId ? { fallbackProfileId: profileId } : {}),
+        ...(profileId ? { pinnedProfileId: profileId, fallbackProfileId: profileId } : {}),
       });
       continue;
     }

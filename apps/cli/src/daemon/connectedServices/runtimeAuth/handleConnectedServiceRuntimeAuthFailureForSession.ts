@@ -35,7 +35,8 @@ import { isTemporaryRetryOwnedConnectedServiceRuntimeFailure } from './Connected
 import type { ConnectedServiceProviderAdoptedGenerationTarget } from '../sessionAuthSwitch/connectedServiceAuthSwitchOutcome';
 
 type SwitchCoordinatorLike = Parameters<typeof handleConnectedServiceRuntimeAuthFailure>[0]['switchCoordinator']
-  & Partial<Pick<ConnectedServiceAuthGroupSwitchCoordinator, 'observeCurrentGenerationForRecovery'>>;
+  & Partial<Pick<ConnectedServiceAuthGroupSwitchCoordinator, 'observeCurrentGenerationForRecovery'>>
+  & Partial<Pick<ConnectedServiceAuthGroupSwitchCoordinator, 'switchSessionPinAfterClassifiedFailure'>>;
 type SwitchAfterClassifiedFailureInput = Parameters<SwitchCoordinatorLike['switchAfterClassifiedFailure']>[0];
 type TemporaryThrottleRecoveryLike = NonNullable<
   Parameters<typeof handleConnectedServiceRuntimeAuthFailure>[0]['temporaryThrottleRecovery']
@@ -718,6 +719,24 @@ function requestRuntimeAuthRestart(input: Readonly<{
     });
 }
 
+function createPinLocalSwitchCoordinator(
+  switchCoordinator: SwitchCoordinatorLike,
+  params: Readonly<{ sessionId: string; pinnedProfileId: string }>,
+): SwitchCoordinatorLike {
+  return {
+    ...switchCoordinator,
+    switchAfterClassifiedFailure: async (input: SwitchAfterClassifiedFailureInput) => {
+      // D-11: a pinned session's failure recovery selects against the pin and applies
+      // per-session; it must never run the group pipeline that commits pool truth.
+      return await switchCoordinator.switchSessionPinAfterClassifiedFailure!({
+        ...input,
+        sessionId: params.sessionId,
+        pinnedProfileId: params.pinnedProfileId,
+      });
+    },
+  };
+}
+
 function createCommitOnlySwitchCoordinator(
   switchCoordinator: SwitchCoordinatorLike,
 ): SwitchCoordinatorLike {
@@ -862,6 +881,14 @@ async function runRuntimeGroupSwitchRecovery(input: Readonly<{
     classifiedProfileId: input.classification.profileId,
     providerQualified: Boolean(input.classification.sourceProviderAccountId || input.classification.providerReportedOrganizationId),
   });
+  const pinnedProfileId = normalizeNullableProfileId(input.selection.pinnedProfileId ?? null);
+  const effectiveSwitchCoordinator = pinnedProfileId
+    && typeof input.switchCoordinator.switchSessionPinAfterClassifiedFailure === 'function'
+    ? createPinLocalSwitchCoordinator(input.switchCoordinator, {
+      sessionId: input.sessionId,
+      pinnedProfileId,
+    })
+    : input.switchCoordinator;
 
   return await handleConnectedServiceRuntimeAuthFailure({
     sessionId: input.sessionId,
@@ -879,8 +906,8 @@ async function runRuntimeGroupSwitchRecovery(input: Readonly<{
     switchesThisTurn: effectiveSwitchesThisTurn,
     sessionSwitchesThisHour,
     switchCoordinator: input.applyLiveSession === false
-      ? createCommitOnlySwitchCoordinator(input.switchCoordinator)
-      : input.switchCoordinator,
+      ? createCommitOnlySwitchCoordinator(effectiveSwitchCoordinator)
+      : effectiveSwitchCoordinator,
     temporaryThrottleRecovery: input.temporaryThrottleRecovery ?? null,
     ...((input.recoveryInvocationSource === 'scheduler_retry' || input.classification.profileId === null)
       && (input.classification.kind === 'usage_limit' || input.classification.kind === 'rate_limit')

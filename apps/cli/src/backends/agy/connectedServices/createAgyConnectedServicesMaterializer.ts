@@ -90,7 +90,10 @@ export function createAgyConnectedServicesMaterializer(): ConnectedServicesProvi
     };
     return await withConnectedServiceStateSharingDestinationLock(home, async (): Promise<ConnectedServicesMaterializeResult> => {
       const selection = params.selectionsByServiceId?.get('antigravity');
-      if (selection?.kind === 'group' && params.validateGroupMutationCurrentness) {
+      // A pinned group session owns the pinned account's credential; the group-generation
+      // currentness gate must not run for it (sibling rotations advance group truth without
+      // invalidating this session's pinned credential).
+      if (selection?.kind === 'group' && !selection.pinnedProfileId && params.validateGroupMutationCurrentness) {
         const current = await params.validateGroupMutationCurrentness({
           serviceId: 'antigravity', groupId: selection.groupId, profileId: record.profileId,
           generation: selection.generation, credentialRevision: selection.credentialRevision ?? null,

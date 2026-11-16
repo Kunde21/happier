@@ -14,6 +14,8 @@ export type RuntimeRecoverySelection =
       groupId: string;
       activeProfileId?: string;
       fallbackProfileId?: string;
+      /** Per-session pin (round-robin pools): the session's own account, not the pool cursor. */
+      pinnedProfileId?: string;
     }>;
 
 export type ConnectedServiceRuntimeAuthRecoverySelectionSource =
@@ -43,7 +45,6 @@ function mapParsedBindingSelectionToRuntimeRecoverySelection(
   }
   return selection;
 }
-
 function matchesReportedGroupId(
   selection: RuntimeRecoverySelection | null,
   reportedGroupId: string,
@@ -103,6 +104,7 @@ export function resolveConnectedServiceRuntimeAuthRecoverySelection(input: Reado
         groupId: childEnvSelection.groupId,
         activeProfileId: childEnvSelection.activeProfileId,
         fallbackProfileId: reportedProfileId || childEnvSelection.fallbackProfileId,
+        ...(childEnvSelection.pinnedProfileId ? { pinnedProfileId: childEnvSelection.pinnedProfileId } : {}),
       },
       source: 'child_env',
     };

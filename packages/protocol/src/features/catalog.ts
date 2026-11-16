@@ -111,6 +111,12 @@ const FEATURE_CATALOG_DEFINITION = {
     dependencies: ['connectedServices.accountGroups'],
     representation: 'server',
   },
+  'connectedServices.poolRoundRobin': {
+    description: 'Tiered round-robin selection strategy for connected service account pools.',
+    defaultFailMode: 'fail_closed',
+    dependencies: ['connectedServices.accountGroups'],
+    representation: 'server',
+  },
   channelBridges: {
     description: 'Channel bridge integrations (Telegram/Discord/etc).',
     defaultFailMode: 'fail_closed',

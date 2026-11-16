@@ -91,6 +91,35 @@ describe('connectedServiceChildEnvironment runtime auth context', () => {
     })]);
   });
 
+  it('round-trips the pinned profile id in the child selection envelope', () => {
+    const selections = new Map<ConnectedServiceId, ConnectedServiceResolvedSelection>([['claude-subscription', {
+      kind: 'group' as const,
+      serviceId: 'claude-subscription' as const,
+      groupId: 'main',
+      activeProfileId: 'member-b',
+      pinnedProfileId: 'member-b',
+      fallbackProfileId: 'member-b',
+      generation: 7,
+      credentialRevision: null,
+      record: {} as never,
+      policy: null,
+    }]]);
+    const serialized = serializeConnectedServiceChildSelections(selections);
+
+    expect(readConnectedServiceChildSelectionsFromEnv({
+      [HAPPIER_CONNECTED_SERVICE_SELECTIONS_ENV_KEY]: serialized ?? undefined,
+    })).toEqual([{
+      kind: 'group',
+      serviceId: 'claude-subscription',
+      groupId: 'main',
+      activeProfileId: 'member-b',
+      pinnedProfileId: 'member-b',
+      fallbackProfileId: 'member-b',
+      generation: 7,
+      credentialRevision: null,
+    }]);
+  });
+
   it('resolves the current connected-service binding from session metadata', () => {
     const connectedServices = {
       v: 1,

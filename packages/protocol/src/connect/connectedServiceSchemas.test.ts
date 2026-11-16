@@ -657,17 +657,47 @@ describe('connectedServiceSchemas', () => {
         }
     });
 
+    it('accepts the round-robin pool strategy as a first-class policy value', () => {
+        const ConnectedServiceAuthGroupPolicyV1Schema = expectSchema('ConnectedServiceAuthGroupPolicyV1Schema');
+        const ConnectedServiceAuthGroupPolicyPatchV1Schema = expectSchema('ConnectedServiceAuthGroupPolicyPatchV1Schema');
+
+        expect(ConnectedServiceAuthGroupPolicyV1Schema.parse({ v: 1, strategy: 'round_robin' }).strategy).toBe('round_robin');
+        expect(ConnectedServiceAuthGroupPolicyPatchV1Schema.parse({ strategy: 'round_robin' }).strategy).toBe('round_robin');
+    });
+
+    it('keeps the pool member role absent unless a writer sets it', () => {
+        const ConnectedServiceAuthGroupMemberV1Schema = expectSchema('ConnectedServiceAuthGroupMemberV1Schema');
+        const createRequestSchema = expectSchema('ConnectedServiceAuthGroupMemberCreateRequestV1Schema');
+        const patchRequestSchema = expectSchema('ConnectedServiceAuthGroupMemberPatchRequestV1Schema');
+        const baseMember = {
+            v: 1,
+            serviceId: 'claude-subscription',
+            groupId: 'main',
+            profileId: 'work',
+            createdAt: 1,
+            updatedAt: 2,
+        };
+
+        // Absence is preserved so a released strict V1 reader never receives an unknown member key.
+        expect(ConnectedServiceAuthGroupMemberV1Schema.parse(baseMember)).not.toHaveProperty('role');
+        expect(ConnectedServiceAuthGroupMemberV1Schema.parse({ ...baseMember, role: 'secondary' }).role).toBe('secondary');
+        expect(ConnectedServiceAuthGroupMemberV1Schema.safeParse({ ...baseMember, role: 'tertiary' }).success).toBe(false);
+        expect(createRequestSchema.parse({ profileId: 'work', expectedGeneration: 1 })).not.toHaveProperty('role');
+        expect(createRequestSchema.parse({ profileId: 'work', role: 'secondary', expectedGeneration: 1 }).role).toBe('secondary');
+        expect(patchRequestSchema.parse({ role: 'secondary', expectedGeneration: 1 }).role).toBe('secondary');
+    });
+
     it('appends CORS-safe auth-group reader capabilities without replacing existing query parameters', () => {
         const appendReaderCapabilities = (schemas as Record<string, unknown>)
             .appendConnectedServiceAuthGroupReaderCapabilities;
         expect(typeof appendReaderCapabilities).toBe('function');
         expect((appendReaderCapabilities as (path: string) => string)('/v3/connect/openai-codex/groups')).toBe(
-            '/v3/connect/openai-codex/groups?happierAutoDisablePlanInvalidAccounts=1&happierPoolQuotaLimitSelection=1&happierPoolExpiryFirst=1&happierClaudeCodeAutoContinueAtUsageLimit=1',
+            '/v3/connect/openai-codex/groups?happierAutoDisablePlanInvalidAccounts=1&happierPoolQuotaLimitSelection=1&happierPoolExpiryFirst=1&happierClaudeCodeAutoContinueAtUsageLimit=1&happierPoolRoundRobin=1',
         );
         expect((appendReaderCapabilities as (path: string) => string)(
             '/v3/connect/openai-codex/groups/main/members/work?expectedGeneration=4',
         )).toBe(
-            '/v3/connect/openai-codex/groups/main/members/work?expectedGeneration=4&happierAutoDisablePlanInvalidAccounts=1&happierPoolQuotaLimitSelection=1&happierPoolExpiryFirst=1&happierClaudeCodeAutoContinueAtUsageLimit=1',
+            '/v3/connect/openai-codex/groups/main/members/work?expectedGeneration=4&happierAutoDisablePlanInvalidAccounts=1&happierPoolQuotaLimitSelection=1&happierPoolExpiryFirst=1&happierClaudeCodeAutoContinueAtUsageLimit=1&happierPoolRoundRobin=1',
         );
     });
 
@@ -702,7 +732,7 @@ describe('connectedServiceSchemas', () => {
         expect(expectSchema('ConnectedServiceAuthGroupPolicyPatchV1Schema').parse({
             resumePromptMode: 'off',
         }).resumePromptMode).toBe('off');
-        expect(ConnectedServiceAuthGroupPolicyV1Schema.safeParse({ v: 1, strategy: 'round_robin' }).success).toBe(false);
+        expect(ConnectedServiceAuthGroupPolicyV1Schema.safeParse({ v: 1, strategy: 'random' }).success).toBe(false);
         // Existing pools that persisted an explicit `priority` strategy must NOT be silently migrated.
         expect(ConnectedServiceAuthGroupPolicyV1Schema.parse({ v: 1, strategy: 'priority' }).strategy).toBe('priority');
         expect(ConnectedServiceAuthGroupPolicyV1Schema.parse({ v: 1, strategy: 'least_limited' }).strategy).toBe('least_limited');

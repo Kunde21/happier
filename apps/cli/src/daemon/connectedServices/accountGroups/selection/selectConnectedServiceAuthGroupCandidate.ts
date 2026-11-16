@@ -43,6 +43,8 @@ export type ConnectedServiceAuthGroupMember = Readonly<{
   priority: number;
   createdAtMs: number;
   enabled: boolean;
+  /** Absence means `primary` (released V1 readers never receive the key). */
+  role?: 'primary' | 'secondary';
 }>;
 
 export type ConnectedServiceAuthGroupQuotaMeterSnapshot = Readonly<{
@@ -157,6 +159,35 @@ function comparePriority(left: ConnectedServiceAuthGroupMember, right: Connected
   return left.priority - right.priority
     || left.createdAtMs - right.createdAtMs
     || left.profileId.localeCompare(right.profileId);
+}
+
+function isSecondaryPoolMember(member: ConnectedServiceAuthGroupMember): boolean {
+  return member.role === 'secondary';
+}
+
+/**
+ * Round-robin rank: primary band before secondary band, then the rotation order that starts AFTER
+ * the last-used member and wraps. The rank is derived from every member (enabled or not) so a
+ * temporarily unusable member does not shift the anchor for the members that follow it.
+ */
+function buildRoundRobinRankByProfileId(params: Readonly<{
+  members: ReadonlyArray<ConnectedServiceAuthGroupMember>;
+  afterProfileId: string | null;
+}>): ReadonlyMap<string, number> {
+  const bandedOrder = ([false, true] as const).flatMap((secondary) =>
+    params.members.filter((member) => isSecondaryPoolMember(member) === secondary).slice().sort(comparePriority));
+  const rankByProfileId = new Map<string, number>();
+  for (const secondary of [false, true] as const) {
+    const band = bandedOrder.filter((member) => isSecondaryPoolMember(member) === secondary);
+    const anchorIndex = params.afterProfileId === null
+      ? -1
+      : band.findIndex((member) => member.profileId === params.afterProfileId);
+    const rotated = anchorIndex < 0 ? band : [...band.slice(anchorIndex + 1), ...band.slice(0, anchorIndex + 1)];
+    for (const [index, member] of rotated.entries()) {
+      rankByProfileId.set(member.profileId, (secondary ? 1_000_000 : 0) + index);
+    }
+  }
+  return rankByProfileId;
 }
 
 export function resolveConnectedServiceAuthGroupPriorityPrimaryProfileId(
@@ -632,6 +663,12 @@ export function selectConnectedServiceAuthGroupCandidate(params: Readonly<{
   switchReason?: string;
   /** Adoption of the pool's explicit user selection still enforces all known blockers. */
   acceptLastKnownQuota?: boolean;
+  /**
+   * Round-robin anchor: the pool member whose successor should be used next. Defaults to
+   * `activeProfileId` (the last-used member) so every round-robin decision advances the rotation.
+   * Only read when `policy.strategy === 'round_robin'`.
+   */
+  rotationAfterProfileId?: string | null;
 }>): ConnectedServiceAuthGroupCandidateSelection {
   if (params.policy.strategy === 'manual' && !params.acceptLastKnownQuota) {
     return {
@@ -883,29 +920,46 @@ export function selectConnectedServiceAuthGroupCandidate(params: Readonly<{
     });
   } else if (params.policy.strategy === 'least_limited') {
     candidates.sort(compareLeastLimited);
+  } else if (params.policy.strategy === 'round_robin') {
+    const rankByProfileId = buildRoundRobinRankByProfileId({
+      members: params.members,
+      afterProfileId: params.rotationAfterProfileId === undefined
+        ? params.activeProfileId
+        : params.rotationAfterProfileId,
+    });
+    candidates.sort((left, right) =>
+      (rankByProfileId.get(left.profileId) ?? Number.MAX_SAFE_INTEGER)
+      - (rankByProfileId.get(right.profileId) ?? Number.MAX_SAFE_INTEGER)
+      || comparePriority(left, right));
   } else {
     candidates.sort(comparePriority);
   }
   // Credits are the fallback for every strategy: a stable partition keeps each tier's strategy order.
   candidates.sort((left, right) => Number(left.creditsOnly === true) - Number(right.creditsOnly === true));
 
-  const priorityRestorePreferred = resolvePriorityRestorePreferredCandidate({
-    members: params.members,
-    candidates,
-    activeProfileId: params.activeProfileId,
-    policy: params.policy,
-    memberStatesByProfileId: params.memberStatesByProfileId,
-    nowMs: params.nowMs,
-    lastSwitchReason: params.lastSwitchReason,
-    lastSwitchAt: params.lastSwitchAt,
-  });
+  // Round-robin owns its order: neither the quota-score soft switch nor the priority
+  // restore may move the rotation anchor.
+  const priorityRestorePreferred = params.policy.strategy === 'round_robin'
+    ? null
+    : resolvePriorityRestorePreferredCandidate({
+        members: params.members,
+        candidates,
+        activeProfileId: params.activeProfileId,
+        policy: params.policy,
+        memberStatesByProfileId: params.memberStatesByProfileId,
+        nowMs: params.nowMs,
+        lastSwitchReason: params.lastSwitchReason,
+        lastSwitchAt: params.lastSwitchAt,
+      });
 
-  const softSwitchPreferred = resolveSoftSwitchPreferredCandidate({
-    candidates,
-    activeProfileId: params.activeProfileId,
-    policy: params.policy,
-    allowCurrentProfileRetry: params.allowCurrentProfileRetry,
-  });
+  const softSwitchPreferred = params.policy.strategy === 'round_robin'
+    ? null
+    : resolveSoftSwitchPreferredCandidate({
+        candidates,
+        activeProfileId: params.activeProfileId,
+        policy: params.policy,
+        allowCurrentProfileRetry: params.allowCurrentProfileRetry,
+      });
 
   const selected = priorityRestorePreferred ?? softSwitchPreferred ?? candidates[0] ?? null;
   const reason = selected ? 'selected' : 'no_eligible_members';

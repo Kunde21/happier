@@ -812,6 +812,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
       case 'auto_switch_disabled':
       case 'switch_reason_disabled':
       case 'manual_strategy':
+      case 'rotation_not_required':
         return input.loaded.activeProfileId;
       case 'no_eligible_member':
       case 'switch_limit_reached':
@@ -1059,6 +1060,296 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
     deadlineAtMs?: number;
   }>): Promise<ConnectedServiceAuthGroupSwitchResult> {
     return await this.runSwitchPipeline(input, 'pre_turn');
+  }
+
+  /**
+   * Spawn rotation (round-robin pools only): advance the group cursor to the next eligible
+   * member in tiered rotation order and commit it through the same fenced commit path as every
+   * other switch. Deliberately NOT the failure-switch pipeline (D-7/D-8): no auto-switch/reason
+   * gates, no per-turn/per-hour budgets, no observed-failure recording, and no post-commit
+   * application or fan-out — the session being spawned does not exist yet and materializes from
+   * the committed cursor afterwards. A lease loser adopts the winner's committed generation so a
+   * rotation batch converges instead of stack-stepping the cursor.
+   */
+  async rotateCursorForSpawn(input: Readonly<{
+    serviceId: string;
+    groupId: string;
+    sessionId?: string;
+    observedProfileId?: string | null;
+  }>): Promise<ConnectedServiceAuthGroupSwitchResult> {
+    const startedAtMs = this.deps.nowMs();
+    const lease = this.deps.leases.acquire(input);
+    if (lease.kind === 'loser') {
+      const observed = await lease.waitForOwner();
+      if (!shouldApplyLeaseCompletion(observed)) {
+        return await this.rotateCursorForSpawn(input);
+      }
+      return {
+        status: 'observed_generation',
+        activeProfileId: observed.activeProfileId,
+        generation: observed.generation,
+        credentialRevision: observed.credentialRevision ?? null,
+      };
+    }
+
+    try {
+      let loaded = await this.deps.loadState({ serviceId: input.serviceId, groupId: input.groupId });
+      const completeWithoutCommit = (
+        result: ConnectedServiceAuthGroupSwitchResult,
+        activeProfileId: string | null,
+      ): ConnectedServiceAuthGroupSwitchResult => {
+        lease.complete(buildLeaseCompletion({
+          ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+          serviceId: input.serviceId,
+          groupId: input.groupId,
+          activeProfileId,
+          generation: loaded.generation,
+          reason: 'rotation',
+          result,
+        }));
+        return result;
+      };
+      if (loaded.policy.strategy !== 'round_robin') {
+        return completeWithoutCommit({ status: 'rotation_not_required', generation: loaded.generation }, loaded.activeProfileId);
+      }
+
+      // F-2 bound: each conflict retry re-anchors on the committed cursor, so conflicts converge
+      // in practice, but a commit storm must not spin a spawn forever. After the cap, rotation
+      // adopts the observed generation (the same convergent choice a lease loser makes).
+      const maxCommitAttempts = 5;
+      let commitAttempts = 0;
+      for (;;) {
+        const anchorProfileId = normalizeProfileId(loaded.activeProfileId);
+        const selected = selectConnectedServiceAuthGroupCandidate({
+          lastSwitchReason: loaded.lastSwitchReason,
+          lastSwitchAt: loaded.lastSwitchAt,
+          nowMs: this.deps.nowMs(),
+          quotaFreshnessMs: this.deps.quotaFreshnessMs,
+          activeProfileId: anchorProfileId,
+          policy: loaded.policy,
+          members: loaded.members,
+          memberStatesByProfileId: loaded.memberStatesByProfileId,
+          allowCurrentProfileRetry: true,
+        });
+        const selectedProfileId = selected.selected?.profileId ?? null;
+        if (!selectedProfileId) {
+          return completeWithoutCommit({
+            status: 'no_eligible_member',
+            activeProfileId: anchorProfileId,
+            generation: loaded.generation,
+            groupExhausted: true,
+            retryAtMs: resolveEarliestRetryAtMs(selected.excluded),
+            excluded: selected.excluded,
+          }, anchorProfileId);
+        }
+        if (!anchorProfileId || selectedProfileId === anchorProfileId) {
+          // Wrapping onto the cursor account means it is the only usable member: committing
+          // cursor -> cursor would fabricate a generation bump with no rotation.
+          return completeWithoutCommit({ status: 'rotation_not_required', generation: loaded.generation }, anchorProfileId);
+        }
+
+        let committed: ConnectedServiceAuthGroupSwitchState;
+        commitAttempts += 1;
+        try {
+          committed = await this.deps.commitSwitch({
+            serviceId: input.serviceId,
+            groupId: input.groupId,
+            fromProfileId: anchorProfileId,
+            toProfileId: selectedProfileId,
+            expectedGeneration: loaded.generation,
+            reason: 'rotation',
+          });
+        } catch (error) {
+          const conflictGeneration = this.deps.resolveGenerationConflict?.(error) ?? null;
+          if (conflictGeneration === null) {
+            lease.fail(error);
+            throw error;
+          }
+          loaded = await this.deps.loadState({ serviceId: input.serviceId, groupId: input.groupId });
+          if (commitAttempts >= maxCommitAttempts) {
+            const adoptedProfileId = normalizeProfileId(loaded.activeProfileId);
+            const adopted: ConnectedServiceAuthGroupSwitchResult = adoptedProfileId
+              ? {
+                status: 'observed_generation',
+                activeProfileId: adoptedProfileId,
+                generation: loaded.generation,
+                credentialRevision: loaded.credentialRevision ?? null,
+              }
+              : { status: 'rotation_not_required', generation: loaded.generation };
+            return completeWithoutCommit(adopted, loaded.activeProfileId);
+          }
+          continue;
+        }
+        const result: ConnectedServiceAuthGroupSwitchResult = {
+          status: 'switched',
+          activeProfileId: selectedProfileId,
+          generation: committed.generation,
+          credentialRevision: committed.credentialRevision ?? null,
+        };
+        this.deps.emitEvent?.({
+          type: 'connected_service_auth_group_switch',
+          serviceId: input.serviceId,
+          groupId: input.groupId,
+          fromProfileId: anchorProfileId,
+          toProfileId: selectedProfileId,
+          reason: 'rotation',
+          fromGeneration: loaded.generation,
+          toGeneration: committed.generation,
+          resultStatus: result.status,
+          success: true,
+          latencyMs: this.deps.nowMs() - startedAtMs,
+        });
+        lease.complete(buildLeaseCompletion({
+          ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+          serviceId: input.serviceId,
+          groupId: input.groupId,
+          activeProfileId: selectedProfileId,
+          generation: committed.generation,
+          ...(committed.credentialRevision === undefined ? {} : { credentialRevision: committed.credentialRevision }),
+          reason: 'rotation',
+          fromProfileId: anchorProfileId,
+          result,
+        }));
+        return result;
+      }
+    } finally {
+      lease.finish();
+    }
+  }
+
+  /**
+   * Pin-local failure recovery (round-robin pools, D-11): move ONE pinned session off its failed
+   * account. Runs the same policy/reason/budget gates and the same pure selector as a failure
+   * switch, anchored at the session's pin, and applies per-session. It never commits group truth
+   * (no commitSwitch, no lease — the rotation cursor is untouched, D-4) and records the failed
+   * account's state because that is an account-scoped fact every selector must see.
+   */
+  async switchSessionPinAfterClassifiedFailure(input: Readonly<{
+    sessionId: string;
+    serviceId: string;
+    groupId: string;
+    pinnedProfileId: string;
+    reason: string;
+    observedProfileId?: string | null;
+    retryAtMs?: number | null;
+    retryAfterMs?: number | null;
+    resetsAtMs?: number | null;
+    limitCategory?: string | null;
+    quotaScope?: string | null;
+    providerLimitId?: string | null;
+    action?: ConnectedServiceAuthGroupSwitchLimitAction | null;
+    planType?: string | null;
+    switchesThisTurn?: number;
+    sessionSwitchesThisHour?: number;
+    allowCurrentProfileRetry?: boolean;
+  }>): Promise<ConnectedServiceAuthGroupSwitchResult> {
+    const startedAtMs = this.deps.nowMs();
+    const pinnedProfileId = normalizeProfileId(input.pinnedProfileId) ?? '';
+    let loaded = await this.deps.loadState({
+      serviceId: input.serviceId,
+      groupId: input.groupId,
+      trigger: 'classified_failure',
+    });
+    if (!pinnedProfileId) {
+      return { status: 'no_eligible_member', generation: loaded.generation, groupExhausted: true, retryAtMs: null, excluded: [] };
+    }
+    // Pins are a round-robin concept (D-1): on any other strategy the binding `profileId` keeps
+    // its released fallback meaning and the failure runs the normal group pipeline.
+    if (loaded.policy.strategy !== 'round_robin') {
+      const { pinnedProfileId: _pinned, ...pipelineInput } = input;
+      return await this.switchAfterClassifiedFailure(pipelineInput);
+    }
+    const policyResult = this.resolvePolicyResult({ trigger: 'classified_failure', request: input, loaded });
+    if (policyResult) return policyResult.result;
+
+    if (this.deps.recordObservedFailureState) {
+      await this.deps.recordObservedFailureState({
+        serviceId: input.serviceId,
+        groupId: input.groupId,
+        loaded,
+        reason: input.reason,
+        ...(input.limitCategory === undefined ? {} : { limitCategory: input.limitCategory }),
+        ...(input.quotaScope === undefined ? {} : { quotaScope: input.quotaScope }),
+        ...(input.providerLimitId === undefined ? {} : { providerLimitId: input.providerLimitId }),
+        observedProfileId: pinnedProfileId,
+        ...(input.retryAtMs === undefined ? {} : { retryAtMs: input.retryAtMs }),
+        ...(input.retryAfterMs === undefined ? {} : { retryAfterMs: input.retryAfterMs }),
+        ...(input.resetsAtMs === undefined ? {} : { resetsAtMs: input.resetsAtMs }),
+        ...(input.planType === undefined ? {} : { planType: input.planType }),
+      });
+      // The recording mutates member states the selector must see (same reload contract as the
+      // classified-failure pipeline).
+      loaded = await this.deps.loadState({
+        serviceId: input.serviceId,
+        groupId: input.groupId,
+        trigger: 'classified_failure',
+      });
+    }
+
+    const selected = selectConnectedServiceAuthGroupCandidate({
+      lastSwitchReason: loaded.lastSwitchReason,
+      lastSwitchAt: loaded.lastSwitchAt,
+      nowMs: this.deps.nowMs(),
+      quotaFreshnessMs: this.deps.quotaFreshnessMs,
+      activeProfileId: pinnedProfileId,
+      policy: loaded.policy,
+      members: loaded.members,
+      memberStatesByProfileId: loaded.memberStatesByProfileId,
+      ...(input.allowCurrentProfileRetry ? { allowCurrentProfileRetry: true } : {}),
+    });
+    const successorProfileId = selected.selected?.profileId ?? null;
+    if (!successorProfileId || successorProfileId === pinnedProfileId) {
+      return {
+        status: 'no_eligible_member',
+        ...(successorProfileId ? { activeProfileId: successorProfileId } : {}),
+        generation: loaded.generation,
+        groupExhausted: true,
+        retryAtMs: resolveEarliestRetryAtMs(selected.excluded),
+        excluded: selected.excluded,
+      };
+    }
+
+    const credentialRevision = await (this.deps.resolvePostApplyCredentialRevision
+      ? this.deps.resolvePostApplyCredentialRevision({
+        serviceId: input.serviceId,
+        groupId: input.groupId,
+        activeProfileId: successorProfileId,
+        generation: loaded.generation,
+      })
+      : Promise.resolve(null)).catch(() => null);
+    const applyResult = await this.deps.applyGeneration({
+      sessionId: input.sessionId,
+      serviceId: input.serviceId,
+      groupId: input.groupId,
+      activeProfileId: successorProfileId,
+      generation: loaded.generation,
+      ...(credentialRevision === null || credentialRevision === undefined ? {} : { credentialRevision }),
+      reason: input.reason,
+      fromProfileId: pinnedProfileId,
+      pinLocal: true,
+    });
+    this.recordSessionSwitch(this.resolveSessionSwitchKey(input), this.deps.nowMs());
+    this.deps.emitEvent?.({
+      type: 'connected_service_auth_group_switch',
+      serviceId: input.serviceId,
+      groupId: input.groupId,
+      fromProfileId: pinnedProfileId,
+      toProfileId: successorProfileId,
+      reason: input.reason,
+      fromGeneration: loaded.generation,
+      toGeneration: loaded.generation,
+      resultStatus: 'switched',
+      success: true,
+      latencyMs: this.deps.nowMs() - startedAtMs,
+    });
+    return {
+      status: 'switched',
+      activeProfileId: successorProfileId,
+      generation: loaded.generation,
+      credentialRevision: credentialRevision ?? null,
+      ...(applyResult?.mode ? { mode: applyResult.mode } : {}),
+      ...(applyResult?.diagnostics === undefined ? {} : { diagnostics: applyResult.diagnostics }),
+    };
   }
 
   /**

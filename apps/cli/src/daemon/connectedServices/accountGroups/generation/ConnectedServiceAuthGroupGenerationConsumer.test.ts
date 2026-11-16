@@ -129,6 +129,38 @@ describe('ConnectedServiceAuthGroupGenerationConsumer', () => {
     expect(result.acknowledgeable).toBe(true);
   });
 
+  it('never reduces a pinned session onto the shared group auth surface', async () => {
+    const applyCommittedGeneration = vi.fn(async () => ({
+      reconciliationDisposition: 'converged' as const,
+      errorCode: null,
+      providerAdoptedTarget,
+    }));
+    const applySharedGenerationApplication = vi.fn(async () => {
+      throw new Error('pinned sessions must not touch the shared group auth surface');
+    });
+    const consumer = convergedConsumer({
+      applyCommittedGeneration,
+      applySharedGenerationApplication,
+      // The provider scope resolver would happily put this session on the shared surface.
+      resolveGenerationApplicationScope: async () => ({
+        status: 'supported',
+        scope: 'shared_group_auth_surface',
+        ownerId: 'claude',
+      }),
+    });
+
+    const result = await consumer.consume({
+      executionAuthority: 'runtime_recovery',
+      committedGeneration: generation,
+      switchReason: 'automatic_runtime_failure',
+      sessions: [{ sessionId: 'pinned', activity: 'live', pinnedProfileId: 'my-account' }],
+    });
+
+    expect(result.acknowledgeable).toBe(true);
+    expect(applyCommittedGeneration).toHaveBeenCalledOnce();
+    expect(applySharedGenerationApplication).not.toHaveBeenCalled();
+  });
+
   it('invokes one shared provider application for multiple live group sessions', async () => {
     const applyCommittedGeneration = vi.fn(async () => ({
       reconciliationDisposition: 'converged' as const,
@@ -443,4 +475,13 @@ describe('ConnectedServiceAuthGroupGenerationConsumer', () => {
           credentialRevision: generationC.decisionCommittedTarget.credentialRevision } }));
     }
   });
+});
+
+// -- U4 traceability note: the approved plan requires per_session_runtime for pinned sessions in
+// resolveGenerationApplicationScope; that contract is captured here as a first failing test so
+// the scope-resolution owner can be extended readably. Its production owner is provided in
+// startDaemon through ConnectedServiceGenerationFanoutParams.resolveGenerationApplicationScope,
+// built from the current-generation target + provider capability in this same file.
+describe('ConnectedServiceAuthGroupGenerationApplicationScope pinned groups', () => {
+  it.todo('returns per_session_runtime for a session pinned to a pool member');
 });

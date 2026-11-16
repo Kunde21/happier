@@ -23,6 +23,8 @@ type LocalGenerationSession = Readonly<{
   fromProfileId?: string | null;
   applicationOwnerId?: string | null;
   isCurrent?: () => boolean;
+  /** Per-session pin (round-robin pools): forces per-session application regardless of scope resolution. */
+  pinnedProfileId?: string | null;
 }>;
 
 type ConnectedServiceAuthGenerationRecipientApplyReason =
@@ -284,6 +286,22 @@ export class ConnectedServiceAuthGroupGenerationConsumer {
       // Recipient filtering is owned by the projection reconciler using exact revision proof.
       // The consumer never treats profile+generation alone as convergence because A rev1 -> A rev2
       // is an ABA change with the same group tuple.
+      const pinnedProfileId = typeof session.pinnedProfileId === 'string'
+        ? session.pinnedProfileId.trim()
+        : '';
+      if (pinnedProfileId) {
+        // D-11 (C-8 iii): a pinned session owns its own credential surface. It must never be
+        // reduced onto the shared group auth surface, whatever the provider scope resolver says,
+        // so pin-local application cannot hot-swap a sibling session's credential underneath it.
+        liveTargets.push({
+          sessionId: session.sessionId,
+          fromProfileId: session.fromProfileId ?? null,
+          applicationScope: 'per_session_runtime',
+          applicationOwnerId: session.applicationOwnerId ?? '',
+          ...(session.isCurrent ? { isCurrent: session.isCurrent } : {}),
+        });
+        continue;
+      }
       let application: Awaited<ReturnType<typeof this.deps.resolveGenerationApplicationScope>>;
       try {
         application = await this.deps.resolveGenerationApplicationScope({

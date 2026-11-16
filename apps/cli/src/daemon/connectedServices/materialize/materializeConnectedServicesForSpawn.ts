@@ -44,6 +44,8 @@ export type ConnectedServiceResolvedSelection =
       serviceId: ConnectedServiceId;
       groupId: string;
       activeProfileId: string;
+      /** Present only for per-session pinned (round-robin) group selections. */
+      pinnedProfileId?: string;
       fallbackProfileId: string;
       generation: number;
       credentialRevision?: ConnectedServiceCredentialRevisionV1 | null;

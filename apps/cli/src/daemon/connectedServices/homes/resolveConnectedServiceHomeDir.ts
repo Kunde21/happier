@@ -11,7 +11,7 @@ const CONNECTED_SERVICE_GROUPS_HOME_SEGMENT = '__groups';
 
 export type ConnectedServiceHomeSelection =
   | Readonly<{ kind: 'profile'; profileId: string }>
-  | Readonly<{ kind: 'group'; groupId: string }>;
+  | Readonly<{ kind: 'group'; groupId: string; pinnedProfileId?: string }>;
 
 export function resolveConnectedServiceHomesDir(params: Readonly<{
   activeServerDir: string;
@@ -26,13 +26,23 @@ export function resolveConnectedServiceSelectionHomeDir(params: Readonly<{
   agentId: CatalogAgentId;
   fallbackProfileId: ConnectedServiceProfileId;
   selection?: ConnectedServiceHomeSelection | null;
+  pathJoin?: JoinPath;
 }>): string {
-  return params.selection?.kind === 'group'
-    ? resolveConnectedServiceGroupHomeDir({ ...params, groupId: params.selection.groupId })
-    : resolveConnectedServiceHomeDir({
-        ...params,
-        profileId: params.selection?.kind === 'profile' ? params.selection.profileId : params.fallbackProfileId,
-      });
+  if (params.selection?.kind === 'group') {
+    // A pinned group session owns the pinned account's profile home; the shared group home is
+    // the single-surface design for unpinned pools and cannot host two accounts at once.
+    const pinnedProfileId = typeof params.selection.pinnedProfileId === 'string'
+      ? params.selection.pinnedProfileId.trim()
+      : '';
+    if (pinnedProfileId) {
+      return resolveConnectedServiceHomeDir({ ...params, profileId: pinnedProfileId });
+    }
+    return resolveConnectedServiceGroupHomeDir({ ...params, groupId: params.selection.groupId });
+  }
+  return resolveConnectedServiceHomeDir({
+    ...params,
+    profileId: params.selection?.kind === 'profile' ? params.selection.profileId : params.fallbackProfileId,
+  });
 }
 
 export function resolveConnectedServiceHomeDir(params: Readonly<{

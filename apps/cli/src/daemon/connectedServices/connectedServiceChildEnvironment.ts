@@ -25,6 +25,8 @@ export type ConnectedServiceChildSelection =
       serviceId: ConnectedServiceId;
       groupId: string;
       activeProfileId: string;
+      /** Present only for per-session pinned (round-robin) group selections. */
+      pinnedProfileId?: string;
       fallbackProfileId: string;
       generation: number;
       credentialRevision: ConnectedServiceCredentialRevisionV1 | null;
@@ -42,6 +44,7 @@ type ConnectedServiceSerializableSelection =
       serviceId: ConnectedServiceId;
       groupId: string;
       activeProfileId: string;
+      pinnedProfileId?: string;
       fallbackProfileId: string;
       generation: number;
       credentialRevision?: ConnectedServiceCredentialRevisionV1 | null;
@@ -96,6 +99,7 @@ export function serializeConnectedServiceChildSelections(
       serviceId: selection.serviceId,
       groupId: selection.groupId,
       activeProfileId: selection.activeProfileId,
+      ...(selection.pinnedProfileId ? { pinnedProfileId: selection.pinnedProfileId } : {}),
       fallbackProfileId: selection.fallbackProfileId,
       generation: selection.generation,
       credentialRevision: selection.credentialRevision ?? null,
@@ -144,6 +148,7 @@ export function readConnectedServiceChildSelectionsFromEnv(
         serviceId,
         groupId,
         activeProfileId,
+        ...(readString(record.pinnedProfileId) ? { pinnedProfileId: readString(record.pinnedProfileId) } : {}),
         fallbackProfileId,
         generation: readGeneration(record.generation),
         credentialRevision: readCredentialRevision(record.credentialRevision),

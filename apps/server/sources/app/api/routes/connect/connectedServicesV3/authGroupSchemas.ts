@@ -6,6 +6,7 @@ import {
     ConnectedServiceAuthGroupIdSchema,
     ConnectedServiceAuthGroupListResponseV1Schema,
     ConnectedServiceAuthGroupMemberStateV1Schema,
+    ConnectedServiceAuthGroupMemberRoleV1Schema,
     ConnectedServiceAuthGroupResponseV1Schema,
     ConnectedServiceAuthGroupReaderCapabilitiesQueryV1Schema,
     ConnectedServiceAuthGroupStateV1Schema,
@@ -36,6 +37,7 @@ export const AuthGroupMemberInputSchema = z
     .object({
         profileId: ConnectedServiceProfileIdSchema,
         priority: z.number().int().optional(),
+        role: ConnectedServiceAuthGroupMemberRoleV1Schema.optional(),
         enabled: z.boolean().optional(),
         expectedGeneration: z.number().int().nonnegative().optional(),
     })
@@ -59,6 +61,7 @@ export const UpdateAuthGroupBodySchema = z
 export const UpdateAuthGroupMemberBodySchema = z
     .object({
         priority: z.number().int().optional(),
+        role: ConnectedServiceAuthGroupMemberRoleV1Schema.optional(),
         enabled: z.boolean().optional(),
         state: ConnectedServiceAuthGroupMemberStateV1Schema.removeDefault().optional(),
         expectedGeneration: z.number().int().nonnegative().optional(),

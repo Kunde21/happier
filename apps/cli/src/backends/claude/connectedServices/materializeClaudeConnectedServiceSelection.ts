@@ -81,6 +81,20 @@ export function buildClaudeSubscriptionNativeAuthSelectionDescriptor(params: Rea
   selection: ConnectedServiceResolvedSelection | null | undefined;
 }>): ClaudeSubscriptionNativeAuthSelectionDescriptor {
   if (params.selection?.kind === 'group') {
+    // A pinned group session owns the pinned account's profile home and credential; a
+    // profile-kind descriptor keeps the group-generation currentness gate away from it (a
+    // sibling's rotation must not invalidate this session's credential) and skips the shared
+    // group-home refresh dance entirely.
+    const pinnedProfileId = typeof params.selection.pinnedProfileId === 'string'
+      ? params.selection.pinnedProfileId.trim()
+      : '';
+    if (pinnedProfileId) {
+      return {
+        kind: 'profile',
+        serviceId: 'claude-subscription',
+        profileId: pinnedProfileId,
+      };
+    }
     return {
       kind: 'group',
       serviceId: 'claude-subscription',

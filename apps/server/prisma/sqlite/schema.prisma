@@ -1124,6 +1124,7 @@ model ConnectedServiceAuthGroupMember {
     groupId   String
     profileId String
     priority  Int      @default(100)
+    role      String   @default("primary")
     enabled   Boolean  @default(true)
     stateJson String?
     createdAt DateTime @default(now())

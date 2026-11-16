@@ -2690,6 +2690,333 @@ describe('resolveConnectedServiceAuthForSpawn', () => {
     expect(auth.access_token).toBe('backup-access');
   });
 
+  it('honors the group binding profileId as an authoritative per-session pin on round-robin pools', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'happier-connected-services-test-'));
+    const activeServerDir = await mkdtemp(join(tmpdir(), 'happier-connected-services-server-test-'));
+
+    const record = buildConnectedServiceCredentialRecord({
+      now: 10,
+      serviceId: 'openai-codex',
+      profileId: 'member-b',
+      kind: 'oauth',
+      expiresAt: null,
+      oauth: {
+        accessToken: 'member-b-access',
+        refreshToken: 'member-b-refresh',
+        idToken: 'member-b-id',
+        scope: null,
+        tokenType: null,
+        providerAccountId: 'member-b-acct',
+        providerEmail: null,
+      },
+    });
+
+    const credentials = {
+      token: 'happy-token',
+      encryption: { type: 'legacy', secret: new Uint8Array(32).fill(8) },
+    } satisfies Credentials;
+
+    if (credentials.encryption.type !== 'legacy') {
+      throw new Error('test fixture expected legacy encryption');
+    }
+
+    const ciphertext = sealAccountScopedBlobCiphertext({
+      kind: 'connected_service_credential',
+      material: { type: 'legacy', secret: credentials.encryption.secret },
+      payload: record,
+      randomBytes: (length) => randomBytes(length),
+    });
+
+    let fetchedProfileIds: string[] = [];
+    const api = {
+      getConnectedServiceAuthGroup: async () => ({
+        serviceId: 'openai-codex',
+        groupId: 'main',
+        activeProfileId: 'member-a',
+        generation: 7,
+        policy: { v: 1, strategy: 'round_robin' },
+        members: [
+          { profileId: 'member-a', priority: 1, enabled: true, createdAt: 1, updatedAt: 1 },
+          { profileId: 'member-b', priority: 2, enabled: true, createdAt: 2, updatedAt: 2 },
+        ],
+      }),
+      getConnectedServiceCredentialSealed: async (params: { serviceId: string; profileId: string }) => {
+        fetchedProfileIds.push(params.profileId);
+        if (params.serviceId !== 'openai-codex' || params.profileId !== 'member-b') return null;
+        return {
+          sealed: { format: 'account_scoped_v1', ciphertext },
+          metadata: { kind: 'oauth', providerEmail: null, providerAccountId: 'member-b-acct', expiresAt: null },
+        };
+      },
+    } as unknown as ApiClient;
+
+    const connectedServiceAuth = await resolveConnectedServiceAuthForSpawn({
+      agentId: 'codex',
+      connectedServicesBindingsRaw: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': {
+            source: 'connected',
+            selection: 'group',
+            groupId: 'main',
+            profileId: 'member-b',
+          },
+        },
+      },
+      materializationKey: 'session-1',
+      activeServerDir,
+      baseDir,
+      credentials,
+      api,
+    });
+
+    expect(connectedServiceAuth).not.toBeNull();
+    // The pin, not the group cursor, drives credential resolution.
+    expect(fetchedProfileIds).toEqual(['member-b']);
+    // The session materializes the pinned account's profile home, never the shared group home.
+    expect(connectedServiceAuth!.env.CODEX_HOME).toBe(
+      join(resolveConnectedServiceSelectionHomeDir({
+        activeServerDir, serviceId: 'openai-codex', agentId: 'codex', fallbackProfileId: 'member-b',
+        selection: { kind: 'profile', profileId: 'member-b' },
+      }), 'codex-home'),
+    );
+    const auth = JSON.parse(await readFile(join(connectedServiceAuth!.env.CODEX_HOME, 'auth.json'), 'utf8'));
+    expect(auth.access_token).toBe('member-b-access');
+    // The canonical binding re-emits the pin so the session stays pinned across restarts.
+    expect(
+      connectedServiceAuth!.connectedServicesBindings.bindingsByServiceId['openai-codex'],
+    ).toEqual({ source: 'connected', selection: 'group', groupId: 'main', profileId: 'member-b' });
+  });
+
+  it('rotates the cursor and pins the new session to the rotated account on round-robin pools', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'happier-connected-services-test-'));
+    const activeServerDir = await mkdtemp(join(tmpdir(), 'happier-connected-services-server-test-'));
+
+    const record = buildConnectedServiceCredentialRecord({
+      now: 10,
+      serviceId: 'openai-codex',
+      profileId: 'member-b',
+      kind: 'oauth',
+      expiresAt: null,
+      oauth: {
+        accessToken: 'member-b-access',
+        refreshToken: 'member-b-refresh',
+        idToken: 'member-b-id',
+        scope: null,
+        tokenType: null,
+        providerAccountId: 'member-b-acct',
+        providerEmail: null,
+      },
+    });
+
+    const credentials = {
+      token: 'happy-token',
+      encryption: { type: 'legacy', secret: new Uint8Array(32).fill(8) },
+    } satisfies Credentials;
+
+    if (credentials.encryption.type !== 'legacy') {
+      throw new Error('test fixture expected legacy encryption');
+    }
+
+    const ciphertext = sealAccountScopedBlobCiphertext({
+      kind: 'connected_service_credential',
+      material: { type: 'legacy', secret: credentials.encryption.secret },
+      payload: record,
+      randomBytes: (length) => randomBytes(length),
+    });
+
+    const rotationCalls: string[] = [];
+    let groupActiveProfileId = 'member-a';
+    const api = {
+      getConnectedServiceAuthGroup: async () => ({
+        v: 1,
+        serviceId: 'openai-codex',
+        groupId: 'main',
+        activeProfileId: groupActiveProfileId,
+        generation: 7,
+        policy: { v: 1, strategy: 'round_robin' },
+        state: { v: 1, runtimeStateRevision: 0 },
+        members: [
+          { profileId: 'member-a', priority: 1, enabled: true, createdAt: 1, updatedAt: 1 },
+          { profileId: 'member-b', priority: 2, enabled: true, createdAt: 2, updatedAt: 2 },
+        ],
+      }),
+      getConnectedServiceCredentialSealed: async (params: { serviceId: string; profileId: string }) => {
+        if (params.serviceId !== 'openai-codex' || params.profileId !== 'member-b') return null;
+        return {
+          sealed: { format: 'account_scoped_v1', ciphertext },
+          metadata: { kind: 'oauth', providerEmail: null, providerAccountId: 'member-b-acct', expiresAt: null },
+        };
+      },
+    } as unknown as ApiClient;
+
+    const authGroupSwitchCoordinator = {
+      rotateCursorForSpawn: async (rotationInput: { serviceId: string; groupId: string }) => {
+        rotationCalls.push(`${rotationInput.serviceId}/${rotationInput.groupId}`);
+        groupActiveProfileId = 'member-b';
+        return { status: 'switched', activeProfileId: 'member-b', generation: 8 };
+      },
+    };
+
+    const connectedServiceAuth = await resolveConnectedServiceAuthForSpawn({
+      agentId: 'codex',
+      connectedServicesBindingsRaw: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': { source: 'connected', selection: 'group', groupId: 'main' },
+        },
+      },
+      materializationKey: 'session-1',
+      activeServerDir,
+      baseDir,
+      credentials,
+      api,
+      authGroupSwitchCoordinator,
+    } as Parameters<typeof resolveConnectedServiceAuthForSpawn>[0]);
+
+    expect(connectedServiceAuth).not.toBeNull();
+    expect(rotationCalls).toEqual(['openai-codex/main']);
+    // The rotated cursor account drives materialization and is persisted as the session pin.
+    expect(connectedServiceAuth!.env.CODEX_HOME).toBe(
+      join(resolveConnectedServiceSelectionHomeDir({
+        activeServerDir, serviceId: 'openai-codex', agentId: 'codex', fallbackProfileId: 'member-b',
+        selection: { kind: 'profile', profileId: 'member-b' },
+      }), 'codex-home'),
+    );
+    expect(
+      connectedServiceAuth!.connectedServicesBindings.bindingsByServiceId['openai-codex'],
+    ).toEqual({ source: 'connected', selection: 'group', groupId: 'main', profileId: 'member-b' });
+  });
+
+  it('recovers a pinned spawn whose account needs reconnect by switching and re-pinning to the replacement', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'happier-connected-services-test-'));
+    const activeServerDir = await mkdtemp(join(tmpdir(), 'happier-connected-services-server-test-'));
+
+    const record = buildConnectedServiceCredentialRecord({
+      now: 10,
+      serviceId: 'openai-codex',
+      profileId: 'member-b',
+      kind: 'oauth',
+      expiresAt: null,
+      oauth: {
+        accessToken: 'member-b-access',
+        refreshToken: 'member-b-refresh',
+        idToken: 'member-b-id',
+        scope: null,
+        tokenType: null,
+        providerAccountId: 'member-b-acct',
+        providerEmail: null,
+      },
+    });
+    const staleMemberARecord = buildConnectedServiceCredentialRecord({
+      now: 10,
+      serviceId: 'openai-codex',
+      profileId: 'member-a',
+      kind: 'oauth',
+      expiresAt: null,
+      oauth: {
+        accessToken: 'member-a-access',
+        refreshToken: 'member-a-refresh',
+        idToken: 'member-a-id',
+        scope: null,
+        tokenType: null,
+        providerAccountId: 'member-a-acct',
+        providerEmail: null,
+      },
+    });
+
+    const credentials = {
+      token: 'happy-token',
+      encryption: { type: 'legacy', secret: new Uint8Array(32).fill(8) },
+    } satisfies Credentials;
+
+    if (credentials.encryption.type !== 'legacy') {
+      throw new Error('test fixture expected legacy encryption');
+    }
+
+    const ciphertext = sealAccountScopedBlobCiphertext({
+      kind: 'connected_service_credential',
+      material: { type: 'legacy', secret: credentials.encryption.secret },
+      payload: record,
+      randomBytes: (length) => randomBytes(length),
+    });
+    const staleMemberACiphertext = sealAccountScopedBlobCiphertext({
+      kind: 'connected_service_credential',
+      material: { type: 'legacy', secret: credentials.encryption.secret },
+      payload: staleMemberARecord,
+      randomBytes: (length) => randomBytes(length),
+    });
+
+    const api = {
+      getConnectedServiceAuthGroup: async () => ({
+        v: 1,
+        serviceId: 'openai-codex',
+        groupId: 'main',
+        activeProfileId: 'member-a',
+        generation: 7,
+        policy: { v: 1, strategy: 'round_robin' },
+        state: { v: 1, runtimeStateRevision: 0 },
+        members: [
+          { profileId: 'member-a', priority: 1, enabled: true, createdAt: 1, updatedAt: 1 },
+          { profileId: 'member-b', priority: 2, enabled: true, createdAt: 2, updatedAt: 2 },
+        ],
+      }),
+      getConnectedServiceCredentialSealed: async (params: { serviceId: string; profileId: string }) => {
+        if (params.serviceId !== 'openai-codex') return null;
+        if (params.profileId === 'member-b') {
+          return {
+            sealed: { format: 'account_scoped_v1', ciphertext },
+            metadata: { kind: 'oauth', providerEmail: null, providerAccountId: 'member-b-acct', expiresAt: null },
+          };
+        }
+        if (params.profileId === 'member-a') {
+          return {
+            sealed: { format: 'account_scoped_v1', ciphertext: staleMemberACiphertext },
+            metadata: { kind: 'oauth', providerEmail: null, providerAccountId: 'member-a-acct', expiresAt: null },
+          };
+        }
+        return null;
+      },
+      listConnectedServiceProfiles: async () => ({
+        profiles: [
+          { profileId: 'member-a', status: 'needs_reauth' },
+          { profileId: 'member-b', status: 'connected' },
+        ],
+      }),
+    } as unknown as ApiClient;
+
+    const authGroupSwitchCoordinator = {
+      switchAfterClassifiedFailure: async () => ({ status: 'switched', activeProfileId: 'member-b', generation: 8 }),
+    };
+
+    const connectedServiceAuth = await resolveConnectedServiceAuthForSpawn({
+      agentId: 'codex',
+      connectedServicesBindingsRaw: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': {
+            source: 'connected',
+            selection: 'group',
+            groupId: 'main',
+            profileId: 'member-a',
+          },
+        },
+      },
+      materializationKey: 'session-1',
+      activeServerDir,
+      baseDir,
+      credentials,
+      api,
+      authGroupSwitchCoordinator,
+    } as unknown as Parameters<typeof resolveConnectedServiceAuthForSpawn>[0]);
+
+    expect(connectedServiceAuth).not.toBeNull();
+    // The reconnect-required pin is abandoned: spawn lands on the replacement and re-pins.
+    expect(
+      connectedServiceAuth!.connectedServicesBindings.bindingsByServiceId['openai-codex'],
+    ).toEqual({ source: 'connected', selection: 'group', groupId: 'main', profileId: 'member-b' });
+  });
+
   it('rejects group bindings when the current server group has no active profile instead of using the UI fallback', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'happier-connected-services-test-'));
     const activeServerDir = await mkdtemp(join(tmpdir(), 'happier-connected-services-server-test-'));

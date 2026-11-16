@@ -891,3 +891,87 @@ describe('materializeSessionConnectedServiceRuntimeAuthSelection', () => {
     expect(credential.claudeAiOauth.scopes).toContain('user:sessions:claude_code');
   });
 });
+
+// U6 compatibility: a session group binding carrying a pin is applied by an old daemon through the
+// released fallback chain. `next.profileId` (fresh runtime truth) stays authoritative when present;
+// otherwise the persisted binding pin wins BEFORE any stale group active; group-pinned sessions
+// keep the spawned active account rather than drifting to the pool cursor. Group metadata
+// generation must never gate a pinned profile credential.
+describe('U6 pinned-binding compatibility', () => {
+  function buildRollbackInput() {
+    const record = buildConnectedServiceCredentialRecord({
+      now: 1_000,
+      serviceId: 'anthropic',
+      profileId: 'pinned-member',
+      kind: 'token',
+      token: { token: 'sk-ant-pinned', providerAccountId: null, providerEmail: null },
+    });
+    const api = {
+      getAccountEncryptionMode: vi.fn(async () => 'plain' as const),
+      getConnectedServiceCredentialPlain: vi.fn(async () => ({ content: { t: 'plain' as const, v: record },
+        revisionSemantics: 'revisioned' as const, credentialRevision: 'csr_abcdefghijklmnopqrstuv' })),
+      getConnectedServiceCredentialSealed: vi.fn(async () => null),
+    };
+    const credentials: Credentials = {
+      token: 'token',
+      encryption: { type: 'legacy', secret: new Uint8Array(32).fill(1) },
+    };
+    const previousBindings: ConnectedServiceBindingsV1 = {
+      v: 1,
+      bindingsByServiceId: {
+        anthropic: { source: 'connected', selection: 'group', groupId: 'work', profileId: 'pinned-member' },
+      },
+    };
+    const tracked: TrackedSession = {
+      startedBy: 'daemon',
+      happySessionId: 'sess_1',
+      pid: 123,
+      spawnOptions: {
+        directory: '/tmp/project',
+        backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
+        connectedServices: previousBindings,
+        environmentVariables: {},
+      },
+    };
+    const normalizedBindings = {
+      v: 1,
+      bindingsByServiceId: {
+        anthropic: { source: 'connected', selection: 'group', groupId: 'work', profileId: 'pinned-member' },
+      },
+    } as const;
+    return { record, api, credentials, tracked, normalizedBindings };
+  }
+
+  it('reads the pinned credential instead of the group active when the group moved after spawn', async () => {
+    const { api, credentials, tracked, normalizedBindings } = buildRollbackInput();
+    await expect(materializeSessionConnectedServiceRuntimeAuthSelection({
+      credentials,
+      api: api as unknown as ApiClient,
+      input: {
+        mode: 'apply',
+        tracked,
+        sessionId: 'sess_1',
+        agentId: 'claude',
+        serviceId: 'anthropic',
+        previous: {
+          source: 'connected', selection: 'group', serviceId: 'anthropic', profileId: 'pinned-member', groupId: 'work',
+        },
+        next: {
+          source: 'connected', selection: 'group', serviceId: 'anthropic', profileId: null, groupId: 'work',
+        },
+        previousBindings: previousBindingsForPinnedSession(tracked),
+        normalizedBindings,
+        // Group moved AFTER spawn: the old daemon sees the cursor on a different member.
+        groupMetadata: { groupId: 'work', activeProfileId: 'other-account', fallbackProfileId: 'fallback', generation: 9 },
+      },
+    })).resolves.toMatchObject({ profileId: 'pinned-member', activeProfileId: 'pinned-member' });
+    expect(api.getConnectedServiceCredentialPlain).toHaveBeenCalledWith({
+      serviceId: 'anthropic', profileId: 'pinned-member',
+    });
+  });
+});
+
+function previousBindingsForPinnedSession(tracked: TrackedSession): ConnectedServiceBindingsV1 {
+  return (tracked.spawnOptions?.connectedServices as ConnectedServiceBindingsV1 | undefined)
+    ?? { v: 1, bindingsByServiceId: {} };
+}

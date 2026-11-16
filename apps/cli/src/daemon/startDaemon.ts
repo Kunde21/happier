@@ -5326,6 +5326,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
           reason: string;
           switchReason: ConnectedServiceSessionAuthSwitchReason;
           fromProfileId?: string | null;
+          pinLocal?: boolean;
         }>): Promise<Readonly<{
           ok: boolean;
           action?: string;
@@ -5377,6 +5378,11 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
             // being classified by the post-apply backstop.
             groupSwitchTriggerReason: generationInput.reason,
             sessionEventReason: generationInput.reason,
+            // D-11: pin-local applies target the chosen successor; every other apply keeps the
+            // released convergence onto the group's current active profile.
+            ...(generationInput.pinLocal === true
+              ? { pinLocalSwitchProfileIdByServiceId: { [serviceId]: activeProfileId } }
+              : {}),
             getChildren: getSwitchChildren,
             api,
             resolveContinuity: async ({

@@ -12,6 +12,7 @@ import {
     CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_QUERY_KEY,
     CONNECTED_SERVICE_POOL_EXPIRY_FIRST_QUERY_KEY,
     CONNECTED_SERVICE_CLAUDE_AUTO_CONTINUE_QUERY_KEY,
+    CONNECTED_SERVICE_POOL_ROUND_ROBIN_QUERY_KEY,
     CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE,
     CONNECTED_SERVICE_AUTH_GROUP_SWITCH_REASON_HEADER,
     type ConnectedServiceAuthGroupV1,
@@ -113,6 +114,8 @@ function parsePolicyPatchForRequest(policy: unknown, serviceId: string): Connect
         && !isServerFeatureEnabledForRequest("connectedServices.poolQuotaLimitSelection", process.env)) return null;
     if (parsed.success && parsed.data.strategy === 'expiry_first'
         && !isServerFeatureEnabledForRequest("connectedServices.poolExpiryFirst", process.env)) return null;
+    if (parsed.success && parsed.data.strategy === 'round_robin'
+        && !isServerFeatureEnabledForRequest("connectedServices.poolRoundRobin", process.env)) return null;
     return parsed.success ? parsed.data : null;
 }
 
@@ -230,6 +233,11 @@ function canReadPoolQuotaLimitSelection(query: ConnectedServiceAuthGroupReaderCa
         && isServerFeatureEnabledForRequest("connectedServices.poolQuotaLimitSelection", process.env);
 }
 
+function canReadPoolRoundRobin(query: ConnectedServiceAuthGroupReaderCapabilitiesQueryV1): boolean {
+    return query[CONNECTED_SERVICE_POOL_ROUND_ROBIN_QUERY_KEY] === CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE
+        && isServerFeatureEnabledForRequest("connectedServices.poolRoundRobin", process.env);
+}
+
 function projectAuthGroupForReader(
     group: ConnectedServiceAuthGroupV1,
     reader: Readonly<{
@@ -247,6 +255,9 @@ function projectAuthGroupForReader(
         && reader.query[CONNECTED_SERVICE_POOL_EXPIRY_FIRST_QUERY_KEY] !== CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE) {
         policy = { ...policy, strategy: 'least_limited' };
     }
+    if (policy.strategy === 'round_robin' && !canReadPoolRoundRobin(reader.query)) {
+        policy = { ...policy, strategy: 'priority' };
+    }
     if (!canReadAutomaticQuotaResetPolicy(reader.headers)) {
         const { autoUseQuotaResetsWhenExhausted: _quotaReset, ...projected } = policy;
         policy = projected;
@@ -261,7 +272,14 @@ function projectAuthGroupForReader(
     } else if (!policy.quotaLimitSelection) {
         policy = { ...policy, quotaLimitSelection: { mode: 'all', providerLimitIds: [] } };
     }
-    return { ...group, policy };
+    // Released strict V1 readers reject unknown member keys, so the tier is negotiated too.
+    const members = canReadPoolRoundRobin(reader.query)
+        ? group.members
+        : group.members.map((member) => {
+            const { role: _role, ...projected } = member;
+            return projected;
+        });
+    return { ...group, policy, members };
 }
 
 async function loadGroupEnvelope(params: {
@@ -366,6 +384,7 @@ export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
                                 groupId: body.groupId,
                                 profileId: member.profileId,
                                 priority: member.priority ?? 100,
+                                role: member.role ?? "primary",
                                 enabled: member.enabled ?? true,
                                 stateJson: null,
                             })),
@@ -709,6 +728,7 @@ export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
                     groupId,
                     profileId: request.body.profileId,
                     priority: request.body.priority ?? 100,
+                    role: request.body.role,
                     enabled: request.body.enabled ?? true,
                     expectedGeneration,
                 });
@@ -765,6 +785,7 @@ export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
                 groupId,
                 profileId,
                 priority: request.body.priority,
+                role: request.body.role,
                 enabled: request.body.enabled,
                 state: request.body.state,
                 expectedGeneration,
@@ -872,7 +893,7 @@ export function registerConnectedServiceAuthGroupRoutesV3(app: Fastify): void {
             });
             const requestedReason = request.headers[CONNECTED_SERVICE_AUTH_GROUP_SWITCH_REASON_HEADER];
             const switchReason = typeof requestedReason === "string"
-                && ["usage_limit", "rate_limit", "capacity", "temporary_throttle", "soft_threshold", "same_provider_account_exhausted", "auth_expired", "account_changed", "refresh_failed"].includes(requestedReason)
+                && ["usage_limit", "rate_limit", "capacity", "temporary_throttle", "soft_threshold", "same_provider_account_exhausted", "auth_expired", "account_changed", "refresh_failed", "rotation"].includes(requestedReason)
                 ? requestedReason : "manual";
             const nextStateJson = encodeAuthGroupStateForActiveProfile({
                 currentStateJson: group.stateJson,

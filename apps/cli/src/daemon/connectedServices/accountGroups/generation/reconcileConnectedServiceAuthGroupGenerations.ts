@@ -63,6 +63,11 @@ type ConnectedServiceAuthGroupRuntimeScope = Readonly<{
   applicationSettledBySpawnMaterialization: boolean;
   applicationOwnerId: string | null;
   isCurrent: () => boolean;
+  /**
+   * The session's per-session pin (round-robin pool binding `profileId`). When present the
+   * session owns its own account and MUST NOT be fanned out on pool-cursor movement.
+   */
+  pinnedProfileId?: string | null;
 }>;
 
 type ConnectedServiceDirectCredentialRevisionRuntimeScope = Readonly<{
@@ -116,8 +121,19 @@ function listRuntimeSessionScopes(
       .map((selection) => ({
         serviceId: selection.serviceId,
         groupId: selection.groupId,
+        ...(selection.pinnedProfileId ? { pinnedProfileId: selection.pinnedProfileId } : {}),
         fromProfileId: selection.fallbackProfileId ?? null,
       }));
+    const pinnedByScopeKey = new Map<string, string>();
+    for (const binding of discoveredBindings) {
+      const pinnedProfileId = readNonEmptyString(binding.pinnedProfileId ?? null);
+      if (pinnedProfileId) {
+        pinnedByScopeKey.set(
+          sessionScopeKey({ sessionId, serviceId: binding.serviceId, groupId: binding.groupId }),
+          pinnedProfileId,
+        );
+      }
+    }
     for (const binding of [...discoveredBindings, ...runtimeBindings]) {
       const key = sessionScopeKey({ sessionId, serviceId: binding.serviceId, groupId: binding.groupId });
       const scope: ConnectedServiceAuthGroupRuntimeScope = {
@@ -135,6 +151,9 @@ function listRuntimeSessionScopes(
         applicationSettledBySpawnMaterialization: false,
         applicationOwnerId: readNonEmptyString(target.agentId),
         isCurrent,
+        // Runtime bindings carry live registry truth but not the pin; the pin lives only in the
+        // persisted declarative binding (D-11) and must survive the last-writer merge.
+        ...(pinnedByScopeKey.get(key) ? { pinnedProfileId: pinnedByScopeKey.get(key) } : {}),
       };
       byKey.set(key, scope);
     }
@@ -343,6 +362,11 @@ async function reconcileKnownConnectedServiceAuthGroupScopes(params: Readonly<{
     if (currentSessions.length === 0) continue;
     const group = groupsByScope.get(key);
     const activeProfileId = group ? readNonEmptyString(group.activeProfileId) : null;
+    // Pins are a round-robin concept (D-1): a binding `profileId` on any other strategy keeps
+    // its released fallback meaning and the session follows the pool's active account. The
+    // reconciler's group summary may not carry the policy; without proof of round-robin the
+    // pin is ignored, which is the released behavior.
+    const pinHonored = (group as Readonly<{ policy?: { strategy?: unknown } }> | undefined)?.policy?.strategy === 'round_robin';
     if (!group || !activeProfileId) {
       const result = await params.consumer.consumeUnavailable({
         serviceId: currentSessions[0]!.serviceId,
@@ -388,6 +412,20 @@ async function reconcileKnownConnectedServiceAuthGroupScopes(params: Readonly<{
       decisionCommittedTarget,
     });
     const sessionsNeedingApply = currentSessions.filter((session) => {
+      // D-11 fan-out tolerance, producer layer. A pinned session owns its account: a cursor
+      // movement to a DIFFERENT account never drags it. When the group's committed account IS
+      // the pin, the fact applies pin-locally, and only the pinned account's credential
+      // revision is staleness — never the group generation, so a rotation away and back must
+      // not re-apply a healthy pinned session.
+      const sessionPinnedProfileId = pinHonored ? readNonEmptyString(session.pinnedProfileId ?? null) : null;
+      if (sessionPinnedProfileId) {
+        if (sessionPinnedProfileId !== activeProfileId) return false;
+        return !(
+          credentialBoundary.status === 'present'
+          && credentialBoundary.revisionSemantics === 'revisioned'
+          && session.applicationSettledCredentialRevision === credentialBoundary.credentialRevision
+        );
+      }
       if (
         session.applicationSettledProfileId !== activeProfileId
         || session.applicationSettledGeneration !== group.generation

@@ -41,6 +41,13 @@ export async function materializeSessionConnectedServiceRuntimeAuthSelection(par
       : null;
   const profileId = binding.selection === 'group'
     ? readNonEmptyString(params.input.next.profileId)
+      // A pinned group session (round-robin): its own account outranks the pool cursor whenever
+      // fresh runtime truth does not explicitly choose another member. A released daemon reading
+      // a pinned session falls back to the persisted binding pin rather than dragging the session
+      // onto a different member the pool moved to after spawn (D-1, rollback path R-2).
+      || (readNonEmptyString(binding.profileId) !== readNonEmptyString(groupMetadata?.activeProfileId)
+        ? readNonEmptyString(binding.profileId)
+        : '')
       || readNonEmptyString(groupMetadata?.activeProfileId)
       || readNonEmptyString(previousGroupSelection?.activeProfileId)
       || readNonEmptyString(binding.profileId)

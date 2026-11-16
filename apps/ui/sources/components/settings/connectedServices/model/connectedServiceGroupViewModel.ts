@@ -18,6 +18,7 @@ export type ConnectedServiceGroupMemberViewModel = Readonly<{
     profileId: string;
     enabled: boolean;
     priority: number;
+    role: 'primary' | 'secondary';
     cooldownUntilMs: number | null;
     exhaustedUntilMs: number | null;
     quotaExhaustedUntilMs: number | null;
@@ -141,6 +142,7 @@ export function normalizeConnectedServiceGroupPolicy(
 
 export function resolveConnectedServiceGroupStrategyLabel(strategy: ConnectedServiceAuthGroupPolicyV1['strategy']): string {
     if (strategy === 'expiry_first') return t('connectedServices.detail.groups.strategyExpiryFirst');
+    if (strategy === 'round_robin') return t('connectedServices.detail.groups.strategyRoundRobin');
     if (strategy === 'manual') return t('connectedServices.detail.groups.strategyManual');
     if (strategy === 'least_limited') return t('connectedServices.detail.groups.strategyLeastLimited');
     return t('connectedServices.detail.groups.strategyPriority');
@@ -153,6 +155,8 @@ export function normalizeConnectedServiceGroupMember(value: unknown): ConnectedS
     if (!profileId) return null;
     const state = readRecord(raw.state) ?? {};
     const enabled = raw.enabled !== false;
+    // `role` is emitted only for non-default tiers (absence = primary) by the server projection.
+    const role = raw.role === 'secondary' ? 'secondary' as const : 'primary' as const;
     const cooldownUntilMs = readNumber(state.cooldownUntilMs);
     const exhaustedUntilMs = readNumber(state.exhaustedUntilMs);
     const quotaExhaustedUntilMs = readNumber(state.quotaExhaustedUntilMs);
@@ -175,6 +179,7 @@ export function normalizeConnectedServiceGroupMember(value: unknown): ConnectedS
         profileId,
         enabled,
         priority: readNumber(raw.priority) ?? 100,
+        role,
         cooldownUntilMs,
         exhaustedUntilMs,
         quotaExhaustedUntilMs,

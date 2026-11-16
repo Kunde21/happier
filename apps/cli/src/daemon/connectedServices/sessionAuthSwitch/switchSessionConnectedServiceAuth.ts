@@ -248,6 +248,13 @@ export type SessionConnectedServiceAuthSwitchRequest = Readonly<{
   bindings: ConnectedServiceBindingsV1;
   rematerializeServiceId?: ConnectedServiceId;
   expectedGroupGenerationByServiceId?: Readonly<Record<string, number>>;
+  /**
+   * Pin-local switch targets (round-robin pools): per service, the successor account chosen
+   * for THIS session's recovery. When present and an enabled member, it replaces the group
+   * active profile as the switch target, so a pinned session is never dragged onto the pool
+   * cursor (D-11). Group truth (activeProfileId) is untouched by this override.
+   */
+  pinLocalSwitchProfileIdByServiceId?: Readonly<Record<string, string>>;
   accountSettingsVersionHint?: number;
 }>;
 
@@ -861,9 +868,14 @@ async function normalizeRequestedBindings(input: Readonly<{
       ) {
         return { ok: false, errorCode: 'group_generation_conflict', serviceId };
       }
+      const pinLocalProfileId = readNonEmptyString(
+        input.request.pinLocalSwitchProfileIdByServiceId?.[serviceId] ?? null,
+      );
       const activeProfileId = isProspectiveDryRunGeneration
         ? prospectiveProfileId
-        : typeof group.activeProfileId === 'string' ? group.activeProfileId.trim() : '';
+        : pinLocalProfileId && groupHasEnabledMember({ group, profileId: pinLocalProfileId })
+          ? pinLocalProfileId
+          : typeof group.activeProfileId === 'string' ? group.activeProfileId.trim() : '';
       if (!activeProfileId) {
         return { ok: false, errorCode: 'profile_missing', serviceId };
       }

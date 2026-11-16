@@ -48,7 +48,10 @@ export function createCodexConnectedServicesMaterializer(): ConnectedServicesPro
         accountSettings: params.accountSettings ?? null,
         processEnv: params.processEnv ?? process.env,
         sessionStateMode: params.sessionStateMode,
-        validateCurrentBeforeMutation: selection?.kind === 'group' && validateGroupMutationCurrentness
+        // A pinned group session owns the pinned account's credential; the group-generation
+        // currentness gate must not run for it (a sibling's rotation advances group truth past
+        // this session's spawn-time generation without invalidating its credential).
+        validateCurrentBeforeMutation: selection?.kind === 'group' && !selection.pinnedProfileId && validateGroupMutationCurrentness
           ? () => validateGroupMutationCurrentness({
               serviceId: 'openai-codex',
               groupId: selection.groupId,

@@ -378,6 +378,114 @@ describe('switchSessionConnectedServiceAuth', () => {
     }));
   });
 
+  it('applies a pin-local successor instead of the group active when a pinned switch override is provided', async () => {
+    const tracked = trackedSession({
+      spawnOptions: {
+        directory: '/tmp/project',
+        backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
+        connectedServices: {
+          v: 1,
+          bindingsByServiceId: {
+            anthropic: { source: 'connected', selection: 'group', groupId: 'work', profileId: 'pinned-a' },
+          },
+        },
+      },
+    });
+    const workGroup = group({
+      activeProfileId: 'group-cursor',
+      members: [
+        {
+          v: 1,
+          serviceId: 'anthropic',
+          groupId: 'work',
+          profileId: 'pinned-a',
+          priority: 1,
+          enabled: true,
+          state: {},
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          v: 1,
+          serviceId: 'anthropic',
+          groupId: 'work',
+          profileId: 'pinned-b',
+          priority: 2,
+          enabled: true,
+          state: {},
+          createdAt: 2,
+          updatedAt: 2,
+        },
+        {
+          v: 1,
+          serviceId: 'anthropic',
+          groupId: 'work',
+          profileId: 'group-cursor',
+          priority: 3,
+          enabled: true,
+          state: {},
+          createdAt: 3,
+          updatedAt: 3,
+        },
+      ],
+    });
+    const resolveContinuity = vi.fn(async () => ({ mode: 'restart_rematerialize' as const }));
+
+    await expect(switchSessionConnectedServiceAuth({
+      core: createCore(),
+      postSwitchVerificationMode: {
+        kind: 'disabled_for_test_only',
+        reason: 'binding policy test does not exercise provider adoption verification',
+      },
+      getChildren: () => [tracked],
+      api: {
+        listConnectedServiceProfiles: async () => ({
+          serviceId: 'anthropic' as const,
+          profiles: [
+            { profileId: 'pinned-a', status: 'connected' as const },
+            { profileId: 'pinned-b', status: 'connected' as const },
+            { profileId: 'group-cursor', status: 'connected' as const },
+          ],
+        }),
+        getConnectedServiceAuthGroup: async () => workGroup,
+      },
+      resolveContinuity,
+      restartSession: vi.fn(async () => {}),
+      hotApply: async () => ({ ok: true }),
+      persistSessionBindings: vi.fn(),
+      registerHotApplyTargets: vi.fn(),
+      emitSessionEvent: vi.fn(),
+      request: {
+        sessionId: 'sess_1',
+        agentId: 'claude',
+        bindings: {
+          v: 1,
+          bindingsByServiceId: {
+            anthropic: { source: 'connected', selection: 'group', groupId: 'work', profileId: 'pinned-a' },
+          },
+        },
+        pinLocalSwitchProfileIdByServiceId: { anthropic: 'pinned-b' },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      action: 'restart_requested',
+      normalizedBindings: {
+        bindingsByServiceId: {
+          anthropic: {
+            source: 'connected',
+            selection: 'group',
+            groupId: 'work',
+            profileId: 'pinned-b',
+          },
+        },
+      },
+    });
+
+    expect(resolveContinuity).toHaveBeenCalledWith(expect.objectContaining({
+      next: expect.objectContaining({ selection: 'group', groupId: 'work', profileId: 'pinned-b' }),
+    }));
+  });
+
   it('awaits runtime-auth credential write commitment before restart rematerialization spawns', async () => {
     const tracked = trackedSession({
       spawnOptions: {

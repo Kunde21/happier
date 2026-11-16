@@ -43,6 +43,7 @@ export type DeleteAuthGroupMemberResult = "deleted" | "not_found" | AuthGroupGen
 type AuthGroupMemberRow = Readonly<{
     profileId: string;
     priority: number;
+    role: string;
     enabled: boolean;
     stateJson: string | null;
     createdAt: Date;
@@ -151,6 +152,8 @@ export function toAuthGroupResponse(row: AuthGroupRow): AuthGroupResponse {
             groupId: row.groupId,
             profileId: member.profileId,
             priority: member.priority,
+            // `primary` is the default tier; emit only the non-default so released payloads stay stable.
+            ...(member.role === 'secondary' ? { role: 'secondary' as const } : {}),
             enabled: member.enabled,
             state: parseAuthGroupMemberStateJson(member.stateJson),
             createdAt: member.createdAt.getTime(),
@@ -396,6 +399,7 @@ export async function createAuthGroupMemberAndBumpGenerationInTx(tx: Tx, params:
     groupId: string;
     profileId: string;
     priority: number;
+    role?: "primary" | "secondary";
     enabled: boolean;
     expectedGeneration: number;
 }): Promise<CreateAuthGroupMemberResult> {
@@ -467,6 +471,7 @@ export async function createAuthGroupMemberAndBumpGenerationInTx(tx: Tx, params:
             groupId: params.groupId,
             profileId: params.profileId,
             priority: params.priority,
+            role: params.role ?? "primary",
             enabled: params.enabled,
             stateJson: null,
         },
@@ -480,6 +485,7 @@ export async function updateAuthGroupMemberAndBumpGenerationInTx(tx: Tx, params:
     groupId: string;
     profileId: string;
     priority?: number;
+    role?: "primary" | "secondary";
     enabled?: boolean;
     state?: AuthGroupMemberState;
     expectedGeneration: number;
@@ -500,7 +506,7 @@ export async function updateAuthGroupMemberAndBumpGenerationInTx(tx: Tx, params:
             generation: true,
             runtimeStateRevision: true,
             members: {
-                select: { id: true, profileId: true, priority: true, enabled: true, stateJson: true },
+                select: { id: true, profileId: true, priority: true, role: true, enabled: true, stateJson: true },
             },
         },
     });
@@ -522,7 +528,8 @@ export async function updateAuthGroupMemberAndBumpGenerationInTx(tx: Tx, params:
     if (!member) return "not_found";
 
     const changesCandidate = (params.priority !== undefined && params.priority !== member.priority)
-        || (params.enabled !== undefined && params.enabled !== member.enabled);
+        || (params.enabled !== undefined && params.enabled !== member.enabled)
+        || (params.role !== undefined && params.role !== member.role);
     const nextMembers = group.members.map((candidate) => candidate.profileId === params.profileId
         ? {
             profileId: candidate.profileId,
@@ -598,6 +605,7 @@ export async function updateAuthGroupMemberAndBumpGenerationInTx(tx: Tx, params:
         where: { id: member.id },
         data: {
             ...(params.priority !== undefined ? { priority: params.priority } : {}),
+            ...(params.role !== undefined ? { role: params.role } : {}),
             ...(params.enabled !== undefined ? { enabled: params.enabled } : {}),
             ...(changesRuntimeState ? { stateJson: nextMemberStateJson } : {}),
         },

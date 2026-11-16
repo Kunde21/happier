@@ -3625,3 +3625,266 @@ describe('ConnectedServiceAuthGroupSwitchCoordinator', () => {
     expect(applied).toEqual([]);
   });
 });
+
+describe('ConnectedServiceAuthGroupSwitchCoordinator.rotateCursorForSpawn', () => {
+  function rotationState(activeProfileId: string, generation: number): ConnectedServiceAuthGroupSwitchState {
+    return {
+      ...state(activeProfileId, generation),
+      policy: {
+        ...state(activeProfileId, generation).policy,
+        strategy: 'round_robin',
+        autoSwitch: false,
+      },
+      members: [
+        { profileId: 'member-a', priority: 1, createdAtMs: 1, enabled: true },
+        { profileId: 'member-b', priority: 2, createdAtMs: 2, enabled: true },
+        { profileId: 'member-c', priority: 3, createdAtMs: 3, enabled: true, role: 'secondary' },
+      ],
+    };
+  }
+
+  it('rotates the cursor to the next primary member through the fenced commit even with autoSwitch disabled, and never applies to a session', async () => {
+    let current = rotationState('member-a', 5);
+    const commits: Array<Readonly<{ toProfileId: string; reason: string; expectedGeneration: number }>> = [];
+    const applied: string[] = [];
+    const coordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry(),
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => current,
+      commitSwitch: async ({ toProfileId, reason, expectedGeneration }) => {
+        commits.push({ toProfileId, reason, expectedGeneration });
+        current = { ...current, activeProfileId: toProfileId, generation: current.generation + 1 };
+        return current;
+      },
+      applyGeneration: async ({ activeProfileId }) => {
+        applied.push(activeProfileId!);
+        return { mode: 'hot_apply' };
+      },
+    });
+
+    const result = await coordinator.rotateCursorForSpawn({ serviceId: 'openai-codex', groupId: 'main' });
+
+    expect(result).toMatchObject({ status: 'switched', activeProfileId: 'member-b', generation: 6 });
+    expect(commits).toEqual([{ toProfileId: 'member-b', reason: 'rotation', expectedGeneration: 5 }]);
+    expect(applied).toEqual([]);
+  });
+
+  it('commits nothing when the cursor account is the only eligible member', async () => {
+    let current: ConnectedServiceAuthGroupSwitchState = {
+      ...rotationState('member-a', 5),
+      members: [{ profileId: 'member-a', priority: 1, createdAtMs: 1, enabled: true }],
+    };
+    const commits: string[] = [];
+    const coordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry(),
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => current,
+      commitSwitch: async () => {
+        commits.push('must-not-commit');
+        throw new Error('rotation must not commit when the selection keeps the cursor');
+      },
+      applyGeneration: async () => { throw new Error('rotation never applies'); },
+    });
+
+    const result = await coordinator.rotateCursorForSpawn({ serviceId: 'openai-codex', groupId: 'main' });
+
+    expect(result).toMatchObject({ status: 'rotation_not_required', generation: 5 });
+    expect(commits).toEqual([]);
+  });
+
+  it('does not rotate for pools whose strategy is not round-robin', async () => {
+    const current = state('primary', 5);
+    const coordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry(),
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => current,
+      commitSwitch: async () => { throw new Error('non-round-robin pools must not rotate'); },
+      applyGeneration: async () => { throw new Error('rotation never applies'); },
+    });
+
+    await expect(coordinator.rotateCursorForSpawn({ serviceId: 'openai-codex', groupId: 'main' }))
+      .resolves.toMatchObject({ status: 'rotation_not_required', generation: 5 });
+  });
+
+  it('retries selection after a generation conflict commits under the cursor', async () => {
+    let current = rotationState('member-a', 5);
+    let commitAttempt = 0;
+    const coordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry(),
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => current,
+      resolveGenerationConflict: (error) => error instanceof TestGenerationConflictError ? error.generation : null,
+      commitSwitch: async ({ toProfileId, expectedGeneration }) => {
+        commitAttempt += 1;
+        if (commitAttempt === 1) {
+          // A concurrent commit advanced group truth past our expected generation.
+          current = { ...current, activeProfileId: 'member-c', generation: 9 };
+          throw new TestGenerationConflictError(9);
+        }
+        expect(expectedGeneration).toBe(9);
+        current = { ...current, activeProfileId: toProfileId, generation: current.generation + 1 };
+        return current;
+      },
+      applyGeneration: async () => { throw new Error('rotation never applies'); },
+    });
+
+    const result = await coordinator.rotateCursorForSpawn({ serviceId: 'openai-codex', groupId: 'main' });
+
+    // The rotation re-anchored on the committed cursor (member-c) and wrapped to member-a.
+    expect(result).toMatchObject({ status: 'switched', activeProfileId: 'member-a', generation: 10 });
+    expect(commitAttempt).toBe(2);
+  });
+
+  it('stops retrying after the bounded conflict cap and adopts the observed generation instead of spinning', async () => {
+    let current = rotationState('member-a', 5);
+    let commitAttempt = 0;
+    const coordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry(),
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => {
+        // Every reload sees a newer committed generation (a permanent commit storm).
+        current = { ...current, activeProfileId: 'member-b', generation: current.generation + 1 };
+        return current;
+      },
+      resolveGenerationConflict: (error) => error instanceof TestGenerationConflictError ? error.generation : null,
+      commitSwitch: async () => {
+        commitAttempt += 1;
+        throw new TestGenerationConflictError(1_000 + commitAttempt);
+      },
+      applyGeneration: async () => { throw new Error('rotation never applies'); },
+    });
+
+    const result = await coordinator.rotateCursorForSpawn({ serviceId: 'openai-codex', groupId: 'main' });
+
+    expect(commitAttempt).toBe(5);
+    expect(result).toMatchObject({ status: 'observed_generation', activeProfileId: 'member-b' });
+  });
+
+  it('switches a pinned session locally without committing group truth (D-11)', async () => {
+    let current = { ...rotationState('group-cursor', 5), policy: { ...rotationState('group-cursor', 5).policy, autoSwitch: true } };
+    const commitSwitch = vi.fn(async () => {
+      throw new Error('pin-local recovery must never commit group truth');
+    });
+    const applyGeneration = vi.fn(async () => ({ mode: 'restart_resume' as const }));
+    const recordObservedFailureState = vi.fn(async () => {});
+    const emitEvent = vi.fn();
+    const coordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry(),
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => current,
+      commitSwitch,
+      applyGeneration,
+      recordObservedFailureState,
+      emitEvent,
+    });
+
+    const result = await coordinator.switchSessionPinAfterClassifiedFailure({
+      sessionId: 'session-1',
+      serviceId: 'openai-codex',
+      groupId: 'main',
+      pinnedProfileId: 'member-a',
+      reason: 'usage_limit',
+      observedProfileId: 'member-a',
+      switchesThisTurn: 0,
+    });
+
+    expect(result).toMatchObject({ status: 'switched', activeProfileId: 'member-b' });
+    // Group truth is untouched: no commit, no cursor movement.
+    expect(commitSwitch).not.toHaveBeenCalled();
+    expect(current.activeProfileId).toBe('group-cursor');
+    // The failed account is recorded so every selector sees it (account-scoped fact).
+    expect(recordObservedFailureState).toHaveBeenCalledWith(expect.objectContaining({
+      observedProfileId: 'member-a',
+    }));
+    // The apply is per-session: exactly this session, onto the pin successor, marked pin-local
+    // so the apply FSM targets the successor instead of converging on the group active.
+    expect(applyGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-1',
+      activeProfileId: 'member-b',
+      fromProfileId: 'member-a',
+      pinLocal: true,
+    }));
+    expect(emitEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'connected_service_auth_group_switch',
+      toProfileId: 'member-b',
+    }));
+  });
+
+  it('reports no eligible member when the pinned account is the only usable one', async () => {
+    const base = rotationState('member-a', 5);
+    let current = { ...base, policy: { ...base.policy, autoSwitch: true } };
+    const coordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry(),
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => current,
+      commitSwitch: async () => {
+        throw new Error('pin-local recovery must never commit group truth');
+      },
+      applyGeneration: async () => {
+        throw new Error('no switch means no apply');
+      },
+      recordObservedFailureState: async () => {
+        // After recording, member-b is quota-dead and the secondary member-c is dead too:
+        // the pinned member-a (excluded as the failed anchor) is the only usable account.
+        current = {
+          ...current,
+          memberStatesByProfileId: new Map([
+            ['member-b', { quotaExhaustedUntilMs: 61_000 }],
+            ['member-c', { quotaExhaustedUntilMs: 61_000 }],
+          ]),
+        };
+      },
+    });
+
+    const result = await coordinator.switchSessionPinAfterClassifiedFailure({
+      sessionId: 'session-1',
+      serviceId: 'openai-codex',
+      groupId: 'main',
+      pinnedProfileId: 'member-a',
+      reason: 'usage_limit',
+      observedProfileId: 'member-a',
+      switchesThisTurn: 0,
+    });
+
+    expect(result).toMatchObject({ status: 'no_eligible_member' });
+  });
+
+  it('adopts the committed generation when a concurrent rotation owns the lease', async () => {
+    const sharedLeases = new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry();
+    let current = rotationState('member-a', 5);
+    const slowWinner = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: sharedLeases,
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => await new Promise((resolve) => {
+        setTimeout(() => resolve(current), 30);
+      }),
+      commitSwitch: async ({ toProfileId }) => {
+        current = { ...current, activeProfileId: toProfileId, generation: current.generation + 1 };
+        return current;
+      },
+      applyGeneration: async () => { throw new Error('rotation never applies'); },
+    });
+    const loserRotationCoordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: sharedLeases,
+      nowMs: () => 1_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => current,
+      commitSwitch: async () => { throw new Error('lease loser must not commit'); },
+      applyGeneration: async () => { throw new Error('rotation never applies'); },
+    });
+
+    const winnerRotation = slowWinner.rotateCursorForSpawn({ serviceId: 'openai-codex', groupId: 'main' });
+    const loserRotation = loserRotationCoordinator.rotateCursorForSpawn({ serviceId: 'openai-codex', groupId: 'main' });
+
+    await expect(winnerRotation).resolves.toMatchObject({ status: 'switched', activeProfileId: 'member-b' });
+    await expect(loserRotation).resolves.toMatchObject({ status: 'observed_generation', activeProfileId: 'member-b', generation: 6 });
+  });
+});

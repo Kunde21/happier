@@ -1602,3 +1602,101 @@ describe('provider credits keep spent accounts usable', () => {
     expect(selection.excluded).toContainEqual(expect.objectContaining({ profileId: 'credits-only', reason: 'quota_exhausted' }));
   });
 });
+
+describe('round-robin pool rotation', () => {
+  const roundRobinPolicy = { ...basePolicy, strategy: 'round_robin' as const };
+  const exhaustedState: ConnectedServiceAuthGroupMemberRuntimeState = {
+    quotaSnapshot: {
+      capturedAtMs: 900,
+      effectiveRemainingPercent: 0,
+      meters: [{ meterId: 'weekly', limitCategory: 'usage_limit', remainingPct: 0, resetAtMs: 100_000, providerLimitId: null }],
+    },
+  };
+
+  function tieredMember(profileId: string, priority: number, role: 'primary' | 'secondary' = 'primary') {
+    return { ...member(profileId, priority, priority), role };
+  }
+
+  const members = [
+    tieredMember('a', 1),
+    tieredMember('b', 2),
+    tieredMember('c', 3),
+    tieredMember('spare-1', 4, 'secondary'),
+    tieredMember('spare-2', 5, 'secondary'),
+  ];
+
+  function rotate(input: Readonly<{
+    after?: string | null;
+    states?: ReadonlyMap<string, ConnectedServiceAuthGroupMemberRuntimeState>;
+    allowCurrentProfileRetry?: boolean;
+  }>) {
+    return selectConnectedServiceAuthGroupCandidate({
+      nowMs: 1_000,
+      quotaFreshnessMs: 60_000,
+      activeProfileId: input.after ?? null,
+      ...(input.after === undefined ? {} : { rotationAfterProfileId: input.after }),
+      ...(input.allowCurrentProfileRetry === undefined ? {} : { allowCurrentProfileRetry: input.allowCurrentProfileRetry }),
+      policy: roundRobinPolicy,
+      members,
+      memberStatesByProfileId: input.states ?? new Map(),
+    });
+  }
+
+  it('takes the next primary after the last-used member and wraps at the end', () => {
+    expect(rotate({ after: null }).selected?.profileId).toBe('a');
+    expect(rotate({ after: 'a' }).selected?.profileId).toBe('b');
+    expect(rotate({ after: 'b' }).selected?.profileId).toBe('c');
+    expect(rotate({ after: 'c' }).selected?.profileId).toBe('a');
+  });
+
+  it('ignores quota ranking: rotation order alone decides between usable primaries', () => {
+    const states = new Map<string, ConnectedServiceAuthGroupMemberRuntimeState>([
+      ['a', { quotaSnapshot: { capturedAtMs: 900, effectiveMeterId: 'weekly', effectiveRemainingPercent: 95 } }],
+      ['b', { quotaSnapshot: { capturedAtMs: 900, effectiveMeterId: 'weekly', effectiveRemainingPercent: 5 } }],
+    ]);
+
+    expect(rotate({ after: 'a', states }).selected?.profileId).toBe('b');
+    expect(rotate({ after: 'b', states }).selected?.profileId).toBe('c');
+  });
+
+  it('skips unusable primaries, including the rotation anchor itself', () => {
+    const states = new Map<string, ConnectedServiceAuthGroupMemberRuntimeState>([
+      ['b', exhaustedState],
+      ['c', exhaustedState],
+    ]);
+
+    // A failure switch must leave the current member, so the anchor is not a retry target there.
+    expect(rotate({ after: 'a', states }).selected?.profileId).toBe('spare-1');
+    // Spawn rotation may reuse the anchor when it is the only usable primary.
+    expect(rotate({ after: 'a', states, allowCurrentProfileRetry: true }).selected?.profileId).toBe('a');
+  });
+
+  it('promotes the secondary band only when no primary is usable', () => {
+    const primariesExhausted = new Map<string, ConnectedServiceAuthGroupMemberRuntimeState>([
+      ['a', exhaustedState],
+      ['b', exhaustedState],
+      ['c', exhaustedState],
+    ]);
+
+    expect(rotate({ after: 'a', states: primariesExhausted }).selected?.profileId).toBe('spare-1');
+    expect(rotate({ after: 'spare-1', states: primariesExhausted }).selected?.profileId).toBe('spare-2');
+    expect(rotate({ after: 'spare-2', states: primariesExhausted }).selected?.profileId).toBe('spare-1');
+  });
+
+  it('keeps the rotation anchor stable when the anchor profile is no longer a member', () => {
+    expect(rotate({ after: 'removed-account' }).selected?.profileId).toBe('a');
+  });
+
+  it('treats a member without an explicit role as primary', () => {
+    const result = selectConnectedServiceAuthGroupCandidate({
+      nowMs: 1_000,
+      quotaFreshnessMs: 60_000,
+      activeProfileId: 'a',
+      policy: roundRobinPolicy,
+      members: [member('a', 1, 1), member('b', 2, 2)],
+      memberStatesByProfileId: new Map(),
+    });
+
+    expect(result.selected?.profileId).toBe('b');
+  });
+});

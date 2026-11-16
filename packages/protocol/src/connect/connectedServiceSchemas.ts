@@ -530,6 +530,7 @@ export const CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_QUERY_KEY = 'happierAut
 export const CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_QUERY_KEY = 'happierPoolQuotaLimitSelection';
 export const CONNECTED_SERVICE_POOL_EXPIRY_FIRST_QUERY_KEY = 'happierPoolExpiryFirst';
 export const CONNECTED_SERVICE_CLAUDE_AUTO_CONTINUE_QUERY_KEY = 'happierClaudeCodeAutoContinueAtUsageLimit';
+export const CONNECTED_SERVICE_POOL_ROUND_ROBIN_QUERY_KEY = 'happierPoolRoundRobin';
 export const CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE = '1';
 
 export const ConnectedServiceAuthGroupReaderCapabilitiesQueryV1Schema = lazySchema(() => z.object({
@@ -545,6 +546,9 @@ export const ConnectedServiceAuthGroupReaderCapabilitiesQueryV1Schema = lazySche
     [CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_QUERY_KEY]: z
         .literal(CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE)
         .optional(),
+    [CONNECTED_SERVICE_POOL_ROUND_ROBIN_QUERY_KEY]: z
+        .literal(CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE)
+        .optional(),
 }));
 
 export type ConnectedServiceAuthGroupReaderCapabilitiesQueryV1 = z.infer<
@@ -553,7 +557,7 @@ export type ConnectedServiceAuthGroupReaderCapabilitiesQueryV1 = z.infer<
 
 export function appendConnectedServiceAuthGroupReaderCapabilities(path: string): string {
     const separator = path.includes('?') ? '&' : '?';
-    return `${path}${separator}${CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}&${CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}&${CONNECTED_SERVICE_POOL_EXPIRY_FIRST_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}&${CONNECTED_SERVICE_CLAUDE_AUTO_CONTINUE_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}`;
+    return `${path}${separator}${CONNECTED_SERVICE_AUTO_DISABLE_PLAN_INVALID_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}&${CONNECTED_SERVICE_POOL_QUOTA_LIMIT_SELECTION_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}&${CONNECTED_SERVICE_POOL_EXPIRY_FIRST_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}&${CONNECTED_SERVICE_CLAUDE_AUTO_CONTINUE_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}&${CONNECTED_SERVICE_POOL_ROUND_ROBIN_QUERY_KEY}=${CONNECTED_SERVICE_AUTH_GROUP_READER_CAPABILITY_QUERY_VALUE}`;
 }
 
 const ConnectedServiceSelectedProviderLimitIdsSchema = lazySchema(() => z
@@ -568,7 +572,16 @@ export const ConnectedServiceAuthGroupQuotaLimitSelectionV1Schema = lazySchema((
 
 export type ConnectedServiceAuthGroupQuotaLimitSelectionV1 = z.infer<typeof ConnectedServiceAuthGroupQuotaLimitSelectionV1Schema>;
 
-export const ConnectedServiceAuthGroupStrategyV1Schema = lazySchema(() => z.enum(['expiry_first', 'priority', 'least_limited', 'manual']));
+export const ConnectedServiceAuthGroupStrategyV1Schema = lazySchema(() => z.enum(['expiry_first', 'priority', 'least_limited', 'manual', 'round_robin']));
+
+/**
+ * Pool tiers. Primary members are the round-robin rotation set; secondary members are only used
+ * when no primary member is usable. Absence means `primary` (released V1 readers never receive the
+ * key: the server projects it away for readers that did not negotiate `happierPoolRoundRobin`).
+ */
+export const ConnectedServiceAuthGroupMemberRoleV1Schema = lazySchema(() => z.enum(['primary', 'secondary']));
+
+export type ConnectedServiceAuthGroupMemberRoleV1 = z.infer<typeof ConnectedServiceAuthGroupMemberRoleV1Schema>;
 
 export const ConnectedServiceAuthGroupPolicyV1Schema = lazySchema(() => z
     .object({
@@ -702,6 +715,7 @@ export const ConnectedServiceAuthGroupMemberV1Schema = lazySchema(() => z
         groupId: ConnectedServiceAuthGroupIdSchema,
         profileId: ConnectedServiceProfileIdSchema,
         priority: z.number().int().default(100),
+        role: ConnectedServiceAuthGroupMemberRoleV1Schema.optional(),
         enabled: z.boolean().default(true),
         state: ConnectedServiceAuthGroupMemberStateV1Schema,
         createdAt: z.number().int().nonnegative(),
@@ -743,6 +757,7 @@ const ConnectedServiceAuthGroupMemberInputV1Schema = lazySchema(() => z
     .object({
         profileId: ConnectedServiceProfileIdSchema,
         priority: z.number().int().default(100),
+        role: ConnectedServiceAuthGroupMemberRoleV1Schema.optional(),
         enabled: z.boolean().default(true),
     })
     .strict());
@@ -801,6 +816,7 @@ export type ConnectedServiceAuthGroupMemberCreateRequestV1 = z.infer<typeof Conn
 export const ConnectedServiceAuthGroupMemberPatchRequestV1Schema = lazySchema(() => z
     .object({
         priority: z.number().int().optional(),
+        role: ConnectedServiceAuthGroupMemberRoleV1Schema.optional(),
         enabled: z.boolean().optional(),
         state: ConnectedServiceAuthGroupMemberStateV1Schema.removeDefault().optional(),
         expectedGeneration: ConnectedServiceAuthGroupExpectedGenerationV1Schema,

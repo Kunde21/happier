@@ -142,6 +142,7 @@ function buildConnectedServiceAuthGroupSwitchStateFromMemberRuntimeStates(input:
       priority: member.priority,
       enabled: member.enabled,
       createdAtMs: member.createdAt,
+      ...(member.role === undefined ? {} : { role: member.role }),
     })),
     memberStatesByProfileId,
   };

@@ -599,6 +599,63 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
     expect(continueAfterRuntimeAuthSwitch).not.toHaveBeenCalled();
   });
 
+  it('delegates a pinned session failure to pin-local recovery instead of the group switch (D-11)', async () => {
+    const tracked = {
+      startedBy: 'daemon' as const,
+      happySessionId: 'pinned-failure-session',
+      pid: 123,
+      spawnOptions: {
+        directory: '/tmp/project',
+        connectedServices: {
+          v: 1,
+          bindingsByServiceId: {
+            'openai-codex': { source: 'connected', selection: 'group', groupId: 'main', profileId: 'pinned-a' },
+          },
+        },
+      },
+    } satisfies TrackedSession;
+    const switchAfterClassifiedFailure = vi.fn(
+      async (_input: unknown) => ({ status: 'switched' }) as const,
+    );
+    const switchSessionPinAfterClassifiedFailure = vi.fn(
+      async (_input: unknown) => ({ status: 'switched', activeProfileId: 'pinned-b', generation: 7 }) as const,
+    );
+
+    await handleConnectedServiceRuntimeAuthFailureForSession({
+      getChildren: () => [tracked],
+      sessionId: tracked.happySessionId,
+      switchesThisTurn: 0,
+      classification: {
+        kind: 'usage_limit',
+        serviceId: 'openai-codex',
+        profileId: 'pinned-a',
+        groupId: 'main',
+        resetsAtMs: null,
+        planType: null,
+        rateLimits: null,
+        source: 'structured_provider_error',
+      },
+      resolveRegisteredRuntimeAuthFailureSource: () => ({
+        serviceId: 'openai-codex',
+        groupId: 'main',
+        profileId: 'pinned-a',
+        generation: 7,
+        credentialRevision: 'csr_aaaaaaaaaaaaaaaaaaaaaa',
+      }),
+      switchCoordinator: {
+        switchAfterClassifiedFailure,
+        switchSessionPinAfterClassifiedFailure,
+      } as unknown as NonNullable<Parameters<typeof handleConnectedServiceRuntimeAuthFailureForSession>[0]['switchCoordinator']>,
+    });
+
+    expect(switchSessionPinAfterClassifiedFailure).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'pinned-failure-session',
+      pinnedProfileId: 'pinned-a',
+      observedProfileId: 'pinned-a',
+    }));
+    expect(switchAfterClassifiedFailure).not.toHaveBeenCalled();
+  });
+
   it('continues a scheduled recovery on the refreshed revision of the same profile without attributing the old failure to it', async () => {
     const tracked = {
       startedBy: 'daemon' as const,

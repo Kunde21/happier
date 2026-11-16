@@ -70,6 +70,11 @@ export type ConnectedServiceAuthGroupSwitchApplyGenerationInput = Readonly<{
    * than null (which the UI renders as the native / "CLI Auth" label).
    */
   fromProfileId?: string | null;
+  /**
+   * Pin-local recovery (round-robin pools): the applier must target `activeProfileId` (the pin
+   * successor) instead of converging on the group's current active profile (D-11).
+   */
+  pinLocal?: boolean;
 }>;
 
 export type ConnectedServiceAuthGroupSwitchDecisionDiagnostics = Readonly<{
@@ -248,7 +253,12 @@ export type ConnectedServiceAuthGroupSwitchResult =
   | Readonly<{ status: 'manual_strategy'; generation: number }>
   | Readonly<{ status: 'auto_switch_disabled'; generation: number }>
   | Readonly<{ status: 'switch_reason_disabled'; generation: number }>
-  | Readonly<{ status: 'switch_limit_reached'; generation: number }>;
+  | Readonly<{ status: 'switch_limit_reached'; generation: number }>
+  | Readonly<{
+      /** Spawn rotation found the cursor account itself as the selection: nothing to commit. */
+      status: 'rotation_not_required';
+      generation: number;
+    }>;
 
 export type ConnectedServiceAuthGroupSwitchLimitAction = Readonly<{
   kind: 'open_url';
