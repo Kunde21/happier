@@ -895,7 +895,7 @@ export function createClaudeSubscriptionQuotaFetcher(params?: Readonly<{
         // typed outcome as a direct 429. Same contract as the codex fetcher: surface
         // provider rate limits to the coordinator (Retry-After backoff + user-visible
         // refresh outcome) instead of silently swallowing them.
-        observeRateLimit(response, record, now);
+        observeProviderBackoff(response, record, now);
         const retryAfter = parseRetryAfterHeader(response.headers?.get?.('retry-after'), { nowMs: now });
         throw new ConnectedServiceQuotaFetchError(
           `Anthropic usage fetch rate limited (429)${retryAfter.retryAfterMs != null ? `; retry after ${retryAfter.retryAfterMs}ms` : ''}`,
