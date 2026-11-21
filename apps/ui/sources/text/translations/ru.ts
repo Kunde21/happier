@@ -2533,6 +2533,7 @@ export const ru: TranslationStructure = {
       },
     fallbackName: "Подключённый сервис",
     serviceNames: {
+        opencodeGo: 'OpenCode Go',
       claudeSubscription: "Подписка Claude",
       openaiCodex: "Codex от OpenAI",
       openai: "Ключ API OpenAI",

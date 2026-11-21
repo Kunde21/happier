@@ -135,7 +135,8 @@ export function createPiConnectedServicesMaterializer(): ConnectedServicesProvid
     const openai = params.recordsByServiceId.get('openai') ?? null;
     const anthropic = params.recordsByServiceId.get('anthropic') ?? null;
     const claudeSubscription = params.recordsByServiceId.get('claude-subscription') ?? null;
-    if (!openaiCodex && !openai && !anthropic && !claudeSubscription) return null;
+    const opencodeGo = params.recordsByServiceId.get('opencode-go') ?? null;
+    if (!openaiCodex && !openai && !anthropic && !claudeSubscription && !opencodeGo) return null;
 
     const write = () => materializePiConnectedServiceAuth({
       rootDir: params.rootDir,
@@ -143,6 +144,7 @@ export function createPiConnectedServicesMaterializer(): ConnectedServicesProvid
       openai,
       claudeSubscription,
       anthropic,
+      opencodeGo,
       ...(params.selectionsByServiceId ? { selectionsByServiceId: params.selectionsByServiceId } : {}),
     });
     const materialized = await (params.writeArtifacts ? params.writeArtifacts(write) : write());

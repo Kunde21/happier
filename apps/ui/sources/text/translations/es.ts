@@ -2581,6 +2581,7 @@ export const es: TranslationStructure = {
       },
     fallbackName: "Servicio conectado",
     serviceNames: {
+        opencodeGo: 'OpenCode Go',
       claudeSubscription: "Suscripción de Claude",
       openaiCodex: "Codex de OpenAI",
       openai: "Clave API de OpenAI",

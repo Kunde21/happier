@@ -115,6 +115,9 @@ Remove these outward/default-carrier adapters when the supported closed-enum
 readers retire, consolidating at their existing owners. The undeployed 0.3 line
 uses qualified account services and its existing one-way upgrade boundary;
 0.2-created Antigravity data still needs its storage-ingress mapping there.
+The `opencode-go` service rides this same policy: it is advertised only by
+servers built from this change, its saved defaults live only in the additional
+carrier, and older readers receive projections without it.
 
 ### Pool application and legacy credential rows (0.2 development)
 

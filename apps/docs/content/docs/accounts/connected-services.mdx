@@ -30,6 +30,7 @@ Happier models different credential types as distinct connected services:
 - `anthropic`: Anthropic API key auth
 - `gemini`: Gemini OAuth auth
 - `github`: GitHub token auth for source-control workflows
+- `opencode-go`: OpenCode Go subscription API-key auth
 
 This split is intentional. Subscription auth and API-key auth have different provider behavior, billing paths, and backend materialization requirements, so Happier does not merge them into a single generic "Claude" or "OpenAI" credential type.
 
@@ -55,6 +56,7 @@ In the CLI:
 - `happier connect codex ...`
 - `happier connect claude ...`
 - `happier connect gemini`
+- `happier connect opencode --api-key`
 
 ## Google Antigravity in development builds
 
@@ -275,6 +277,14 @@ Supported methods:
 
 This is the Anthropic Console API-key path. It is separate from `claude-subscription`.
 
+### OpenCode Go API key
+
+Supported methods:
+
+- manual API key entry
+
+Use this to run OpenCode or Pi sessions on an [OpenCode Go](https://opencode.ai/docs/console/go/) subscription (Go, Go Plus, or Go Teams). Create a key in the [Go Console](https://opencode.ai/console/go) and paste it into Happier. The key is sent directly by each backend's native `opencode-go` provider as the provider Bearer credential. Go profiles do not provide quota meters in Happier.
+
 ### Gemini
 
 Supported methods:
@@ -317,8 +327,8 @@ Connected services are not global "works everywhere" credentials. Each backend d
 | Claude | `claude-subscription` (setup-token or OAuth), `anthropic` (API key) |
 | Codex | `openai-codex` (OAuth), `openai` (API key) |
 | Gemini | `gemini` (OAuth) |
-| OpenCode | `openai-codex` (OAuth), `openai` (API key), `claude-subscription` (setup-token only), `anthropic` (API key) |
-| Pi | `openai-codex` (OAuth), `openai` (API key), `claude-subscription` (OAuth or setup-token), `anthropic` (API key) |
+| OpenCode | `openai-codex` (OAuth), `openai` (API key), `claude-subscription` (setup-token only), `anthropic` (API key), `opencode-go` (API key) |
+| Pi | `openai-codex` (OAuth), `openai` (API key), `claude-subscription` (OAuth or setup-token), `anthropic` (API key), `opencode-go` (API key) |
 
 Important limitations:
 

@@ -85,7 +85,7 @@ export type VendorResumeIdField =
     | 'droidSessionId'
     | 'codebuddySessionId';
 
-export type CloudVendorKey = 'openai' | 'anthropic' | 'gemini' | 'antigravity';
+export type CloudVendorKey = 'openai' | 'anthropic' | 'gemini' | 'antigravity' | 'opencode';
 export type CloudConnectTargetStatus = 'wired' | 'experimental';
 
 export type ConnectedServiceKind = 'oauth' | 'token';

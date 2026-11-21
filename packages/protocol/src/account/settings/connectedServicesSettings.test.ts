@@ -16,10 +16,16 @@ describe('connected service saved default compatibility', () => {
       agy: { v: 1 as const, bindingsByServiceId: {
         antigravity: { source: 'connected' as const, selection: 'group' as const, groupId: 'google-pool' },
       } },
+      opencode: { v: 1 as const, bindingsByServiceId: {
+        'opencode-go': { source: 'connected' as const, selection: 'profile' as const, profileId: 'go' },
+      } },
     } };
     const patch = buildConnectedServicesDefaultAuthSettingsPatch(effective);
     expect(patch.connectedServicesDefaultAuthByAgentIdV1.bindingsByAgentId).toEqual({ codex: effective.bindingsByAgentId.codex });
-    expect(patch.connectedServicesAdditionalDefaultAuthByAgentIdV1.bindingsByAgentId).toEqual({ agy: effective.bindingsByAgentId.agy });
+    expect(patch.connectedServicesAdditionalDefaultAuthByAgentIdV1.bindingsByAgentId).toEqual({
+      agy: effective.bindingsByAgentId.agy,
+      opencode: effective.bindingsByAgentId.opencode,
+    });
     expect(readConnectedServicesDefaultAuthSettings(patch)).toEqual(effective);
     expect(ConnectedServicesDefaultAuthByAgentIdV1Schema.parse(effective).bindingsByAgentId).toEqual({});
     expect(ConnectedServicesAdditionalDefaultAuthByAgentIdV1Schema.safeParse({

@@ -8,6 +8,7 @@ export type ConnectedServiceDisplayNameKey =
     | 'connectedServices.serviceNames.gemini'
     | 'connectedServices.serviceNames.antigravity'
     | 'connectedServices.serviceNames.github'
+    | 'connectedServices.serviceNames.opencodeGo'
     | 'connectedServices.fallbackName';
 
 export function resolveConnectedServiceDisplayNameKey(serviceId: ConnectedServiceId): ConnectedServiceDisplayNameKey {
@@ -26,6 +27,8 @@ export function resolveConnectedServiceDisplayNameKey(serviceId: ConnectedServic
             return 'connectedServices.serviceNames.antigravity';
         case 'github':
             return 'connectedServices.serviceNames.github';
+        case 'opencode-go':
+            return 'connectedServices.serviceNames.opencodeGo';
         default:
             return 'connectedServices.fallbackName';
     }
@@ -54,6 +57,7 @@ const CONNECTED_SERVICE_SHORT_NAME_BY_ID: Partial<Record<ConnectedServiceId, str
     gemini: 'Gemini',
     antigravity: 'Antigravity',
     github: 'GitHub',
+    'opencode-go': 'OpenCode Go',
 };
 
 export function resolveConnectedServiceShortName(

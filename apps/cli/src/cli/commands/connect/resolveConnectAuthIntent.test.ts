@@ -117,6 +117,25 @@ describe('resolveConnectAuthIntent', () => {
     expect(res).toEqual({ kind: 'token', serviceId: 'openai', tokenKind: 'api-key' });
   });
 
+  it('connects OpenCode Go only through an explicit --api-key (stored as opencode-go)', () => {
+    const baseOptions = {
+      profileId: 'default',
+      paste: false,
+      device: false,
+      noOpen: false,
+      timeoutSeconds: null,
+      setupToken: false,
+      oauth: false,
+      apiKey: false,
+      token: false,
+    };
+    expect(resolveConnectAuthIntent({ targetId: 'opencode', options: { ...baseOptions, apiKey: true } }))
+      .toEqual({ kind: 'token', serviceId: 'opencode-go', tokenKind: 'api-key' });
+    expect(() => resolveConnectAuthIntent({ targetId: 'opencode', options: baseOptions })).toThrow(/--api-key/);
+    expect(() => resolveConnectAuthIntent({ targetId: 'opencode', options: { ...baseOptions, setupToken: true } })).toThrow(/--api-key/);
+    expect(() => resolveConnectAuthIntent({ targetId: 'opencode', options: { ...baseOptions, oauth: true } })).toThrow(/--api-key/);
+  });
+
   it('uses a token credential for GitHub', () => {
     const res = resolveConnectAuthIntent({
       targetId: 'github',

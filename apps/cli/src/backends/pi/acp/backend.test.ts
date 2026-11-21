@@ -126,6 +126,33 @@ describe('pi backend argv', () => {
     expect(args?.[modelIndex + 1]).not.toBe('openai-codex/*');
   });
 
+  it('launches the native opencode-go provider with a concrete model and scoped cycle for Go selections', () => {
+    process.env.PATH = '';
+    process.env.HAPPIER_PI_PATH = createFakeBin('pi');
+
+    const backend = createPiBackend({
+      cwd: '/tmp',
+      env: {
+        [HAPPIER_CONNECTED_SERVICE_SELECTIONS_ENV_KEY]: JSON.stringify([
+          { kind: 'profile', serviceId: 'opencode-go', profileId: 'go-work' },
+        ]),
+      },
+      permissionMode: 'default',
+    }) as unknown as { options?: { args?: string[] } };
+
+    const args = backend.options?.args;
+    expect(args).toEqual(expect.arrayContaining([
+      '--provider',
+      'opencode-go',
+      '--model',
+      'opencode-go',
+      '--models',
+      'opencode-go/*',
+    ]));
+    const modelIndex = args?.indexOf('--model') ?? -1;
+    expect(args?.[modelIndex + 1]).not.toBe('opencode-go/*');
+  });
+
   it('passes the broker extension path when launching a brokered connected-service provider', () => {
     process.env.PATH = '';
     process.env.HAPPIER_PI_PATH = createFakeBin('pi');

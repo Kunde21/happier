@@ -66,6 +66,7 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription: null,
       anthropic: null,
+      opencodeGo: null,
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -97,14 +98,14 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
       expiresAt,
       oauth: { accessToken: access, refreshToken: refresh, idToken: null, scope: null, tokenType: null, providerAccountId: 'acct_123', providerEmail: null },
     });
-    const first = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: build('a1', 'r1', now + 1000), openai: null, claudeSubscription: null, anthropic: null });
-    const rotated = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: build('a2', 'r2', now + 9999), openai: null, claudeSubscription: null, anthropic: null });
+    const first = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: build('a1', 'r1', now + 1000), openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null });
+    const rotated = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: build('a2', 'r2', now + 9999), openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null });
     expect(first.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]).toBe(rotated.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]);
     expect(first.env[HAPPIER_SESSION_CONNECTED_SERVICE_BROKER_SELECTION_IDENTITY_ENV_KEY]).toBe(
       first.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV],
     );
     // A different account yields a DIFFERENT identity.
-    const otherAccount = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: buildConnectedServiceCredentialRecord({ now, serviceId: 'openai-codex', profileId: 'work', kind: 'oauth', expiresAt: now + 1000, oauth: { accessToken: 'a', refreshToken: 'r', idToken: null, scope: null, tokenType: null, providerAccountId: 'acct_999', providerEmail: null } }), openai: null, claudeSubscription: null, anthropic: null });
+    const otherAccount = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: buildConnectedServiceCredentialRecord({ now, serviceId: 'openai-codex', profileId: 'work', kind: 'oauth', expiresAt: now + 1000, oauth: { accessToken: 'a', refreshToken: 'r', idToken: null, scope: null, tokenType: null, providerAccountId: 'acct_999', providerEmail: null } }), openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null });
     expect(otherAccount.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]).not.toBe(first.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]);
   });
 
@@ -132,8 +133,8 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
       },
     ]]);
 
-    const resA = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, selectionsByServiceId: groupSelections('pool-A') as any });
-    const resB = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, selectionsByServiceId: groupSelections('pool-B') as any });
+    const resA = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null, selectionsByServiceId: groupSelections('pool-A') as any });
+    const resB = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null, selectionsByServiceId: groupSelections('pool-B') as any });
 
     expect(resA.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]).not.toBe(resB.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]);
     expect(resA.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]).toContain('pool-A');
@@ -163,8 +164,8 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
       },
     ]]);
 
-    const gen1 = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, selectionsByServiceId: poolSelection(1) as any });
-    const gen2 = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, selectionsByServiceId: poolSelection(2) as any });
+    const gen1 = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null, selectionsByServiceId: poolSelection(1) as any });
+    const gen2 = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null, selectionsByServiceId: poolSelection(2) as any });
 
     // Same pool + same active profile at a bumped generation must mint the SAME identity: the string
     // is an opaque equality key, generation flows as a separate payload field, so baking it in only
@@ -182,8 +183,8 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
       expiresAt: now + 1000,
       oauth: { accessToken: 'a', refreshToken: 'r', idToken: null, scope: null, tokenType: null, providerAccountId: 'acct_123', providerEmail: null },
     });
-    const withoutSelections = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null });
-    const withProfileSelection = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, selectionsByServiceId: new Map([[
+    const withoutSelections = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null });
+    const withProfileSelection = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex, openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null, selectionsByServiceId: new Map([[
       'openai-codex',
       { kind: 'profile' as const, serviceId: 'openai-codex' as const, profileId: 'default', record: openaiCodex },
     ]]) as any });
@@ -197,7 +198,7 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
     const openai = buildConnectedServiceCredentialRecord({ now, serviceId: 'openai', profileId: 'openai-key', kind: 'token', token: { token: 'sk-openai-test', providerAccountId: null, providerEmail: null } });
     const anthropic = buildConnectedServiceCredentialRecord({ now, serviceId: 'anthropic', profileId: 'anthropic-key', kind: 'token', token: { token: 'sk-ant-api-test', providerAccountId: null, providerEmail: null } });
 
-    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai, claudeSubscription: null, anthropic });
+    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai, claudeSubscription: null, anthropic, opencodeGo: null });
 
     expect(JSON.parse(result.env.OPENCODE_AUTH_CONTENT ?? '{}')).toEqual({
       openai: { type: 'api', key: 'sk-openai-test' },
@@ -219,7 +220,7 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
     const now = Date.now();
     const claudeSubscription = buildConnectedServiceCredentialRecord({ now, serviceId: 'claude-subscription', profileId: 'claude-pro', kind: 'token', token: { token: 'sk-ant-oat01-pro', providerAccountId: null, providerEmail: null } });
 
-    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai: null, claudeSubscription, anthropic: null });
+    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai: null, claudeSubscription, anthropic: null, opencodeGo: null });
 
     // OQ-1: setup-tokens must NOT be written as {type:'api', key:'sk-ant-oat...'} (would 401 via x-api-key).
     const auth = JSON.parse(result.env.OPENCODE_AUTH_CONTENT ?? '{}');
@@ -241,7 +242,7 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
       oauth: { accessToken: ACCESS_SENTINEL, refreshToken: REFRESH_SENTINEL, idToken: null, scope: null, tokenType: null, providerAccountId: 'claude-account', providerEmail: 'claude@example.com' },
     });
 
-    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai: null, claudeSubscription, anthropic: null });
+    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai: null, claudeSubscription, anthropic: null, opencodeGo: null });
 
     const auth = JSON.parse(result.env.OPENCODE_AUTH_CONTENT ?? '{}');
     expect(auth.anthropic).toEqual({ type: 'api', key: buildOpenCodeBrokerMarker('anthropic', OPEN_CODE_BROKER_PLUGIN_VERSION) });
@@ -249,8 +250,33 @@ describe('materializeOpenCodeConnectedServiceAuth', () => {
     assertNoTokenLeak(result.env);
   });
 
+  it('keeps a selected OpenCode Go API key as a direct credential in both runtime contracts', async () => {
+    const now = Date.now();
+    const opencodeGo = buildConnectedServiceCredentialRecord({ now, serviceId: 'opencode-go', profileId: 'go-key', kind: 'token', token: { token: 'oc-go-key-test', providerAccountId: null, providerEmail: null } });
+
+    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai: null, claudeSubscription: null, anthropic: null, opencodeGo });
+
+    expect(JSON.parse(result.env.OPENCODE_AUTH_CONTENT ?? '{}')).toEqual({
+      'opencode-go': { type: 'api', key: 'oc-go-key-test' },
+    });
+    // V2 consumes its own provider-settings contract; the same direct key must reach it.
+    expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT ?? 'null')).toEqual({
+      providers: {
+        'opencode-go': { settings: { apiKey: 'oc-go-key-test' } },
+      },
+    });
+    expect(result.env[OPEN_CODE_BROKER_SELECTIONS_ENV]).toBeUndefined();
+    expect(result.env.XDG_CONFIG_HOME).toContain('connected-config');
+    expect(result.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]).toContain('opencode-go:go-key');
+
+    // Two distinct Go profiles must never collapse onto one auth surface.
+    const other = buildConnectedServiceCredentialRecord({ now, serviceId: 'opencode-go', profileId: 'go-b', kind: 'token', token: { token: 'oc-go-key-b', providerAccountId: null, providerEmail: null } });
+    const resultB = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai: null, claudeSubscription: null, anthropic: null, opencodeGo: other });
+    expect(resultB.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]).not.toBe(result.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]);
+  });
+
   it('returns only an empty auth envelope when no connected credential is present (native passthrough)', async () => {
-    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai: null, claudeSubscription: null, anthropic: null });
+    const result = await materializeOpenCodeConnectedServiceAuth({ rootDir: '', openaiCodex: null, openai: null, claudeSubscription: null, anthropic: null, opencodeGo: null });
     expect(result.env.OPENCODE_AUTH_CONTENT).toBe('{}');
     expect(result.env.XDG_CONFIG_HOME).toBeUndefined();
     expect(result.env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV]).toBeUndefined();

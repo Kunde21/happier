@@ -93,6 +93,7 @@ export async function materializePiConnectedServiceAuth(params: Readonly<{
   openai: ConnectedServiceCredentialRecordV1 | null;
   claudeSubscription: ConnectedServiceCredentialRecordV1 | null;
   anthropic: ConnectedServiceCredentialRecordV1 | null;
+  opencodeGo: ConnectedServiceCredentialRecordV1 | null;
   // Resolved selections carry the pool (group) identity that keys the mint per pool (R4-4).
   selectionsByServiceId?: ReadonlyMap<ConnectedServiceId, ConnectedServiceResolvedSelection>;
 }>): Promise<Readonly<{ env: Record<string, string> }>> {
@@ -161,6 +162,16 @@ export async function materializePiConnectedServiceAuth(params: Readonly<{
     auth.anthropic = {
       type: 'api_key',
       key: params.anthropic.token.token,
+    };
+  }
+
+  // OpenCode Go (Console subscription API key) is a direct native provider credential under its own
+  // provider id. Never brokered; no env-key fallback.
+  if (params.opencodeGo) {
+    const record = requireConnectedServiceTokenCredentialRecord(params.opencodeGo);
+    auth['opencode-go'] = {
+      type: 'api_key',
+      key: record.token.token,
     };
   }
 

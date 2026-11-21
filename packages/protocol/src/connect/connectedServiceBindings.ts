@@ -9,6 +9,7 @@ export const ConnectedServiceIdSchema = lazySchema(() => z.enum([
     'gemini',
     'antigravity',
     'github',
+    'opencode-go',
 ]));
 
 export type ConnectedServiceId = z.infer<typeof ConnectedServiceIdSchema>;

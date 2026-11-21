@@ -106,4 +106,42 @@ describe('createOpenCodeConnectedServicesMaterializer', () => {
     });
     expect(JSON.stringify(result?.env)).not.toContain('claude-refresh');
   });
+
+  it('materializes the SELECTED OpenCode Go group profile as the direct provider key', async () => {
+    const now = Date.now();
+    const activeServerDir = await mkdtemp(join(tmpdir(), 'happier-opencode-active-server-'));
+    const baseDir = await mkdtemp(join(tmpdir(), 'happier-opencode-base-'));
+    const rootDir = join(baseDir, 'launch', 'opencode');
+    const defaultProfile = buildConnectedServiceCredentialRecord({
+      now, serviceId: 'opencode-go', profileId: 'default-profile', kind: 'token',
+      token: { token: 'oc-go-default', providerAccountId: null, providerEmail: null },
+    });
+    const selectedProfile = buildConnectedServiceCredentialRecord({
+      now, serviceId: 'opencode-go', profileId: 'selected-profile', kind: 'token',
+      token: { token: 'oc-go-selected', providerAccountId: null, providerEmail: null },
+    });
+    const materializer = createOpenCodeConnectedServicesMaterializer();
+
+    const result = await materializer({
+      agentId: 'opencode',
+      activeServerDir,
+      rootDir,
+      recordsByServiceId: new Map([['opencode-go', defaultProfile]]),
+      selectionsByServiceId: new Map([[
+        'opencode-go',
+        { kind: 'group', serviceId: 'opencode-go', groupId: 'go-pool', activeProfileId: 'selected-profile', fallbackProfileId: 'fallback-profile', generation: 1, record: selectedProfile, policy: null },
+      ]]),
+      cleanupRoot: async () => {},
+    });
+
+    expect(JSON.parse(result?.env.OPENCODE_AUTH_CONTENT ?? '{}')).toEqual({
+      'opencode-go': { type: 'api', key: 'oc-go-selected' },
+    });
+    expect(JSON.parse(result?.env.OPENCODE_CONFIG_CONTENT ?? 'null')).toEqual({
+      providers: { 'opencode-go': { settings: { apiKey: 'oc-go-selected' } } },
+    });
+    expect(result?.env[OPEN_CODE_BROKER_SELECTIONS_ENV]).toBeUndefined();
+    expect(result?.env.XDG_CONFIG_HOME).toContain('connected-config');
+    expect(JSON.stringify(result?.env)).not.toContain('oc-go-default');
+  });
 });

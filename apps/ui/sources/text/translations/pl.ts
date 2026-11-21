@@ -2610,6 +2610,7 @@ export const pl: TranslationStructure = {
       },
     fallbackName: "Połączona usługa",
     serviceNames: {
+        opencodeGo: 'OpenCode Go',
       claudeSubscription: "Subskrypcja Claude",
       openaiCodex: "Codex od OpenAI",
       openai: "Klucz API OpenAI",

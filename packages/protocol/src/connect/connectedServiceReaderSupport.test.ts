@@ -18,15 +18,15 @@ describe('released connected-service readers', () => {
   it('preserves known profiles and revisions together while unsupported services remain authoritative', () => {
     const profile = AccountProfileSchema.parse({
       id: 'account',
-      connectedServicesV2: ['openai-codex', 'antigravity'].map(serviceId => ({ serviceId, profiles: [{ profileId: 'work', status: 'connected' }], groups: [] })),
-      connectedServiceCredentialRevisionsV1: ['openai-codex', 'antigravity'].map(serviceId => ({ serviceId, profileId: 'work', credentialRevision: 'csr_abcdefghijklmnopqrstuv' })),
+      connectedServicesV2: ['openai-codex', 'antigravity', 'opencode-go'].map(serviceId => ({ serviceId, profiles: [{ profileId: 'work', status: 'connected' }], groups: [] })),
+      connectedServiceCredentialRevisionsV1: ['openai-codex', 'antigravity', 'opencode-go'].map(serviceId => ({ serviceId, profileId: 'work', credentialRevision: 'csr_abcdefghijklmnopqrstuv' })),
     });
     expect(ReleasedAccountProfileSchema.safeParse(profile).success).toBe(false);
     const projected = projectConnectedServiceProfileForReader(profile, readConnectedServiceReaderSupport(undefined));
     expect(ReleasedAccountProfileSchema.safeParse(projected).success).toBe(true);
     expect(projected.connectedServicesV2.map(entry => entry.serviceId)).toEqual(['openai-codex']);
     expect(projected.connectedServiceCredentialRevisionsV1.map(entry => entry.serviceId)).toEqual(['openai-codex']);
-    expect(profile.connectedServicesV2).toHaveLength(2);
+    expect(profile.connectedServicesV2).toHaveLength(3);
     expect(projectConnectedServiceProfileForReader(profile, readConnectedServiceReaderSupport(ConnectedServiceIdSchema.options))).toEqual(profile);
   });
 
@@ -56,12 +56,16 @@ describe('released connected-service readers', () => {
     expect(readConnectedServiceReaderSupport(undefined)).not.toContain('antigravity');
     expect(readConnectedServiceReaderSupport('["antigravity"]')).toContain('antigravity');
     expect(readConnectedServiceReaderSupport('["antigravity",42]')).not.toContain('antigravity');
+    expect(readConnectedServiceReaderSupport(undefined)).not.toContain('opencode-go');
+    expect(readConnectedServiceReaderSupport('["opencode-go"]')).toContain('opencode-go');
+    expect(supportsConnectedServiceOperation({}, 'opencode-go')).toBe(false);
     expect(supportsConnectedServiceOperation({}, 'antigravity')).toBe(false);
     expect(supportsConnectedServiceOperation({ capabilities: { connectedServices: { supportedServiceIds: '["antigravity"]' } } }, 'antigravity')).toBe(false);
     expect(supportsConnectedServiceOperation({ capabilities: { connectedServices: { supportedServiceIds: ['antigravity', 42] } } }, 'antigravity')).toBe(false);
     expect(supportsConnectedServiceOperation({}, 'openai-codex')).toBe(true);
     const features = FeaturesResponseSchema.parse({ features: {}, capabilities: { connectedServices: { supportedServiceIds: ConnectedServiceIdSchema.options } } });
     expect(supportsConnectedServiceOperation(features, 'antigravity')).toBe(true);
+    expect(supportsConnectedServiceOperation(features, 'opencode-go')).toBe(true);
     const url = new URL(withConnectedServiceReaderSupport('/v1/sessions?limit=3#fragment'), 'https://server.test');
     expect(url.searchParams.get('limit')).toBe('3');
     expect(readConnectedServiceReaderSupport(url.searchParams.get('happierConnectedServices'))).toContain('antigravity');

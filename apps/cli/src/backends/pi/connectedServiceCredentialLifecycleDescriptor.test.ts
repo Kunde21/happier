@@ -56,4 +56,11 @@ describe('Pi connected-service credential lifecycle descriptor', () => {
     };
     expect(isBrokered?.({ serviceId: 'claude-subscription', environmentVariables: codexOnly })).toBe(false);
   });
+
+  it('advertises OpenCode Go API-key support that always requires a restart to apply', async () => {
+    const descriptor = await agent.getConnectedServiceCredentialLifecycleDescriptor();
+    expect(descriptor.serviceIds).toContain('opencode-go');
+    expect(descriptor.refreshedCredentialApplication.noRestartRequiredServiceIds).not.toContain('opencode-go');
+    expect(descriptor.refreshedCredentialApplication.noRestartRequiredWhenBrokeredServiceIds).not.toContain('opencode-go');
+  });
 });

@@ -11,6 +11,7 @@ export function createOpenCodeConnectedServicesMaterializer(): ConnectedServices
     const openai = readRecord('openai');
     const claudeSubscription = readRecord('claude-subscription');
     const anthropic = readRecord('anthropic');
+    const opencodeGo = readRecord('opencode-go');
     const primary = OPEN_CODE_CONNECTED_SERVICE_PRECEDENCE
       .map((serviceId) => readRecord(serviceId))
       .find((record) => record != null) ?? null;
@@ -22,6 +23,7 @@ export function createOpenCodeConnectedServicesMaterializer(): ConnectedServices
       openai,
       claudeSubscription,
       anthropic,
+      opencodeGo,
       ...(params.selectionsByServiceId ? { selectionsByServiceId: params.selectionsByServiceId } : {}),
     });
     return { env: materialized.env, cleanupOnFailure: params.cleanupRoot, cleanupOnExit: null };

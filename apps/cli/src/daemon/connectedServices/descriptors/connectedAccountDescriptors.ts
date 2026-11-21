@@ -308,6 +308,13 @@ export const CONNECTED_ACCOUNT_DESCRIPTORS = [
     ui: { iconName: 'anthropic', oauthAddActionModes: [] },
   },
   {
+    id: 'opencode-go',
+    displayName: 'OpenCode Go',
+    providerDisplayName: 'OpenCode',
+    credentialKind: 'token',
+    ui: { iconName: 'opencode', oauthAddActionModes: [] },
+  },
+  {
     id: 'claude-subscription',
     displayName: 'Claude subscription',
     providerDisplayName: 'Claude',

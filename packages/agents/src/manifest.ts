@@ -165,9 +165,9 @@ export const AGENTS_CORE = {
         cliSubcommand: 'opencode',
         detectKey: providerDetectKey('opencode'),
         flavorAliases: ['open-code'],
-        cloudConnect: null,
+        cloudConnect: { vendorKey: 'opencode', status: 'wired' },
         connectedServices: {
-            supportedServiceIds: ['openai-codex', 'openai', 'claude-subscription', 'anthropic'],
+            supportedServiceIds: ['openai-codex', 'openai', 'claude-subscription', 'anthropic', 'opencode-go'],
             sessionAuthSwitch: {
                 continuityMode: 'restart_same_home',
                 supportedTransitions: ['native_to_connected', 'connected_to_native', 'connected_to_connected'],
@@ -180,6 +180,7 @@ export const AGENTS_CORE = {
                 // Anthropic stays token-only (Console API key, x-api-key).
                 'claude-subscription': ['oauth', 'token'],
                 anthropic: ['token'],
+                'opencode-go': ['token'],
             },
         },
         resume: { vendorResume: 'supported', vendorResumeIdField: 'opencodeSessionId' },
@@ -427,7 +428,7 @@ export const AGENTS_CORE = {
         flavorAliases: ['pi-coding-agent'],
         cloudConnect: null,
         connectedServices: {
-            supportedServiceIds: ['openai-codex', 'openai', 'claude-subscription', 'anthropic'],
+            supportedServiceIds: ['openai-codex', 'openai', 'claude-subscription', 'anthropic', 'opencode-go'],
             sessionAuthSwitch: {
                 continuityMode: 'restart_same_home',
                 supportedTransitions: ['connected_to_connected'],
@@ -452,6 +453,7 @@ export const AGENTS_CORE = {
                 openai: ['token'],
                 'claude-subscription': ['oauth', 'token'],
                 anthropic: ['token'],
+                'opencode-go': ['token'],
             },
         },
         resume: { vendorResume: 'supported', vendorResumeIdField: 'piSessionId' },

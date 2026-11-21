@@ -51,4 +51,16 @@ describe('connectedServiceRegistry', () => {
     expect(tokenSetupUrl.searchParams.get('pull_requests')).toBe('write');
     expect(tokenSetupUrl.searchParams.get('administration')).toBe('write');
   });
+
+  it('registers OpenCode Go as a token service pointing at the Go console', () => {
+    const entry = getConnectedServiceRegistryEntry('opencode-go' as never);
+    expect(entry).toMatchObject({
+      serviceId: 'opencode-go',
+      connectCommand: 'happier connect opencode --api-key',
+      supportsOauth: false,
+      supportsToken: true,
+      tokenKind: 'api-key',
+    });
+    expect(new URL(entry.tokenSetupUrl ?? '').toString()).toBe('https://opencode.ai/console/go');
+  });
 });

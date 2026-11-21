@@ -23,6 +23,35 @@ function buildSharedStateAccountSettings() {
 }
 
 describe('createPiConnectedServicesMaterializer', () => {
+  it('materializes a selected OpenCode Go profile as the direct native auth entry', async () => {
+    const now = Date.now();
+    const activeServerDir = await mkdtemp(join(tmpdir(), 'happier-pi-active-server-'));
+    const rootDir = await mkdtemp(join(tmpdir(), 'happier-pi-materialized-root-'));
+    const opencodeGo = buildConnectedServiceCredentialRecord({
+      now,
+      serviceId: 'opencode-go',
+      profileId: 'go-work',
+      kind: 'token',
+      token: { token: 'oc-go-selected', providerAccountId: null, providerEmail: null },
+    });
+
+    const materializer = createPiConnectedServicesMaterializer();
+    const result = await materializer({
+      agentId: 'pi',
+      activeServerDir,
+      rootDir,
+      recordsByServiceId: new Map([['opencode-go', opencodeGo]]),
+      cleanupRoot: async () => {},
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.env.PI_CODING_AGENT_DIR).toContain('pi-agent-dir');
+    expect(result?.env).not.toHaveProperty('PI_BROKER_SELECTIONS_ENV');
+    const authRaw = await readFile(join(result!.env.PI_CODING_AGENT_DIR, 'auth.json'), 'utf8');
+    expect(JSON.parse(authRaw)).toEqual({
+      'opencode-go': { type: 'api_key', key: 'oc-go-selected' },
+    });
+  });
   it('routes shared-state PI session import through descriptor materialization and writes manifest mappings', async () => {
     const now = Date.now();
     const activeServerDir = await mkdtemp(join(tmpdir(), 'happier-pi-active-server-'));

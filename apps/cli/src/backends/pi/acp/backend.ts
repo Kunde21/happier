@@ -87,6 +87,9 @@ function resolvePiLaunchSelectionForConnectedService(serviceId: string): PiConne
     case 'claude-subscription':
     case 'anthropic':
       return { provider: 'anthropic', startupModel: providers.claude.CURRENT_FLAGSHIP_CLAUDE_MODEL_ID, modelScope: 'anthropic/*' };
+    case 'opencode-go':
+      // Native Go provider and model share the id; the concrete model keeps `--model` non-wildcard.
+      return { provider: 'opencode-go', startupModel: 'opencode-go', modelScope: 'opencode-go/*' };
     default:
       return null;
   }

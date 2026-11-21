@@ -53,6 +53,14 @@ describe('runtime fallback capability', () => {
         expect(resolveConnectedServiceRuntimeFallbackCapability('anthropic').quotaResetSupported).toBe(false);
     });
 
+    it('derives OpenCode Go account-group configuration from catalog declarations without runtime fallback or quota reset', () => {
+        const go = resolveConnectedServiceRuntimeFallbackCapability('opencode-go' as never);
+        expect(go.groupConfigurationSupported).toBe(true);
+        expect(go.groupConfigurationSupportingAgentIds).toEqual(['opencode', 'pi']);
+        expect(go.runtimeFallbackSupported).toBe(false);
+        expect(go.quotaResetSupported).toBe(false);
+    });
+
     it('fails closed for services with no runtime fallback implementation', () => {
         expect(isConnectedServiceRuntimeFallbackSupported('github')).toBe(false);
     });

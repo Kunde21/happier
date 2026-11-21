@@ -7,6 +7,10 @@ describe('resolveConnectTargetServiceIds', () => {
     expect(resolveConnectTargetServiceIds('github')).toEqual(['github']);
   });
 
+  it('lists OpenCode Go among the opencode target services from the catalog', () => {
+    expect(resolveConnectTargetServiceIds('opencode')).toContain('opencode-go');
+  });
+
   it('returns no service ids for unknown targets', () => {
     expect(resolveConnectTargetServiceIds('unknown-target')).toEqual([]);
   });

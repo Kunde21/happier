@@ -46,6 +46,12 @@ describe('connected account descriptors', () => {
       id: 'anthropic',
       credentialKind: 'token',
     });
+    expect(mod.getConnectedAccountDescriptor('opencode-go')).toMatchObject({
+      id: 'opencode-go',
+      displayName: 'OpenCode Go',
+      providerDisplayName: 'OpenCode',
+      credentialKind: 'token',
+    });
     expect(mod.getConnectedAccountDescriptor('claude-subscription')).toMatchObject({
       id: 'claude-subscription',
       credentialKind: 'oauth',

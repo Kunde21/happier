@@ -25,4 +25,10 @@ describe('OpenCode connected-service credential lifecycle descriptor', () => {
       },
     });
   });
+
+  it('advertises OpenCode Go API-key support that always requires a restart to apply', async () => {
+    const descriptor = await agent.getConnectedServiceCredentialLifecycleDescriptor();
+    expect(descriptor.serviceIds).toContain('opencode-go');
+    expect(descriptor.refreshedCredentialApplication.noRestartRequiredServiceIds).not.toContain('opencode-go');
+  });
 });

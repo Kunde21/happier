@@ -2515,6 +2515,7 @@ export const zhHans: TranslationStructure = {
       },
     fallbackName: "已连接服务",
     serviceNames: {
+        opencodeGo: 'OpenCode Go',
       claudeSubscription: "Claude 订阅",
       openaiCodex: "OpenAI Codex（OpenAI）",
       openai: "OpenAI API 密钥",

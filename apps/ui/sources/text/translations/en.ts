@@ -2366,6 +2366,7 @@ export const en = {
         },
         fallbackName: 'Connected service',
         serviceNames: {
+            opencodeGo: 'OpenCode Go',
             claudeSubscription: 'Claude subscription',
             openaiCodex: 'OpenAI Codex',
             openai: 'OpenAI API key',

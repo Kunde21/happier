@@ -25,6 +25,7 @@ type MaterializeInput = Readonly<{
   openai: ConnectedServiceCredentialRecordV1 | null;
   claudeSubscription: ConnectedServiceCredentialRecordV1 | null;
   anthropic: ConnectedServiceCredentialRecordV1 | null;
+  opencodeGo: ConnectedServiceCredentialRecordV1 | null;
   // Resolved selections carry the pool (group) identity that keys the mint per pool (R4-4).
   selectionsByServiceId?: ReadonlyMap<ConnectedServiceId, ConnectedServiceResolvedSelection>;
 }>;
@@ -109,6 +110,15 @@ export async function materializeOpenCodeConnectedServiceAuth(params: Materializ
     const record = requireConnectedServiceTokenCredentialRecord(params.anthropic);
     auth.anthropic = { type: 'api', key: record.token.token };
     v2Providers.anthropic = { settings: { apiKey: record.token.token } };
+    identityFragments.push(identityFragment(record, params.selectionsByServiceId));
+  }
+
+  // OpenCode Go (Console subscription API key) is a direct native provider credential: the
+  // `opencode-go` provider itself sends the key as a Bearer token. Never brokered.
+  if (params.opencodeGo) {
+    const record = requireConnectedServiceTokenCredentialRecord(params.opencodeGo);
+    auth['opencode-go'] = { type: 'api', key: record.token.token };
+    v2Providers['opencode-go'] = { settings: { apiKey: record.token.token } };
     identityFragments.push(identityFragment(record, params.selectionsByServiceId));
   }
 

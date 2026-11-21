@@ -1265,6 +1265,7 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
         },
         fallbackName: '已連線服務',
         serviceNames: {
+            opencodeGo: 'OpenCode Go',
             claudeSubscription: 'Claude 訂閱',
             openaiCodex: 'OpenAI Codex（OpenAI）',
             openai: 'OpenAI API 金鑰',

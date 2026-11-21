@@ -91,6 +91,7 @@ ${targetLines}
   happier connect <target> --paste             Headless mode: paste redirect URL
   happier connect <target> --device            Use device-code auth (Codex)
   happier connect codex --api-key              Store an OpenAI API key
+  happier connect opencode --api-key          Store an OpenCode Go API key
   happier connect claude --api-key             Store an Anthropic API key (not Claude subscription)
   happier connect claude --setup-token         Store a Claude setup-token (default for claude)
   happier connect claude --oauth               Store Claude subscription OAuth (advanced)
@@ -177,7 +178,9 @@ async function handleConnectVendor(target: CloudConnectTarget, options: ConnectP
               ? 'Paste GitHub access token: '
               : serviceId === 'openai'
                 ? 'Paste OpenAI API key: '
-                : 'Paste Anthropic API key: ';
+                : serviceId === 'opencode-go'
+                  ? 'Paste OpenCode Go API key: '
+                  : 'Paste Anthropic API key: ';
         const token = (await promptInput(promptLabel)).trim();
         if (!token) {
           throw new Error(

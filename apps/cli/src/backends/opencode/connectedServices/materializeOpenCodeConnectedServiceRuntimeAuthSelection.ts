@@ -23,12 +23,14 @@ function buildOpenCodeMaterializationInput(
   openai: ConnectedServiceCredentialRecordV1 | null;
   claudeSubscription: ConnectedServiceCredentialRecordV1 | null;
   anthropic: ConnectedServiceCredentialRecordV1 | null;
+  opencodeGo: ConnectedServiceCredentialRecordV1 | null;
 }> {
   return {
     openaiCodex: serviceId === 'openai-codex' ? record : null,
     openai: serviceId === 'openai' ? record : null,
     claudeSubscription: serviceId === 'claude-subscription' ? record : null,
     anthropic: serviceId === 'anthropic' ? record : null,
+    opencodeGo: serviceId === 'opencode-go' ? record : null,
   };
 }
 

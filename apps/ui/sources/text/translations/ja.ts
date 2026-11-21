@@ -2893,6 +2893,7 @@ localTailscale: {
       },
     fallbackName: "連携サービス",
     serviceNames: {
+        opencodeGo: 'OpenCode Go',
       claudeSubscription: "Claude サブスクリプション",
       openaiCodex: "OpenAI Codex（OpenAI）",
       openai: "OpenAI API キー",

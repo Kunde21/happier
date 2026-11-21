@@ -44,6 +44,7 @@ export const agent = {
   getCliDetect: async () => (await import('@/backends/opencode/cli/detect')).cliDetect,
   getCliAuthSpec: async () => (await import('@/backends/opencode/cli/auth/opencodeCliAuthSpec')).opencodeCliAuthSpec,
   getDaemonSpawnHooks: async () => opencodeDaemonSpawnHooks,
+  getCloudConnectTarget: async () => (await import('@/backends/opencode/cloud/connect')).openCodeCloudConnect,
   reconcileDaemonResources: async () =>
     await (await import('@/backends/opencode/server/sharedManagedServer')).reapUnusedSharedManagedOpenCodeServersBestEffort(),
   getConnectedServiceMaterializer: async () => createOpenCodeConnectedServicesMaterializer(),

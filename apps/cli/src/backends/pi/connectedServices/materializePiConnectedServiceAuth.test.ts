@@ -121,6 +121,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription: null,
       anthropic,
+      opencodeGo: null,
     });
 
     expect(res.env.PI_CODING_AGENT_DIR).toContain('pi-agent-dir');
@@ -156,6 +157,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription: null,
       anthropic,
+      opencodeGo: null,
     });
 
     expect(res.env.PI_CODING_AGENT_DIR).toContain('pi-agent-dir');
@@ -179,6 +181,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
     });
 
     expect(res.env.PI_CODING_AGENT_DIR).toContain('pi-agent-dir');
@@ -224,6 +227,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
     });
 
     const agentDir = res.env.PI_CODING_AGENT_DIR;
@@ -300,6 +304,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
       selectionsByServiceId: groupSelections('pool-A') as any,
     });
     const resB = await materializePiConnectedServiceAuth({
@@ -308,6 +313,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
       selectionsByServiceId: groupSelections('pool-B') as any,
     });
 
@@ -355,6 +361,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
       selectionsByServiceId: poolSelection(1) as any,
     });
     const gen2 = await materializePiConnectedServiceAuth({
@@ -363,6 +370,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
       selectionsByServiceId: poolSelection(2) as any,
     });
 
@@ -397,6 +405,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
     });
     const withProfileSelection = await materializePiConnectedServiceAuth({
       rootDir: await mkdtemp(join(tmpdir(), 'happier-pi-auth-')),
@@ -404,6 +413,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
       selectionsByServiceId: new Map([[
         'claude-subscription',
         {
@@ -447,6 +457,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription: null,
       anthropic,
+      opencodeGo: null,
     })).rejects.toThrow(/Anthropic OAuth credentials are not supported/);
   });
 
@@ -474,6 +485,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic,
+      opencodeGo: null,
     });
 
     const authPath = join(res.env.PI_CODING_AGENT_DIR, 'auth.json');
@@ -503,6 +515,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai,
       claudeSubscription: null,
       anthropic: null,
+      opencodeGo: null,
     });
 
     expect(res.env).not.toHaveProperty(PI_BROKER_SELECTIONS_ENV);
@@ -512,6 +525,42 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: {
         type: 'api_key',
         key: 'sk-openai-test',
+      },
+    });
+  });
+
+  it('writes a selected OpenCode Go API key to auth.json as a direct native provider entry', async () => {
+    const now = Date.now();
+    const rootDir = await mkdtemp(join(tmpdir(), 'happier-pi-auth-'));
+    const opencodeGo = buildConnectedServiceCredentialRecord({
+      now,
+      serviceId: 'opencode-go',
+      profileId: 'go-key',
+      kind: 'token',
+      token: { token: 'oc-go-key-test', providerAccountId: null, providerEmail: null },
+    });
+
+    const res = await materializePiConnectedServiceAuth({
+      rootDir,
+      openaiCodex: null,
+      openai: null,
+      claudeSubscription: null,
+      anthropic: null,
+      opencodeGo,
+    });
+
+    expect(res.env.PI_CODING_AGENT_DIR).toContain('pi-agent-dir');
+    // Direct native provider credential ⇒ no broker machinery, no env-key fallback.
+    expect(res.env).not.toHaveProperty(PI_BROKER_SELECTIONS_ENV);
+    expect(res.env).not.toHaveProperty('OPENAI_API_KEY');
+    expect(res.env).not.toHaveProperty('ANTHROPIC_API_KEY');
+
+    const authPath = join(res.env.PI_CODING_AGENT_DIR, 'auth.json');
+    const authRaw = await readFile(authPath, 'utf8');
+    expect(JSON.parse(authRaw)).toEqual({
+      'opencode-go': {
+        type: 'api_key',
+        key: 'oc-go-key-test',
       },
     });
   });
@@ -550,6 +599,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription: null,
       anthropic,
+      opencodeGo: null,
     });
 
     expect(res.env).not.toHaveProperty('ANTHROPIC_API_KEY');
@@ -613,6 +663,7 @@ describe('materializePiConnectedServiceAuth', () => {
       openai: null,
       claudeSubscription,
       anthropic: null,
+      opencodeGo: null,
     });
 
     // The scoped capability follows daemon replacement through broker-state; it is not frozen into

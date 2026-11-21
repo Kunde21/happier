@@ -49,6 +49,14 @@ export const CONNECTED_SERVICES_REGISTRY: readonly ConnectedServiceRegistryEntry
     tokenKind: 'api-key',
   },
   {
+    serviceId: 'opencode-go',
+    connectCommand: 'happier connect opencode --api-key',
+    supportsOauth: false,
+    supportsToken: true,
+    tokenKind: 'api-key',
+    tokenSetupUrl: 'https://opencode.ai/console/go',
+  },
+  {
     serviceId: 'gemini',
     connectCommand: 'happier connect gemini',
     supportsOauth: true,

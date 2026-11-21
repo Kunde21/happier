@@ -51,6 +51,16 @@ export function resolveConnectAuthIntent(params: Readonly<{
     return { kind: 'oauth', serviceId: 'antigravity' };
   }
 
+  if (params.targetId === 'opencode') {
+    if (params.options.setupToken || params.options.oauth) {
+      throw new Error('OpenCode Go is connected with an API key. Use --api-key.');
+    }
+    if (!params.options.apiKey) {
+      throw new Error('OpenCode Go requires --api-key.');
+    }
+    return { kind: 'token', serviceId: 'opencode-go', tokenKind: 'api-key' };
+  }
+
   if (params.targetId !== 'claude') {
     throw new Error(`Unsupported connect target: ${params.targetId}`);
   }

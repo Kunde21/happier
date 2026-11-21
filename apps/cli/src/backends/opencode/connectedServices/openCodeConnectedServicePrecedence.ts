@@ -3,6 +3,7 @@ export const OPEN_CODE_CONNECTED_SERVICE_PRECEDENCE = [
   'openai',
   'claude-subscription',
   'anthropic',
+  'opencode-go',
 ] as const;
 
 export type OpenCodeConnectedServiceId = typeof OPEN_CODE_CONNECTED_SERVICE_PRECEDENCE[number];

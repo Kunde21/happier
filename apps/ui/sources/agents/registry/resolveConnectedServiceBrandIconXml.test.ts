@@ -17,6 +17,7 @@ describe('resolveConnectedServiceBrandIconXml', () => {
             'anthropic',
             'gemini',
             'github',
+            'opencode-go',
         ] as const;
 
         for (const serviceId of serviceIds) {
