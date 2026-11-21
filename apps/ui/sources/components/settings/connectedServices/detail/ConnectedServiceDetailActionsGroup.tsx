@@ -1,12 +1,17 @@
 import * as React from 'react';
 import { useUnistyles } from 'react-native-unistyles';
 
+import type { ConnectedServiceId } from '@happier-dev/protocol';
+
 import { Item } from '@/components/ui/lists/Item';
 import { ItemGroup } from '@/components/ui/lists/ItemGroup';
 import { t } from '@/text';
 import { Icon } from '@/components/ui/icons/Icon';
 
+import { resolveConnectedServiceApiKeyCopyKeys } from '../model/resolveConnectedServiceApiKeyCopyKeys';
+
 export const ConnectedServiceDetailActionsGroup = React.memo(function ConnectedServiceDetailActionsGroup(props: Readonly<{
+  serviceId?: ConnectedServiceId | null;
   supportsOauth: boolean;
   oauthAddActionModes?: ReadonlyArray<'device' | 'paste' | 'browser'>;
   oauthAddActionTitle?: string;
@@ -49,7 +54,9 @@ export const ConnectedServiceDetailActionsGroup = React.memo(function ConnectedS
               ? t('connectedServices.detail.connectSetupTokenSubtitle')
               : props.tokenKind === 'access-token'
                 ? t('connectedServices.detail.connectAccessTokenSubtitle')
-                : t('connectedServices.detail.connectApiKeySubtitle')
+                : props.tokenKind === 'api-key'
+                  ? t(resolveConnectedServiceApiKeyCopyKeys(props.serviceId).subtitleKey)
+                  : t('connectedServices.detail.connectApiKeySubtitle')
           }
           icon={<Icon name="key" size={20} color={theme.colors.accent.blue} />}
           onPress={props.onConnectToken}

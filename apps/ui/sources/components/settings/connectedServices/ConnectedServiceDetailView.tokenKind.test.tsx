@@ -16,7 +16,7 @@ const alertSpy = vi.fn(async () => {});
 const storeCredentialSpy = vi.fn(async () => {});
 const applySettingsSpy = vi.fn(async () => {});
 const openExternalUrlSpy = vi.fn(async (_url: string) => true);
-const activeServiceState = { serviceId: 'claude-subscription' as 'claude-subscription' | 'github' };
+const activeServiceState = { serviceId: 'claude-subscription' as 'claude-subscription' | 'github' | 'opencode-go' | 'openai' | 'anthropic' };
 const connectedProfilesState = {
     profiles: [] as Array<{
         profileId: string;
@@ -63,6 +63,21 @@ vi.mock('@/auth/context/AuthContext', () => ({
 
 vi.mock('@/hooks/server/useFeatureEnabled', () => ({
   useFeatureEnabled: (featureId: string) => featureId !== 'connectedServices.accountGroups',
+}));
+
+vi.mock('@/sync/domains/features/featureDecisionRuntime', () => ({
+  // opencode-go is not in the released reader set, so authoring it requires a server that
+  // advertises support (fail-closed by design). Simulate a supporting server.
+  useServerFeaturesRuntimeSnapshot: () => ({
+    status: 'ready',
+    features: {
+      capabilities: {
+        connectedServices: {
+          supportedServiceIds: ['openai-codex', 'openai', 'anthropic', 'claude-subscription', 'gemini', 'github', 'opencode-go'],
+        },
+      },
+    },
+  }),
 }));
 
 vi.mock('@/sync/store/hooks', async () => {
@@ -231,5 +246,51 @@ describe('ConnectedServiceDetailView token kind copy', () => {
 
     const tokenTemplateItems = tree.root.findAll((n) => n.props?.testID === 'connected-services-action:open-github-token-template');
     expect(tokenTemplateItems).toHaveLength(0);
+  });
+
+  it('uses OpenCode Go api-key copy for the opencode-go connect action and token prompt', async () => {
+    activeServiceState.serviceId = 'opencode-go';
+    connectedServicesModuleState.searchParams = { serviceId: 'opencode-go' };
+    connectedProfilesState.profiles = [];
+    promptSpy.mockReset();
+    promptSpy.mockResolvedValueOnce('go').mockResolvedValueOnce(null);
+    const { ConnectedServiceDetailView } = await import('./ConnectedServiceDetailView');
+
+    const { tree } = await renderScreen(<ConnectedServiceDetailView />);
+
+    const tokenItem = tree.find((n) => n.props?.testID === 'connected-services-action:connect-token');
+    expect(tokenItem.props.subtitle).toBe('connectedServices.detail.apiKeySubtitleByService.opencodeGo');
+
+    await act(async () => {
+      await pressTestInstanceAsync(tokenItem);
+    });
+
+    expect(promptSpy).toHaveBeenCalledTimes(2);
+    // First prompt = profile id; second = the token value whose copy must be service-aware.
+    const [, promptBody, promptOptions] = promptSpy.mock.calls[1] as unknown as [unknown, string, { placeholder?: string }];
+    expect(promptBody).toBe('connectedServices.detail.prompts.apiKeyByService.opencodeGo.body');
+    expect(promptOptions.placeholder).toBe('connectedServices.detail.prompts.apiKeyByService.opencodeGo.placeholder');
+  });
+
+  it('uses OpenAI api-key copy for openai', async () => {
+    activeServiceState.serviceId = 'openai';
+    connectedServicesModuleState.searchParams = { serviceId: 'openai' };
+    const { ConnectedServiceDetailView } = await import('./ConnectedServiceDetailView');
+
+    const { tree } = await renderScreen(<ConnectedServiceDetailView />);
+
+    const tokenItem = tree.find((n) => n.props?.testID === 'connected-services-action:connect-token');
+    expect(tokenItem.props.subtitle).toBe('connectedServices.detail.apiKeySubtitleByService.openai');
+  });
+
+  it('keeps Anthropic api-key copy for anthropic', async () => {
+    activeServiceState.serviceId = 'anthropic';
+    connectedServicesModuleState.searchParams = { serviceId: 'anthropic' };
+    const { ConnectedServiceDetailView } = await import('./ConnectedServiceDetailView');
+
+    const { tree } = await renderScreen(<ConnectedServiceDetailView />);
+
+    const tokenItem = tree.find((n) => n.props?.testID === 'connected-services-action:connect-token');
+    expect(tokenItem.props.subtitle).toBe('connectedServices.detail.apiKeySubtitleByService.anthropic');
   });
 });

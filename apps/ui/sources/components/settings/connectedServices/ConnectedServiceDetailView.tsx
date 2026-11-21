@@ -334,7 +334,7 @@ export const ConnectedServiceDetailView = React.memo(function ConnectedServiceDe
     if (!serviceId || !entry) return;
     const profileId = await promptProfileId();
     if (!profileId) return;
-    const tokenValue = await promptConnectedServiceTokenValue(entry.tokenKind ?? null);
+    const tokenValue = await promptConnectedServiceTokenValue(entry.tokenKind ?? null, serviceId);
     if (!tokenValue) return;
     await storeTokenProfile(profileId, tokenValue);
   };
@@ -349,7 +349,7 @@ export const ConnectedServiceDetailView = React.memo(function ConnectedServiceDe
       );
       return;
     }
-    const tokenValue = await promptConnectedServiceTokenValue(entry.tokenKind ?? null);
+    const tokenValue = await promptConnectedServiceTokenValue(entry.tokenKind ?? null, serviceId);
     if (!tokenValue) return;
     await storeTokenProfile(profileId, tokenValue);
   };
@@ -603,6 +603,7 @@ export const ConnectedServiceDetailView = React.memo(function ConnectedServiceDe
           ? resolveConnectedServiceOauthPasteCopy(serviceId).connectWebDescription
           : undefined}
         supportsToken={Boolean(entry.supportsToken)}
+        serviceId={serviceId}
         tokenKind={entry.tokenKind ?? null}
         tokenSetupUrl={entry.tokenSetupUrl ?? null}
         onAddOauthProfile={(method) => void handleAddOauthProfile(method)}
