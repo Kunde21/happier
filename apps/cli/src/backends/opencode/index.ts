@@ -8,6 +8,7 @@ import { openCodeConnectedServiceStateSharingDescriptor } from '@/backends/openc
 import { openCodeUsageLimitRecoveryControlAdapter } from '@/backends/opencode/connectedServices/openCodeUsageLimitRecoveryControlAdapter';
 import { resolveOpenCodeConnectedServiceSwitchContinuity } from '@/backends/opencode/connectedServices/resolveOpenCodeConnectedServiceSwitchContinuity';
 import { opencodeDaemonSpawnHooks } from '@/backends/opencode/daemon/spawnHooks';
+import { openCodeGoQuotaFetcherDescriptor } from '@/backends/opencode/connectedServices/quotaFetcher';
 import { buildOpenCodeRuntimeLocalHandoffMetadata } from '@/backends/opencode/sessionHandoff/runtimeLocalMetadata';
 import type { AgentCatalogEntry } from '../types';
 import type { ConnectedServiceCredentialLifecycleDescriptor } from '@/daemon/connectedServices/credentials/lifecycleTypes';
@@ -51,6 +52,7 @@ export const agent = {
   getConnectedServiceRuntimeAuthAdapter: async () => createOpenCodeConnectedServiceRuntimeAuthAdapter(),
   materializeConnectedServiceRuntimeAuthSelection: materializeOpenCodeConnectedServiceRuntimeAuthSelection,
   getConnectedServiceCredentialLifecycleDescriptor: async () => openCodeConnectedServiceCredentialLifecycleDescriptor,
+  connectedServiceQuotaFetcherDescriptor: openCodeGoQuotaFetcherDescriptor,
   getConnectedServiceStateSharingDescriptor: async () => openCodeConnectedServiceStateSharingDescriptor,
   resolveConnectedServiceSwitchContinuity: async (params) => await resolveOpenCodeConnectedServiceSwitchContinuity(params),
   verifyResumeReachable: async (input) =>

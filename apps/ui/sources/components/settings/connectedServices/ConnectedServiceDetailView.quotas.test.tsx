@@ -32,7 +32,7 @@ vi.mock('expo-router', async () => {
     const { createExpoRouterMock } = await import('@/dev/testkit/mocks/router');
     const routerMock = createExpoRouterMock({
         router: { back: backSpy, push: pushSpy },
-        params: { serviceId: 'openai-codex' },
+        params: () => routeState.current.params,
         navigation: { setOptions: setOptionsSpy },
     });
     return routerMock.module;
@@ -40,6 +40,21 @@ vi.mock('expo-router', async () => {
 
 vi.mock('@react-navigation/native', () => ({
   useIsFocused: () => true,
+}));
+
+vi.mock('@/sync/domains/features/featureDecisionRuntime', () => ({
+  // opencode-go is not in the released reader set, so authoring/reading it requires a
+  // server that advertises support (fail-closed by design). Simulate a supporting server.
+  useServerFeaturesRuntimeSnapshot: () => ({
+    status: 'ready',
+    features: {
+      capabilities: {
+        connectedServices: {
+          supportedServiceIds: ['openai-codex', 'openai', 'anthropic', 'claude-subscription', 'gemini', 'github', 'opencode-go'],
+        },
+      },
+    },
+  }),
 }));
 
 // `openai-codex` exposes the Pools segment, so the redesigned shell mounts the
@@ -115,6 +130,9 @@ const profileState = vi.hoisted(() => ({
     ],
   },
 }));
+const routeState = vi.hoisted(() => ({
+  current: { params: { serviceId: 'openai-codex' } },
+}));
 vi.mock('@/sync/api/account/apiConnectedServicesQuotasV3', () => ({
   getConnectedServiceQuotaSnapshotPlain: async (...args: Parameters<typeof getConnectedServiceQuotaSnapshotPlain>) => {
     const snapshot = await getConnectedServiceQuotaSnapshotPlainSpy(...args);
@@ -129,7 +147,7 @@ vi.mock('@/sync/store/hooks', async () => {
     ...actual,
     useProfile: () => profileState.current,
     useSettings: () => ({
-      connectedServicesDefaultProfileByServiceId: { 'openai-codex': 'work' },
+      connectedServicesDefaultProfileByServiceId: { 'openai-codex': 'work', 'opencode-go': 'go-work' },
       connectedServicesProfileLabelByKey: {},
       connectedServicesQuotaPinnedMeterIdsByKey: {},
       connectedServicesQuotaSummaryStrategyByKey: {},
@@ -410,5 +428,46 @@ describe('ConnectedServiceDetailView quotas', () => {
 
     expect(getConnectedServiceQuotaSnapshotPlainSpy).toHaveBeenCalled();
     expect(screen.findByTestId('account-block:work:meter:weekly')).toBeTruthy();
+  });
+
+  it('renders OpenCode Go usage meters, including an unavailable window, from the shared quota view', async () => {
+    setFeatureFlags({ connectedServices: true, 'connectedServices.quotas': true });
+    routeState.current = { params: { serviceId: 'opencode-go' } };
+    profileState.current = {
+      connectedServicesV2: [
+        {
+          serviceId: 'opencode-go',
+          profiles: [{ profileId: 'go-work', status: 'connected', kind: 'token', providerEmail: null }],
+        },
+      ],
+    };
+    fetchAccountEncryptionModeSpy.mockResolvedValue({ mode: 'plain', updatedAt: 0 });
+    getConnectedServiceQuotaSnapshotPlainSpy.mockResolvedValue(ConnectedServiceQuotaSnapshotV1Schema.parse({
+      v: 1,
+      serviceId: 'opencode-go',
+      profileId: 'go-work',
+      fetchedAt: 1,
+      staleAfterMs: 60_000,
+      planLabel: null,
+      accountLabel: null,
+      meters: [
+        { meterId: 'five_hour', label: '5-hour', used: null, limit: null, unit: 'unknown', utilizationPct: 62.5, resetsAt: 1_795_262_400_000, status: 'ok', details: {} },
+        { meterId: 'seven_day', label: 'Weekly', used: null, limit: null, unit: 'unknown', utilizationPct: null, resetsAt: null, status: 'unavailable', details: {} },
+        { meterId: 'monthly', label: 'Monthly', used: null, limit: null, unit: 'unknown', utilizationPct: 44, resetsAt: 1_795_750_400_000, status: 'ok', details: {} },
+      ],
+    }));
+
+    const { ConnectedServiceDetailView } = await import('./ConnectedServiceDetailView');
+    const screen = await renderScreen(<ConnectedServiceDetailView />);
+    await act(async () => {
+      await flushHookEffects({ cycles: 4, turns: 4 });
+    });
+
+    expect(getConnectedServiceQuotaSnapshotPlainSpy).toHaveBeenCalled();
+    expect(screen.findByTestId('account-block:go-work:meter:five_hour')).toBeTruthy();
+    expect(screen.findByTestId('account-block:go-work:meter:monthly')).toBeTruthy();
+    // Established gauge contract: an unavailable, unpinned placeholder window is
+    // dropped from usage rows rather than rendered with a fabricated value.
+    expect(screen.findAllByTestId('account-block:go-work:meter:seven_day')).toHaveLength(0);
   });
 });

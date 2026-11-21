@@ -129,10 +129,15 @@ describe('createConnectedServiceQuotaFetchers', () => {
     const claudeFetcher = fetchers.find((fetcher) => fetcher.serviceId === 'claude-subscription') as
       | { pollPolicy?: { minPollIntervalMs?: number; retryAfterBackoffMinMs?: number } }
       | undefined;
+    const openCodeGoFetcher = fetchers.find((fetcher) => fetcher.serviceId === 'opencode-go') as
+      | { pollPolicy?: { minPollIntervalMs?: number; retryAfterBackoffMinMs?: number } }
+      | undefined;
 
     expect(openAiFetcher?.pollPolicy?.minPollIntervalMs).toBe(5 * 60_000);
     expect(claudeFetcher?.pollPolicy?.minPollIntervalMs).toBe(30 * 60_000);
     expect(claudeFetcher?.pollPolicy?.retryAfterBackoffMinMs).toBe(15 * 60_000);
+    expect(openCodeGoFetcher?.pollPolicy?.minPollIntervalMs).toBe(30 * 60_000);
+    expect(openCodeGoFetcher?.pollPolicy?.retryAfterBackoffMinMs).toBe(15 * 60_000);
   });
 
   it('does not reuse the generic Codex quota user-agent override for Claude usage polling', async () => {

@@ -32,6 +32,7 @@ import { logger } from '@/ui/logger';
 import { dispatchConnectedServiceAutomaticQuotaResetNotificationAsync } from '../notifications/dispatchConnectedServiceQuotaLifecycleNotification';
 import { createOpenAiCodexQuotaFetcher } from '@/backends/codex/connectedServices/quotaFetcher';
 import { createClaudeSubscriptionQuotaFetcher } from '@/backends/claude/connectedServices/quotaFetcher';
+import { createOpenCodeGoQuotaFetcher } from '@/backends/opencode/connectedServices/quotaFetcher';
 import { invalidateConnectedServiceAccountMode } from '@/cloud/connectedServices/resolveConnectedServiceAccountMode';
 import { HAPPIER_CONNECTED_SERVICE_SELECTIONS_ENV_KEY } from '../connectedServiceChildEnvironment';
 import { ConnectedServiceAuthGroupRuntimeQuotaSnapshotStore } from '../accountGroups/quotas/ConnectedServiceAuthGroupRuntimeQuotaSnapshotStore';
@@ -971,6 +972,51 @@ describe('ConnectedServiceQuotasCoordinator', () => {
     } else {
       expect(runtimeQuotaSnapshots.getSnapshot({ serviceId: source.serviceId, groupId: 'team', profileId: 'work' })).toBeNull();
     }
+  });
+
+  it('polls OpenCode Go usage per stored token profile and records its meters', async () => {
+    const now = 1_000_000;
+    const credentials = { token: 'happy-token', encryption: { type: 'legacy', secret: new Uint8Array(32).fill(9) } } satisfies Credentials;
+    const record = buildConnectedServiceCredentialRecord({
+      now, serviceId: 'opencode-go', profileId: 'go-work', kind: 'token',
+      token: { token: 'oc_sk_test-profile-key', providerAccountId: null, providerEmail: null },
+    });
+    const api = {
+      getAccountEncryptionMode: async () => 'plain',
+      getConnectedServiceQuotaSnapshotPlain: async () => null,
+      getConnectedServiceQuotaSnapshotSealed: async () => null,
+      getConnectedServiceCredentialPlain: async () => ({ content: { t: 'plain', v: record } }),
+      registerProviderAccountUsageSnapshotPlain: async () => {},
+    } as unknown as ApiClient;
+    const usageRequests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      usageRequests.push(String(url));
+      return Response.json({ usage: {
+        rolling: { status: 'ok', percent: 62.5, resetsAt: '2026-11-21T12:00:00Z' },
+        weekly: { status: 'ok', percent: 31, resetsAt: '2026-11-23T00:00:00Z' },
+        monthly: { status: 'ok', percent: 44, resetsAt: '2026-12-01T00:00:00Z' },
+      } });
+    }));
+    const accountUsageStore = createProviderAccountUsageStore();
+    const runtimeQuotaSnapshots = new ConnectedServiceAuthGroupRuntimeQuotaSnapshotStore();
+    const coordinator = new ConnectedServiceQuotasCoordinator({ api, credentials, accountUsageStore, runtimeQuotaSnapshots,
+      quotaFetchers: [createOpenCodeGoQuotaFetcher({ staleAfterMs: 60_000 })], now: () => now, randomBytes,
+    });
+    coordinator.registerSpawnTarget({ pid: 321, connectedServicesBindingsRaw: {
+      v: 1, bindingsByServiceId: { 'opencode-go': { source: 'connected', profileId: 'go-work' } },
+    } });
+
+    await coordinator.tickOnce();
+
+    expect(usageRequests).toEqual(['https://opencode.ai/zen/go/v1/usage']);
+    const snapshots = accountUsageStore.listSnapshots();
+    expect(snapshots).toHaveLength(1);
+    const meters = snapshots[0]?.meters ?? [];
+    expect(meters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ meterId: 'five_hour', utilizationPct: 62.5, status: 'ok' }),
+      expect.objectContaining({ meterId: 'seven_day', utilizationPct: 31, status: 'ok' }),
+      expect.objectContaining({ meterId: 'monthly', utilizationPct: 44, status: 'ok' }),
+    ]));
   });
 
   it('reuses verified current-token local usage with unknown organization and refreshes after token replacement', async () => {

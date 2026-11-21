@@ -283,7 +283,9 @@ Supported methods:
 
 - manual API key entry
 
-Use this to run OpenCode or Pi sessions on an [OpenCode Go](https://opencode.ai/docs/console/go/) subscription (Go, Go Plus, or Go Teams). Create a key in the [Go Console](https://opencode.ai/console/go) and paste it into Happier. The key is sent directly by each backend's native `opencode-go` provider as the provider Bearer credential. Go profiles do not provide quota meters in Happier.
+Use this to run OpenCode or Pi sessions on an [OpenCode Go](https://opencode.ai/docs/console/go/) subscription (Go, Go Plus, or Go Teams). Create a key in the [Go Console](https://opencode.ai/console/go) and paste it into Happier. The key is sent directly by each backend's native `opencode-go` provider as the provider Bearer credential.
+
+Each Go profile shows live usage meters for the subscription's shared allowance windows — rolling 5-hour, weekly, and monthly — with reset countdowns, refreshed automatically in the background. A window without current data shows as unavailable rather than an estimated value, and a key whose workspace has no Go subscription shows a no-subscription state.
 
 ### Gemini
 
