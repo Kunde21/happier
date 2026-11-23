@@ -50,6 +50,7 @@ import { resolveCanonicalCodexBackendMode } from '@/rpc/handlers/codexBackendMod
 import { buildTrackedSpawnOptions, resolveDaemonTerminalPresentation } from '@/daemon/spawnHooks';
 import { logger } from '@/ui/logger';
 import { authAndSetupMachineIfNeeded } from '@/ui/auth';
+import { resolveDaemonFeatureProbeServerUrl } from '@/features/featureProbeServerUrl';
 import { configuration, reloadConfiguration } from '@/configuration';
 import { startCaffeinate, stopCaffeinate } from '@/integrations/caffeinate';
 import packageJson from '../../package.json';
@@ -7692,13 +7693,14 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
       connectedServiceRefreshCoordinator = refreshStartup.coordinator;
       connectedServiceRefreshLoopHandle = refreshStartup.loopHandle;
 
+      const quotaFeatureProbeServerUrl = resolveDaemonFeatureProbeServerUrl(configuration);
       const connectedServicesQuotasEnabled = await resolveConnectedServicesQuotasDaemonEnabled({
         env: process.env,
-        serverUrl: configuration.serverUrl,
+        serverUrl: quotaFeatureProbeServerUrl,
       });
       connectedServicesSubscriptionEnabled = await resolveConnectedServicesQuotasDaemonEnabled({
         env: process.env,
-        serverUrl: configuration.serverUrl,
+        serverUrl: quotaFeatureProbeServerUrl,
         featureId: 'connectedServices.subscription',
       });
       const quotaGroupFreshnessMs = resolvePositiveIntEnv(
